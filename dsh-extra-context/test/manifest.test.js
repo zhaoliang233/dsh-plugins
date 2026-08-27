@@ -1,0 +1,90 @@
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+
+import { CLIENT_HEADER, PLUGIN_NAME, STATUS_PATH } from '../lib/index.js'
+
+const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const cordisPatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+const installScript = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
+const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
+const uninstallScript = await readFile(new URL('../uninstall.sh', import.meta.url), 'utf8')
+const clientBundle = await readFile(new URL('../client.js', import.meta.url), 'utf8')
+
+test('插件身份与发布面', () => {
+  assert.equal(manifest.name, 'dsh-extra-context')
+  assert.equal(PLUGIN_NAME, manifest.name)
+  assert.equal(cordisPatch, '- insert:\n    - id: dsh-extra-context\n      name: dsh-extra-context\n')
+  assert.equal(manifest.license, 'MIT')
+  assert.equal(manifest.engines.node, '>=20')
+  assert.equal(manifest.publishConfig.access, 'public')
+  assert.equal(manifest.main, 'lib/index.js')
+  assert.equal(manifest.exports['.'], './lib/index.js')
+  assert.equal(manifest.exports['./client'], './client.js')
+  assert.equal(manifest.exports['./cordis.patch.yml'], './cordis.patch.yml')
+  assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
+  assert.deepEqual(manifest.dsh.client, {
+    platform: 'web',
+    inject: ['@deepseek-ai/dsh-client-ui-settings']
+  })
+  assert.deepEqual(manifest.dshCompatibility, {
+    policy: 'compatible-release-line',
+    package: '@deepseek-ai/dsh',
+    range: '>=0.1.6-alpha.1 <0.1.7',
+    verifiedVersions: ['0.1.6-alpha.1'],
+    futureVersionsRequireCapabilityChecks: true
+  })
+  assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
+  assert.equal(manifest.scripts.check.includes('node --check lib/rules.js'), true)
+  assert.equal(manifest.files.includes('lib'), true)
+  assert.equal(manifest.files.includes('client.js'), true)
+})
+
+test('安装脚本与运行时的"已验证版本清单"必须同源', () => {
+  // 两处清单漂移过一次：install.sh 只认 alpha.1，而实际部署跑 rc.2，
+  // 于是每次安装都打假告警。这条断言防止再次漂移。
+  const range = /DSH_COMPATIBILITY_RANGE="([^"]+)"/u.exec(installScript)
+  assert.notEqual(range, null, 'install.sh 必须声明兼容范围')
+  const runtimeRange = /DSH_COMPATIBILITY_RANGE = '([^']+)'/u.exec(hostSource)
+  assert.notEqual(runtimeRange, null, '宿主必须声明兼容范围')
+  assert.equal(range[1], runtimeRange[1], 'install.sh 与宿主的兼容范围必须逐字一致')
+
+  const runtimeList = /VERIFIED_DSH_VERSIONS = \[([^\]]+)\]/u.exec(hostSource)
+  assert.notEqual(runtimeList, null, '宿主必须声明已验证版本清单')
+  const runtimeVersions = runtimeList[1].split(',').map((piece) => piece.trim().replace(/^'|'$/gu, '')).filter((piece) => piece !== '')
+  assert.equal(runtimeVersions.length > 0, true, '已验证清单不得为空')
+  const manifestVersions = manifest.dshCompatibility.verifiedVersions
+  assert.deepEqual(runtimeVersions, manifestVersions, 'package.json 与宿主的清单必须一致')
+  for (const version of runtimeVersions) {
+    assert.equal(installScript.includes(`"${version}"`), true, `install.sh 必须包含已验证版本 ${version}`)
+  }
+})
+
+test('安装与卸载脚本走官方 profile 管理', () => {
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.6-alpha.1 <0.1.7"'), true)
+  assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
+  assert.equal(installScript.includes('0\\.1\\.6-(alpha|beta|rc)'), true)
+  assert.equal(installScript.includes('npm run publish:check --prefix "$PLUGIN_DIR"'), true)
+  assert.equal(installScript.includes('dsh plugin --profile "$DSH_PROFILE" add "link:$PLUGIN_DIR" --config.minimumReleaseAge=0'), true)
+  assert.equal(installScript.includes('必须重启 dsh web'), true)
+  assert.equal(uninstallScript.includes('dsh plugin --profile "$DSH_PROFILE" remove dsh-extra-context --config.minimumReleaseAge=0'), true)
+  assert.equal(uninstallScript.includes('保留不删'), true)
+})
+
+test('客户端 bundle 结构与宿主路由契约一致', () => {
+  assert.equal(clientBundle.startsWith('window.__ModuleLoader__.load({'), true)
+  assert.equal(clientBundle.includes("id: 'dsh-extra-context'"), true)
+  assert.equal(clientBundle.includes("require('react')"), true)
+  assert.equal(clientBundle.includes(`const STATUS_PATH = '${STATUS_PATH}'`), true)
+  assert.equal(clientBundle.includes(`const CLIENT_HEADER = '${CLIENT_HEADER}'`), true)
+  assert.equal(clientBundle.includes("exports.inject = inject"), true)
+  assert.equal(clientBundle.includes('ctx.settingsScope.bind('), true)
+  assert.equal(clientBundle.includes("ctx.slots.inject('settings.section'"), true)
+  // 导航图标补丁的挂载点：壳层只给 4 个官方 id 配图标，缺了它这一行会一直显示齿轮
+  assert.equal(clientBundle.includes("ctx.slots.inject('settings.action'"), true)
+  assert.equal(clientBundle.includes('IconContextInjectionOutline16'), true)
+  assert.equal(clientBundle.includes('React.createElement'), true)
+  // 不得出现 JSX / TS / import 语法：bundle 是纯 CJS 惰性模型。
+  assert.equal(/<[A-Z][A-Za-z]*\s*\/>/u.test(clientBundle), false)
+  assert.equal(/^\s*import\s/mu.test(clientBundle), false)
+})

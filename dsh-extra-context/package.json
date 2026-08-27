@@ -1,0 +1,64 @@
+{
+  "name": "dsh-extra-context",
+  "version": "0.1.0",
+  "description": "给当前 DSH 的全部会话与子代理统一附加一段额外说明和上下文：设置页分段维护、实时预览、模型自维护笔记。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "dshCompatibility": {
+    "policy": "compatible-release-line",
+    "package": "@deepseek-ai/dsh",
+    "range": ">=0.1.6-alpha.1 <0.1.7",
+    "verifiedVersions": [
+      "0.1.6-alpha.1"
+    ],
+    "futureVersionsRequireCapabilityChecks": true
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/rules.js && node --check client.js && node --check scripts/check-pack.js && bash -n install.sh && bash -n uninstall.sh",
+    "test": "node --test test/*.test.js",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run check && npm test && npm run pack:check",
+    "prepublishOnly": "npm run publish:check"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.6-alpha.1 <0.1.7"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "system-prompt",
+    "context"
+  ]
+}

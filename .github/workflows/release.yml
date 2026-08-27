@@ -1,0 +1,123 @@
+# 推送 <插件名>-v<版本> 形式的 tag 时发布对应插件到 npm。
+#
+# 设计要点：
+# 1. tag 是唯一的发布触发器，发布版本由人显式决定，与各插件 CHANGELOG 的
+#    “已核对契约的最窄兼容发布线”策略一致——改代码永远不会意外发版。
+# 2. 发布前断言 tag 与 package.json 的 version 完全一致，杜绝发错版本号。
+# 3. 复用各插件已有的 prepublishOnly → publish:check 门禁（check/test/pack:check），
+#    校验不通过时 npm 自身拒绝发布，工作流无需重复实现门禁逻辑。
+# 4. private: true 的包（当前为 dsh-local-plugin-manager）显式拒绝发布。
+# 5. --provenance 由 GitHub OIDC 身份签名，产出“该版本确由本仓库此 commit 发布”
+#    的可验证证明。
+name: Release to npm
+
+on:
+  push:
+    tags:
+      - '*-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag，例如 dsh-mobile-compat-v0.3.2'
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 创建 GitHub Release
+      id-token: write # npm --provenance 签名
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: 解析并校验 tag
+        id: target
+        env:
+          RAW_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG="$RAW_TAG"
+          echo "收到 tag：$TAG"
+
+          # 严格匹配 <插件名>-v<版本>，插件名限定为小写字母/数字/连字符，
+          # 版本号支持预发布段（如 0.1.6-alpha.1）。不匹配即终止，避免猜测式发布。
+          if [[ ! "$TAG" =~ ^([a-z0-9-]+)-v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+            echo "::error::tag 格式不合法：$TAG，应为 <插件名>-v<版本>，例如 dsh-mobile-compat-v0.3.2"
+            exit 1
+          fi
+          PLUGIN="${BASH_REMATCH[1]}"
+          VERSION="${BASH_REMATCH[2]}"
+
+          if [[ ! -f "$PLUGIN/package.json" ]]; then
+            echo "::error::找不到插件目录 $PLUGIN（$PLUGIN/package.json 不存在）"
+            exit 1
+          fi
+
+          # tag 与 package.json 必须同源，否则发布出去的版本号会与 tag 不一致。
+          # 用环境变量传值、以单引号包裹 JS：绝不在双引号 shell 字符串里写 JS 模板
+          # 字符串，否则 bash 会抢先展开 ${...}，把脚本内容改成语法错误的乱码。
+          PLUGIN="$PLUGIN" VERSION="$VERSION" node -e '
+            const fs = require("node:fs")
+            const plugin = process.env.PLUGIN
+            const want = process.env.VERSION
+            const pkg = JSON.parse(fs.readFileSync(plugin + "/package.json", "utf8"))
+            if (pkg.private === true) {
+              console.error("::error::" + plugin + " 标记为 private，不应发布到 npm")
+              process.exit(1)
+            }
+            if (pkg.version !== want) {
+              console.error("::error::版本不一致：tag 为 " + want + "，但 " + plugin + "/package.json 为 " + pkg.version)
+              process.exit(1)
+            }
+            console.log("版本一致：" + pkg.name + "@" + pkg.version)
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "package=" + pkg.name + "\n")
+          '
+
+          echo "plugin=$PLUGIN" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 发布到 npm
+        working-directory: ${{ steps.target.outputs.plugin }}
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: 验证 registry 上确实出现该版本
+        run: |
+          set -euo pipefail
+          PKG="${{ steps.target.outputs.package }}"
+          WANT="${{ steps.target.outputs.version }}"
+          for attempt in $(seq 1 12); do
+            if npm view "$PKG@$WANT" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+              echo "已确认发布：$PKG@$WANT"
+              exit 0
+            fi
+            echo "等待 registry 可见（第 $attempt 次）…"
+            sleep 10
+          done
+          echo "::error::发布后无法在 registry 上读到 $PKG@$WANT"
+          exit 1
+
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "${{ steps.target.outputs.package }}@${{ steps.target.outputs.version }}" \
+            --generate-notes

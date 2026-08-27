@@ -1,0 +1,68 @@
+{
+  "name": "dsh-auto-load-history",
+  "version": "0.1.0",
+  "description": "打开会话时自动分页补齐整段历史，让「紧凑」排版立即折叠每个回合的思考过程（设置 → 通用可切回手动）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dshCompatibility": {
+    "policy": "compatible-release-line",
+    "package": "@deepseek-ai/dsh",
+    "range": ">=0.1.6-alpha.1 <0.1.7",
+    "verifiedVersions": [
+      "0.1.6-alpha.1"
+    ],
+    "futureVersionsRequireCapabilityChecks": true
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings-general"
+      ]
+    }
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "PUBLISHING.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check client.js && node --check scripts/check-pack.js && bash -n install.sh && bash -n uninstall.sh",
+    "test": "node --test test/*.test.js",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run check && npm test && npm run pack:check",
+    "prepublishOnly": "npm run publish:check"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.6-alpha.1 <0.1.7"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "chat",
+    "history",
+    "pagination",
+    "transcript"
+  ]
+}

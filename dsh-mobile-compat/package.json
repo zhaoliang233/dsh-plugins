@@ -1,0 +1,72 @@
+{
+  "name": "dsh-mobile-compat",
+  "version": "0.3.1",
+  "description": "为窄屏触控设备提供版本锁定的移动端适配：侧边栏抽屉、全屏设置、输入区与安全区修正。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./compatibility.json": "./compatibility.json",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "dshCompatibility": {
+    "policy": "compatible-release-line",
+    "package": "@deepseek-ai/dsh",
+    "range": ">=0.1.6-alpha.1 <0.1.7",
+    "verifiedVersions": [
+      "0.1.6-alpha.1"
+    ],
+    "matrix": "./compatibility.json",
+    "futureVersionsRequireCapabilityChecks": true
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "compatibility.json",
+    "README.md",
+    "CHANGELOG.md",
+    "PUBLISHING.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check client.js && node --check scripts/check-compat.js && node --check scripts/check-pack.js && node --check test/browser-regression.mjs && node scripts/check-compat.js --manifest && bash -n install.sh && bash -n uninstall.sh",
+    "compatibility:check": "node scripts/check-compat.js --installed",
+    "test": "node --test test/*.test.js",
+    "test:browser": "node test/browser-regression.mjs",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run check && npm test && npm run pack:check",
+    "prepublishOnly": "npm run publish:check"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.6-alpha.1 <0.1.7"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "mobile",
+    "responsive",
+    "touch"
+  ]
+}

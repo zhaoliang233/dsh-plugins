@@ -1,0 +1,56 @@
+# 每次 push / PR 校验全部插件，不发布任何东西。
+# 复用各插件自己的发布门禁：check（语法与 shell）→ test（node --test）→ pack:check（打包白名单）。
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新提交取代仍在运行的旧校验。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20.x 覆盖各插件 engines.node 声明的最低版本，22.x 覆盖当前开发版本。
+        node: ['20.x', '22.x']
+        plugin:
+          - dsh-auto-load-history
+          - dsh-chat-archive-manager
+          - dsh-default-workspace
+          - dsh-extra-context
+          - dsh-local-plugin-manager
+          - dsh-mobile-compat
+          - dsh-sticky-user-bubble
+    name: ${{ matrix.plugin }} @ node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 插件运行时零依赖，不需要安装步骤；pack:check 会自行调用 npm pack。
+      # 显式绑定 npmjs 官方 registry，避免继承开发者机器上的公司私有 registry 配置。
+      - name: 语法与静态检查
+        working-directory: ${{ matrix.plugin }}
+        run: npm run check --registry=https://registry.npmjs.org
+
+      - name: 单元测试
+        working-directory: ${{ matrix.plugin }}
+        run: npm test --registry=https://registry.npmjs.org
+
+      - name: 打包内容校验
+        if: ${{ hashFiles(format('{0}/scripts/check-pack.js', matrix.plugin)) != '' }}
+        working-directory: ${{ matrix.plugin }}
+        run: npm run pack:check

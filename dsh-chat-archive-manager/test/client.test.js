@@ -1,0 +1,1077 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+let definition
+globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+await import('../client.js')
+
+function pluginDefinition() {
+  const notifications = []
+  const React = {
+    Fragment: Symbol('Fragment'),
+    createElement(type, props, ...children) { return { type, props: props || {}, children } },
+    useEffect() {},
+    useLayoutEffect() {},
+    useRef(initial) { return { current: initial } },
+    useState(initial) { return [initial, () => {}] },
+    useSyncExternalStore(subscribe, getSnapshot) {
+      subscribe(() => { notifications.push(getSnapshot()) })
+      return getSnapshot()
+    }
+  }
+  const IconArchive = () => null
+  const IconFolderClose = () => null
+  const IconFolderOpen = () => null
+  const IconLoading = () => null
+  const IconRefresh = () => null
+  const IconSearch = () => null
+  const IconTrash = () => null
+  const Modal = () => null
+  const plugin = definition.factory(id => {
+    if (id === 'react') return React
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+      return {
+        IconArchiveOutline20: IconArchive,
+        IconFolderClose16: IconFolderClose,
+        IconFolderOpen16: IconFolderOpen,
+        IconLoadingOutline16: IconLoading,
+        IconRefreshOutline16: IconRefresh,
+        IconSearchOutline16: IconSearch,
+        IconTrashOutline16: IconTrash,
+        IconTriangleRightFill14: () => null,
+        Modal
+      }
+    }
+    throw new Error(`unexpected require: ${id}`)
+  })
+  return {
+    plugin,
+    internals: plugin.__internals,
+    types: { IconArchive, IconFolderClose, IconFolderOpen, IconRefresh, IconSearch, IconTrash, Modal },
+    notifications
+  }
+}
+
+function store(readState) {
+  return {
+    readState,
+    getSnapshot() { return this.readState() },
+    subscribe() {
+      this.subscribed = true
+      return () => { this.subscribed = false }
+    }
+  }
+}
+
+function context(workspaces, sessions) {
+  const cleanups = []
+  const registrations = []
+  return {
+    ctx: {
+      workspaces,
+      sessions,
+      slots: {
+        inject(_name, factory) { return factory() },
+        register(options, component) {
+          registrations.push({ options, component })
+          return () => {}
+        }
+      },
+      effect(factory) {
+        const cleanup = factory()
+        if (typeof cleanup === 'function') cleanups.push(cleanup)
+      }
+    },
+    registrations,
+    cleanup() { for (const cleanup of cleanups.reverse()) cleanup() }
+  }
+}
+
+async function settle() { await new Promise(resolve => setImmediate(resolve)) }
+
+function createStyleDocument() {
+  const styles = []
+  const head = {
+    appendChild(style) {
+      style.parentNode = head
+      styles.push(style)
+    },
+    removeChild(style) {
+      const index = styles.indexOf(style)
+      if (index !== -1) styles.splice(index, 1)
+      style.parentNode = null
+    }
+  }
+  return {
+    styles,
+    document: {
+      querySelector() { return null },
+      getElementById() { return null },
+      createElement() {
+        return { id: '', dataset: {}, textContent: '', parentNode: null }
+      },
+      head
+    }
+  }
+}
+
+function statusResponse(overrides = {}) {
+  return {
+    ok: true,
+    async json() {
+      return {
+        ok: true,
+        workspaceProjection: false,
+        deletionSupported: true,
+        restorationSupported: true,
+        ...overrides
+      }
+    }
+  }
+}
+
+function childNodes(node) {
+  const out = []
+  const walk = (value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item)
+      return
+    }
+    out.push(value)
+  }
+  walk(node?.children ?? [])
+  return out
+}
+
+function hasClassToken(node, className) {
+  const value = node?.props?.className
+  return typeof value === 'string' && value.split(/\s+/u).includes(className)
+}
+
+function findByClass(node, className) {
+  if (node === null || node === undefined || typeof node !== 'object') return undefined
+  if (hasClassToken(node, className)) return node
+  for (const child of childNodes(node)) {
+    const found = findByClass(child, className)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
+function collectByClass(node, className, collected = []) {
+  if (node === null || node === undefined || typeof node !== 'object') return collected
+  if (hasClassToken(node, className)) collected.push(node)
+  for (const child of childNodes(node)) collectByClass(child, className, collected)
+  return collected
+}
+
+function groupRowOf(node) {
+  const row = findByClass(node, 'dac-group-row')
+  assert.notEqual(row, undefined, 'group row not found')
+  return row
+}
+
+function archivedRow(overrides = {}) {
+  return {
+    id: 'archived',
+    displayTitle: '旧聊天',
+    updatedAt: 10,
+    cwd: '/project',
+    origin: undefined,
+    ...overrides
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
+
+test('derives archived rows from the authoritative archive set and accounting', () => {
+  const { internals } = pluginDefinition()
+  const workspaceState = {
+    items: [
+      { workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['a', 'b'] },
+      { workspaceId: 'w2', path: '/two', title: 'two', sessionIds: ['c'] }
+    ],
+    archivedSessionIds: ['b', 'c', 'stray', 'missing', 'sub']
+  }
+  const sessionState = {
+    ids: ['a', 'b', 'c', 'stray', 'sub'],
+    byId: {
+      a: archivedRow({ id: 'a', updatedAt: 1 }),
+      b: archivedRow({ id: 'b', updatedAt: 2 }),
+      c: archivedRow({ id: 'c', updatedAt: 3, cwd: '/two' }),
+      stray: archivedRow({ id: 'stray', updatedAt: 4, cwd: '/elsewhere' }),
+      sub: archivedRow({ id: 'sub', updatedAt: 5, origin: 'subagent' })
+    }
+  }
+
+  const { rows, unreadable } = internals.buildArchivedRows(workspaceState, sessionState)
+  assert.equal(unreadable, 1)
+  assert.deepEqual(rows.map(row => row.id), ['b', 'c', 'stray'])
+  assert.deepEqual(rows.map(row => row.archiveOrder), [0, 1, 2])
+  assert.equal(rows[0].workspaceTitle, 'one')
+  assert.equal(rows[0].workspaceId, 'w1')
+  assert.equal(rows[2].workspaceId, '')
+  // Restore position is display-only state the native-shaped row no longer carries.
+  assert.equal(rows[0].position, undefined)
+})
+
+test('labels last activity the way the native archived-session page does', () => {
+  const { internals } = pluginDefinition()
+  const now = Date.UTC(2026, 8, 15, 12, 0, 0)
+  const label = (elapsed) => internals.relativeTimeLabel(now - elapsed, now)
+  assert.equal(label(0), '刚刚')
+  assert.equal(label(59 * 1000), '刚刚')
+  assert.equal(label(60 * 1000), '1 分钟')
+  assert.equal(label(59 * 60 * 1000), '59 分钟')
+  assert.equal(label(60 * 60 * 1000), '1 小时')
+  assert.equal(label(23 * 60 * 60 * 1000), '23 小时')
+  assert.equal(label(24 * 60 * 60 * 1000), '1 天')
+  assert.equal(label(20 * 24 * 60 * 60 * 1000), '20 天')
+  assert.equal(label(29 * 24 * 60 * 60 * 1000), '29 天')
+  assert.equal(label(30 * 24 * 60 * 60 * 1000), '1 个月')
+  assert.equal(label(40 * 24 * 60 * 60 * 1000), '1 个月')
+  assert.equal(label(364 * 24 * 60 * 60 * 1000), '12 个月')
+  assert.equal(label(365 * 24 * 60 * 60 * 1000), '1 年')
+  assert.equal(label(-5 * 1000), '刚刚')
+  // An unknown activity timestamp yields no label at all rather than 1970's.
+  assert.equal(internals.relativeTimeLabel(0, now), '')
+  assert.equal(internals.relativeTimeLabel(undefined, now), '')
+})
+
+test('groups archived rows by workspace in Host order plus one ungrouped bucket', () => {
+  const { internals } = pluginDefinition()
+  const workspaceState = {
+    items: [
+      { workspaceId: 'w2', path: '/two', title: 'two', sessionIds: ['c'] },
+      { workspaceId: 'w3', path: '/three', title: 'three', sessionIds: [] },
+      { workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['a'] }
+    ]
+  }
+  const rows = [
+    { id: 'c', workspaceId: 'w2', title: 'C' },
+    { id: 'stray', workspaceId: '', title: 'S' },
+    { id: 'a', workspaceId: 'w1', title: 'A' }
+  ]
+
+  const groups = internals.groupRowsByWorkspace(rows, workspaceState)
+  assert.deepEqual(groups.map(group => group.title), ['two', 'one', '未分组'])
+  assert.deepEqual(groups.map(group => group.rows.map(row => row.id)), [['c'], ['a'], ['stray']])
+})
+
+test('sorts by recency or by archive order', () => {
+  const { internals } = pluginDefinition()
+  const rows = [
+    { id: 'a', updatedAt: 5, archiveOrder: 2 },
+    { id: 'b', updatedAt: 9, archiveOrder: 0 },
+    { id: 'c', updatedAt: 1, archiveOrder: 1 }
+  ]
+  assert.deepEqual(internals.sortRows(rows, 'updated').map(row => row.id), ['b', 'a', 'c'])
+  assert.deepEqual(internals.sortRows(rows, 'archived').map(row => row.id), ['b', 'c', 'a'])
+})
+
+test('filters rows by title, directory, and workspace title', () => {
+  const { internals } = pluginDefinition()
+  const row = { id: 'a', title: 'DeepSeek 调研', cwd: '/Users/me/Alpha', workspaceTitle: 'Plugins' }
+  assert.equal(internals.matchesQuery(row, ''), true)
+  assert.equal(internals.matchesQuery(row, 'deepseek'), true)
+  assert.equal(internals.matchesQuery(row, 'alpha'), true)
+  assert.equal(internals.matchesQuery(row, 'plugins'), true)
+  assert.equal(internals.matchesQuery(row, 'missing'), false)
+})
+
+test('resolves rolling, day-boundary, and custom-date cutoffs', () => {
+  const { internals } = pluginDefinition()
+  const now = new Date(2026, 4, 10, 15, 30, 0, 0).getTime()
+  assert.deepEqual(internals.BATCH_PRESETS.map(preset => preset.id), ['24h', '1d', '7d', '15d', '30d', '90d', 'date'])
+  assert.equal(internals.resolveCutoff('24h', '', now), now - 24 * 60 * 60 * 1000)
+  assert.equal(internals.resolveCutoff('1d', '', now), new Date(2026, 4, 10, 0, 0, 0, 0).getTime())
+  assert.equal(internals.resolveCutoff('7d', '', now), now - 7 * 24 * 60 * 60 * 1000)
+  assert.equal(internals.resolveCutoff('15d', '', now), now - 15 * 24 * 60 * 60 * 1000)
+  assert.equal(internals.resolveCutoff('30d', '', now), now - 30 * 24 * 60 * 60 * 1000)
+  assert.equal(internals.resolveCutoff('90d', '', now), now - 90 * 24 * 60 * 60 * 1000)
+  assert.equal(internals.resolveCutoff('date', '2026-01-02', now), new Date(2026, 0, 2, 0, 0, 0, 0).getTime())
+  assert.equal(internals.resolveCutoff('date', '2026-02-31', now), undefined)
+  assert.equal(internals.resolveCutoff('date', '', now), undefined)
+  assert.equal(internals.resolveCutoff('unknown', '', now), undefined)
+})
+
+test('treats 24 小时前 as a rolling window and 1 天前 as yesterday and earlier', () => {
+  const { internals } = pluginDefinition()
+  const now = new Date(2026, 4, 10, 15, 30, 0, 0).getTime()
+  const workspaceState = { items: [], archivedSessionIds: [] }
+  const sessionState = {
+    ids: ['today-morning', 'yesterday-evening', 'yesterday-morning'],
+    current: undefined,
+    byId: {
+      'today-morning': archivedRow({
+        id: 'today-morning',
+        updatedAt: new Date(2026, 4, 10, 9, 0, 0, 0).getTime()
+      }),
+      'yesterday-evening': archivedRow({
+        id: 'yesterday-evening',
+        updatedAt: new Date(2026, 4, 9, 20, 0, 0, 0).getTime()
+      }),
+      'yesterday-morning': archivedRow({
+        id: 'yesterday-morning',
+        updatedAt: new Date(2026, 4, 9, 10, 0, 0, 0).getTime()
+      })
+    }
+  }
+  const pick = (presetId) => internals.batchCandidates({
+    workspaceState,
+    sessionState,
+    cutoff: internals.resolveCutoff(presetId, '', now),
+    scope: { kind: 'all' },
+    include: { running: false, blank: false, current: false }
+  }).map(row => row.id)
+
+  // Distances from 5/10 15:30: today 09:00 is 6.5h ago, yesterday 20:00 is 19.5h
+  // ago, yesterday 10:00 is 29.5h ago.
+  // Rolling 24 hours (cutoff 5/9 15:30) only reaches yesterday morning, so both
+  // today's chat and yesterday evening stay untouched.
+  assert.deepEqual(pick('24h'), ['yesterday-morning'])
+  // Yesterday and earlier (cutoff 5/10 00:00) also reaches yesterday evening,
+  // which is exactly the set the rolling window cannot express.
+  assert.deepEqual(pick('1d'), ['yesterday-evening', 'yesterday-morning'])
+})
+
+test('selects batch candidates with explicit exclusions and a strict cutoff', () => {
+  const { internals } = pluginDefinition()
+  const workspaceState = {
+    items: [{ workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['old', 'edge'] }],
+    archivedSessionIds: ['archived']
+  }
+  const sessionState = {
+    ids: ['old', 'edge', 'new', 'archived', 'child', 'blank', 'running', 'current'],
+    current: 'current',
+    byId: {
+      old: archivedRow({ id: 'old', updatedAt: 100 }),
+      edge: archivedRow({ id: 'edge', updatedAt: 500 }),
+      new: archivedRow({ id: 'new', updatedAt: 600 }),
+      archived: archivedRow({ id: 'archived', updatedAt: 100 }),
+      child: archivedRow({ id: 'child', updatedAt: 100, origin: 'subagent' }),
+      blank: archivedRow({ id: 'blank', updatedAt: 100, blank: true }),
+      running: archivedRow({ id: 'running', updatedAt: 100, running: true }),
+      current: archivedRow({ id: 'current', updatedAt: 100 })
+    }
+  }
+  const cutoff = 500
+
+  const strict = internals.batchCandidates({
+    workspaceState,
+    sessionState,
+    cutoff,
+    scope: { kind: 'all' },
+    include: { running: false, blank: false, current: false }
+  })
+  assert.deepEqual(strict.map(row => row.id), ['old'])
+
+  const permissive = internals.batchCandidates({
+    workspaceState,
+    sessionState,
+    cutoff,
+    scope: { kind: 'all' },
+    include: { running: true, blank: true, current: true }
+  })
+  assert.deepEqual(permissive.map(row => row.id), ['blank', 'current', 'old', 'running'])
+
+  const scoped = internals.batchCandidates({
+    workspaceState,
+    sessionState,
+    cutoff: 700,
+    scope: { kind: 'workspace', workspaceId: 'w1' },
+    include: { running: true, blank: true, current: true }
+  })
+  assert.deepEqual(scoped.map(row => row.id), ['edge', 'old'])
+
+  const ungrouped = internals.batchCandidates({
+    workspaceState,
+    sessionState,
+    cutoff: 700,
+    scope: { kind: 'ungrouped' },
+    include: { running: true, blank: true, current: true }
+  })
+  assert.deepEqual(ungrouped.map(row => row.id), ['new', 'blank', 'current', 'running'])
+
+  assert.deepEqual(internals.batchCandidates({
+    workspaceState,
+    sessionState,
+    cutoff: undefined,
+    scope: { kind: 'all' },
+    include: {}
+  }), [])
+})
+
+test('selects permanent-deletion candidates from the archived set only', () => {
+  const { internals } = pluginDefinition()
+  const workspaceState = {
+    items: [
+      { workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['old', 'edge'] },
+      { workspaceId: 'w2', path: '/two', title: 'two', sessionIds: [] }
+    ],
+    archivedSessionIds: ['old', 'edge', 'new', 'blank', 'running', 'child', 'gone']
+  }
+  const sessionState = {
+    ids: ['old', 'edge', 'new', 'blank', 'running', 'child', 'live'],
+    current: 'live',
+    byId: {
+      old: archivedRow({ id: 'old', updatedAt: 100 }),
+      edge: archivedRow({ id: 'edge', updatedAt: 500, cwd: '/two' }),
+      new: archivedRow({ id: 'new', updatedAt: 600, cwd: '/two' }),
+      blank: archivedRow({ id: 'blank', updatedAt: 100, blank: true }),
+      running: archivedRow({ id: 'running', updatedAt: 100, running: true }),
+      child: archivedRow({ id: 'child', updatedAt: 100, origin: 'subagent' }),
+      live: archivedRow({ id: 'live', updatedAt: 100 })
+    }
+  }
+  const pick = (options) => internals.deletionCandidates({
+    workspaceState,
+    sessionState,
+    cutoff: 500,
+    scope: { kind: 'all' },
+    include: { running: false, blank: false, current: false },
+    ...options
+  }).map(row => row.id)
+
+  // Only the archived set is eligible: `live` was never archived, `gone` has no
+  // readable summary, and the subagent chat never participates.
+  assert.deepEqual(pick(), ['old'])
+  assert.deepEqual(pick({ include: { running: true, blank: true, current: true } }),
+    ['blank', 'old', 'running'])
+  assert.deepEqual(pick({ scope: { kind: 'workspace', workspaceId: 'w1' } }), ['old'])
+  assert.deepEqual(pick({ scope: { kind: 'ungrouped' }, cutoff: 700 }), ['new'])
+  assert.deepEqual(pick({ cutoff: undefined }), [])
+})
+
+// ---------------------------------------------------------------------------
+// Batch executors
+// ---------------------------------------------------------------------------
+
+test('archives a frozen batch sequentially and reports progress', async () => {
+  const { internals } = pluginDefinition()
+  const items = [
+    { id: 'a', title: 'A', updatedAt: 10 },
+    { id: 'b', title: 'B', updatedAt: 20 },
+    { id: 'c', title: 'C', updatedAt: 30 }
+  ]
+  const archived = []
+  const progress = []
+  const result = await internals.runArchiveBatch(items, {
+    shouldStop: () => false,
+    isArchived: id => id === 'b',
+    latestActivity: () => undefined,
+    archive: async (id) => { archived.push(id) },
+    onProgress: entry => progress.push(entry)
+  })
+
+  assert.deepEqual(archived, ['a', 'c'])
+  assert.deepEqual(result.archived.map(item => item.id), ['a', 'c'])
+  assert.deepEqual(result.skipped.map(entry => [entry.item.id, entry.reason]), [['b', '已在归档列表中']])
+  assert.deepEqual(result.failed, [])
+  assert.equal(result.stopped, false)
+  assert.equal(result.processed, 3)
+  assert.deepEqual(progress[0], { processed: 0, total: 3, current: 'A' })
+  assert.deepEqual(progress[progress.length - 1], { processed: 3, total: 3, current: undefined })
+})
+
+test('skips a chat that gained activity after the preview', async () => {
+  const { internals } = pluginDefinition()
+  const archived = []
+  const result = await internals.runArchiveBatch([{ id: 'a', title: 'A', updatedAt: 10 }], {
+    shouldStop: () => false,
+    isArchived: () => false,
+    latestActivity: () => 11,
+    archive: async (id) => { archived.push(id) }
+  })
+  assert.deepEqual(archived, [])
+  assert.deepEqual(result.skipped.map(entry => entry.reason), ['预览后有了新活动'])
+})
+
+test('permanently deletes a frozen batch and skips rows that moved under it', async () => {
+  const { internals } = pluginDefinition()
+  const items = [
+    { id: 'a', title: 'A', updatedAt: 10 },
+    { id: 'b', title: 'B', updatedAt: 10 },
+    { id: 'c', title: 'C', updatedAt: 10 },
+    { id: 'd', title: 'D', updatedAt: 10 }
+  ]
+  const deleted = []
+  const progress = []
+  const result = await internals.runDeletionBatch(items, {
+    shouldStop: () => false,
+    // `c` left the archive set and `d` gained activity after the preview.
+    isArchived: id => id !== 'c',
+    latestActivity: id => (id === 'd' ? 999 : 10),
+    remove: async (id) => { deleted.push(id) },
+    onProgress: entry => progress.push(entry)
+  })
+
+  assert.deepEqual(deleted, ['a', 'b'])
+  assert.deepEqual(result.deleted.map(item => item.id), ['a', 'b'])
+  assert.deepEqual(result.skipped.map(entry => [entry.item.id, entry.reason]),
+    [['c', '已不在归档列表'], ['d', '预览后有了新活动']])
+  assert.deepEqual(result.failed, [])
+  assert.equal(result.stopped, false)
+  assert.equal(result.processed, 4)
+  assert.deepEqual(progress[progress.length - 1], { processed: 4, total: 4, current: undefined })
+})
+
+test('keeps deleting after a refusal, treats a vanished row as skipped, and stops between items', async () => {
+  const { internals } = pluginDefinition()
+  const items = [
+    { id: 'a', title: 'A', updatedAt: 1 },
+    { id: 'b', title: 'B', updatedAt: 1 },
+    { id: 'c', title: 'C', updatedAt: 1 }
+  ]
+  const attempted = []
+  const failed = await internals.runDeletionBatch(items, {
+    shouldStop: () => false,
+    isArchived: () => true,
+    latestActivity: () => undefined,
+    remove: async (id) => {
+      attempted.push(id)
+      if (id === 'b') {
+        const error = new Error('host refused')
+        error.code = 'archive-delete-refused'
+        throw error
+      }
+      if (id === 'c') {
+        const error = new Error('404')
+        error.code = 'session-not-archived'
+        throw error
+      }
+    }
+  })
+  assert.deepEqual(attempted, ['a', 'b', 'c'])
+  assert.deepEqual(failed.deleted.map(item => item.id), ['a'])
+  assert.deepEqual(failed.failed.map(entry => [entry.item.id, entry.message]), [['b', 'host refused']])
+  assert.deepEqual(failed.skipped.map(entry => [entry.item.id, entry.reason]), [['c', '已不在归档列表']])
+
+  let calls = 0
+  const stopped = await internals.runDeletionBatch(items, {
+    shouldStop: () => calls >= 1,
+    isArchived: () => true,
+    latestActivity: () => undefined,
+    remove: async () => { calls += 1 }
+  })
+  assert.equal(stopped.stopped, true)
+  assert.deepEqual(stopped.deleted.map(item => item.id), ['a'])
+  assert.equal(stopped.processed, 1)
+})
+
+test('records failures and keeps going, and stops between items', async () => {
+  const { internals } = pluginDefinition()
+  const items = [
+    { id: 'a', title: 'A', updatedAt: 1 },
+    { id: 'b', title: 'B', updatedAt: 1 },
+    { id: 'c', title: 'C', updatedAt: 1 }
+  ]
+  const attempted = []
+  const failed = await internals.runArchiveBatch(items, {
+    shouldStop: () => false,
+    isArchived: () => false,
+    latestActivity: () => undefined,
+    archive: async (id) => {
+      attempted.push(id)
+      if (id === 'b') throw new Error('host refused')
+    }
+  })
+  assert.deepEqual(attempted, ['a', 'b', 'c'])
+  assert.deepEqual(failed.archived.map(item => item.id), ['a', 'c'])
+  assert.deepEqual(failed.failed.map(entry => [entry.item.id, entry.message]), [['b', 'host refused']])
+
+  let calls = 0
+  const stopped = await internals.runArchiveBatch(items, {
+    shouldStop: () => calls >= 1,
+    isArchived: () => false,
+    latestActivity: () => undefined,
+    archive: async () => { calls += 1 }
+  })
+  assert.equal(stopped.stopped, true)
+  assert.deepEqual(stopped.archived.map(item => item.id), ['a'])
+  assert.equal(stopped.processed, 1)
+})
+
+test('undoes a batch by restoring each archived chat', async () => {
+  const { internals } = pluginDefinition()
+  const items = [{ id: 'a', title: 'A' }, { id: 'b', title: 'B' }, { id: 'c', title: 'C' }]
+  const restored = []
+  const result = await internals.runRestoreBatch(items, {
+    shouldStop: () => false,
+    isArchived: () => true,
+    restore: async (id) => {
+      if (id === 'b') {
+        const error = new Error('该会话不在归档列表中')
+        error.code = 'session-not-archived'
+        throw error
+      }
+      restored.push(id)
+    }
+  })
+  assert.deepEqual(restored, ['a', 'c'])
+  assert.deepEqual(result.restored.map(item => item.id), ['a', 'c'])
+  assert.deepEqual(result.skipped.map(entry => [entry.item.id, entry.reason]), [['b', '已不在归档列表']])
+  assert.deepEqual(result.failed, [])
+})
+
+// ---------------------------------------------------------------------------
+// Rendered surface
+// ---------------------------------------------------------------------------
+
+test('registers the Settings section and archive nav icon marker with reversible styles', async () => {
+  assert.equal(definition.id, 'dsh-chat-archive-manager')
+  const workspaces = {
+    list: store(() => ({ items: [], archivedSessionIds: [] })),
+    async refresh() {}
+  }
+  const sessions = {
+    list: store(() => ({ ids: [], byId: {} })),
+    async refresh() {}
+  }
+  const fixture = createStyleDocument()
+  const previousDocument = globalThis.document
+  const previousFetch = globalThis.fetch
+  const { plugin, types } = pluginDefinition()
+  const harness = context(workspaces, sessions)
+  globalThis.document = fixture.document
+  globalThis.fetch = async () => statusResponse()
+
+  try {
+    plugin.apply(harness.ctx)
+    await settle()
+
+    assert.equal(harness.registrations.length, 2)
+    const sectionRegistration = harness.registrations.find(entry => entry.options.name === 'settings.section')
+    const navIconRegistration = harness.registrations.find(entry => entry.options.name === 'settings.action')
+    assert.deepEqual(sectionRegistration.options, {
+      name: 'settings.section',
+      id: 'archived-chats',
+      order: 30,
+      label: '归档管理'
+    })
+    assert.deepEqual(navIconRegistration.options, {
+      name: 'settings.action',
+      id: 'dsh-chat-archive-manager.nav-icon',
+      order: 30
+    })
+    const navIconTemplate = navIconRegistration.component()
+    assert.equal(navIconTemplate.props.className, 'dac-nav-icon-template')
+    assert.equal(navIconTemplate.children[0].type, types.IconArchive)
+    assert.equal(fixture.styles.length, 1)
+    // Untagged sheets are claimed by whichever bundle materializes next, and HMR removes
+    // style[data-plugin=<id>]: the sheet must declare this plugin as its owner.
+    assert.equal(fixture.styles[0].dataset.plugin ?? fixture.styles[0].getAttribute?.('data-plugin'), 'dsh-chat-archive-manager')
+    assert.equal(fixture.styles[0].textContent.includes('[data-dac-archive-nav]::before'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-section-heading{display:flex;align-items:baseline;gap:8px;'), true)
+    // The batch dialog is portaled to document.body, so the glyph variables must
+    // live on the control itself rather than on an ancestor it cannot inherit.
+    const glyphRule = /\.dac-select-field\{([^}]*)\}/u.exec(fixture.styles[0].textContent)
+    assert.notEqual(glyphRule, null)
+    assert.equal(glyphRule[1].includes('--dac-chevron-glyph'), true)
+    assert.equal(glyphRule[1].includes('--dac-calendar-glyph'), true)
+    assert.equal(glyphRule[1].includes('--dac-field-glyph:var(--dac-chevron-glyph)'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-select-field-date{--dac-field-glyph:var(--dac-calendar-glyph)}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-section{--dac'), false)
+    const glyphUris = glyphRule[1].match(/data:image\/svg\+xml,[^")]+/gu) ?? []
+    assert.equal(glyphUris.length, 2)
+    for (const uri of glyphUris) {
+      assert.equal(/[ "'<>#]/u.test(uri), false, `unescaped character in ${uri}`)
+    }
+    assert.equal(fixture.styles[0].textContent.includes('.dac-select-field::after'), true)
+    assert.equal(fixture.styles[0].textContent.includes('padding:0 30px 0 10px'), true)
+    assert.equal(fixture.styles[0].textContent.includes('--dac-calendar-glyph'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-date::-webkit-calendar-picker-indicator'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-group-row{display:flex'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-group-row:hover .dac-group-folder{display:none}'), true)
+    // Rows are cards: the Workspace group header is the only separator, so the
+    // sheet must carry no rule that draws a line between groups or rows.
+    assert.equal(fixture.styles[0].textContent.includes('.dac-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:8px 10px;border-radius:8px}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-row:hover{background:var(--dsw-alias-interactive-bg-hover)}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-group-body{display:flex;flex-direction:column;min-width:0;gap:2px;padding-left:20px}'), true)
+    // Both bulk entry points share the list action row: the row itself supplies
+    // the 8px gap between them, and the collapse toggle is pushed to the end.
+    assert.equal(fixture.styles[0].textContent.includes('.dac-list-actions{display:flex;align-items:center;gap:8px;min-width:0}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-list-toggle{margin-left:auto}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-button.danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-primary-inverted)}'), true)
+    assert.equal(/\.dac-(row|group|list|groups)[^{]*\{[^}]*border-(top|bottom|left)/u.test(fixture.styles[0].textContent), false)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-group+.dac-group'), false)
+    assert.equal(fixture.styles[0].textContent.includes('dac-trigger'), false)
+    assert.equal(plugin.__internals.BATCH_CONFIRM_THRESHOLD, 50)
+  } finally {
+    harness.cleanup()
+    globalThis.fetch = previousFetch
+    if (previousDocument === undefined) delete globalThis.document
+    else globalThis.document = previousDocument
+  }
+
+  assert.equal(fixture.styles.length, 0)
+})
+
+test('renders grouped archive management inside Settings and leaves core list services untouched', async () => {
+  const workspaceState = {
+    items: [
+      { workspaceId: 'project', path: '/project', title: 'project', sessionIds: ['active', 'archived'] }
+    ],
+    archivedSessionIds: ['archived']
+  }
+  const archived = archivedRow()
+  const active = archivedRow({ id: 'active', displayTitle: '当前聊天', updatedAt: 20 })
+  const sessionState = { ids: ['active', 'archived'], byId: { active, archived }, current: 'active' }
+  const workspaces = {
+    list: store(() => workspaceState),
+    startSession() {},
+    async rename() {},
+    async delete() {},
+    async insertBefore() {},
+    async insertSessionBefore() {},
+    async archiveSession() {},
+    async refresh() {}
+  }
+  const sessions = {
+    list: store(() => sessionState),
+    open() {},
+    async fork() {},
+    async refresh() {}
+  }
+  const original = {
+    workspaceGetSnapshot: workspaces.list.getSnapshot,
+    workspaceSubscribe: workspaces.list.subscribe,
+    startSession: workspaces.startSession,
+    rename: workspaces.rename,
+    delete: workspaces.delete,
+    insertBefore: workspaces.insertBefore,
+    insertSessionBefore: workspaces.insertSessionBefore,
+    archiveSession: workspaces.archiveSession,
+    sessionGetSnapshot: sessions.list.getSnapshot,
+    sessionSubscribe: sessions.list.subscribe,
+    open: sessions.open,
+    fork: sessions.fork
+  }
+  const previousFetch = globalThis.fetch
+  const fetchCalls = []
+  globalThis.fetch = async (path, options = {}) => {
+    fetchCalls.push({ path, options })
+    if (path === '/dsh-chat-archive-manager/restore') {
+      return {
+        ok: true,
+        async json() { return { ok: true, sessionId: 'archived', archivedSessionIds: [] } }
+      }
+    }
+    return statusResponse()
+  }
+
+  try {
+    const { plugin, types, notifications } = pluginDefinition()
+    const harness = context(workspaces, sessions)
+    plugin.apply(harness.ctx)
+
+    assert.equal(harness.registrations.length, 2)
+    const sectionRegistration = harness.registrations.find(entry => entry.options.name === 'settings.section')
+    const { options, component: ArchiveSettingsSection } = sectionRegistration
+    assert.deepEqual(options, {
+      name: 'settings.section',
+      id: 'archived-chats',
+      order: 30,
+      label: '归档管理'
+    })
+
+    const initial = ArchiveSettingsSection({ close() {} })
+    const initialSection = initial.children[0]
+    assert.equal(initialSection.type, 'section')
+    assert.equal(initialSection.children[1].children[0].endsWith('正在读取归档操作能力…'), true)
+    assert.equal(initial.children[1].props.open, false)
+
+    await settle()
+    assert.equal(notifications.length, 1)
+    assert.equal(fetchCalls[0].path, '/dsh-chat-archive-manager/status')
+
+    assert.equal(workspaces.list.getSnapshot, original.workspaceGetSnapshot)
+    assert.equal(workspaces.list.subscribe, original.workspaceSubscribe)
+    assert.equal(workspaces.startSession, original.startSession)
+    assert.equal(workspaces.rename, original.rename)
+    assert.equal(workspaces.delete, original.delete)
+    assert.equal(workspaces.insertBefore, original.insertBefore)
+    assert.equal(workspaces.insertSessionBefore, original.insertSessionBefore)
+    assert.equal(workspaces.archiveSession, original.archiveSession)
+    assert.equal(sessions.list.getSnapshot, original.sessionGetSnapshot)
+    assert.equal(sessions.list.subscribe, original.sessionSubscribe)
+    assert.equal(sessions.open, original.open)
+    assert.equal(sessions.fork, original.fork)
+    assert.equal(workspaces.list.getSnapshot(), workspaceState)
+    assert.equal(sessions.list.getSnapshot(), sessionState)
+
+    const rendered = ArchiveSettingsSection({ close() {} })
+    const section = rendered.children[0]
+    const confirmation = rendered.children[1]
+    const heading = section.children[0]
+    assert.equal(section.props['aria-label'], '归档管理')
+    assert.equal(heading.children[0].type, 'h2')
+    assert.equal(heading.children[0].children[0], '归档管理')
+    assert.equal(heading.children[1].children[0], '1 条聊天')
+    assert.equal(heading.children.some(child => child?.props?.className === 'dac-section-icon'), false)
+
+    // The paragraph sits directly under the heading, above every control.
+    const description = section.children[1]
+    assert.equal(description.props.className, 'dac-description')
+    assert.equal(description.children[0].includes('按工作区分组或单列表浏览归档聊天'), true)
+    assert.equal(description.children[0].includes('批量归档支持按时间条件筛选'), true)
+    assert.equal(description.children[0].includes('恢复会回到原来的工作区'), true)
+    assert.equal(description.children[0].includes('永久删除会移除会话日志，但不删除共享附件'), true)
+    assert.equal(section.children[2].props.className, 'dac-toolbar')
+    assert.equal(collectByClass(section, 'dac-note').length, 0)
+
+    const toolbar = findByClass(section, 'dac-toolbar')
+    // Search box carries the shell's own search glyph, pinned left inside the field.
+    const search = findByClass(toolbar, 'dac-search')
+    assert.equal(search.children[0].type, types.IconSearch)
+    assert.equal(search.children[0].props['aria-hidden'], true)
+    assert.equal(search.children[1].type, 'input')
+    assert.equal(search.children[1].props.placeholder, '搜索标题、目录或工作区…')
+    assert.equal(search.children[1].props.value, '')
+    assert.equal(collectByClass(toolbar, 'dac-select').length, 2)
+    assert.equal(collectByClass(toolbar, 'dac-select-field').length, 2)
+    assert.equal(findByClass(section, 'dac-scope-row'), undefined)
+
+    // One action row above the list: both bulk entry points on the left (the
+    // destructive one second and error-colored), the collapse toggle on the
+    // right, and no duplicate in the toolbar.
+    const listActions = findByClass(section, 'dac-list-actions')
+    const actionButtons = listActions.children.filter(Boolean)
+    assert.deepEqual(actionButtons.map(child => child.children[0]), ['批量归档', '批量删除'])
+    assert.equal(actionButtons[0].props.disabled, false)
+    assert.equal(actionButtons[0].props.className, 'dac-button dac-button-small')
+    assert.equal(actionButtons[1].props.disabled, false)
+    assert.equal(actionButtons[1].props.className, 'dac-button dac-button-small danger')
+    assert.equal(actionButtons[1].props.title, '永久删除一批归档聊天（不可撤销）')
+    assert.equal(findByClass(toolbar, 'dac-list-actions'), undefined)
+    assert.equal(toolbar.children.some(child => child?.children?.[0] === '批量归档'), false)
+    assert.equal(section.children[5], listActions)
+
+    const groups = findByClass(section, 'dac-groups')
+    const groupTitle = findByClass(groups, 'dac-group-title')
+    assert.equal(groupTitle.children[0], 'project')
+    const groupCount = findByClass(groups, 'dac-group-count')
+    assert.equal(groupCount.children[0], '1 条')
+    assert.equal(findByClass(section, 'dac-list'), undefined)
+
+    // Groups start collapsed, so the session rows are not rendered yet.
+    assert.equal(groupRowOf(section).props['aria-expanded'], false)
+    assert.equal(findByClass(groupRowOf(section), 'dac-group-folder').children[0].type, types.IconFolderClose)
+    assert.equal(findByClass(groupRowOf(section), 'dac-group-chevron').children[0].props.className,
+      'dac-group-arrow')
+    assert.equal(findByClass(section, 'dac-group-body'), undefined)
+    assert.equal(findByClass(section, 'dac-row'), undefined)
+    // A single group renders no collapse toggle, so the action row keeps both
+    // bulk entry points rather than disappearing with it.
+    assert.deepEqual(findByClass(section, 'dac-list-actions').children.filter(Boolean).length, 2)
+
+    assert.equal(confirmation.type, types.Modal)
+    assert.equal(confirmation.props.open, false)
+    assert.equal(confirmation.props.title, '永久删除聊天？')
+
+    harness.cleanup()
+    assert.equal(workspaces.list.getSnapshot, original.workspaceGetSnapshot)
+    assert.equal(sessions.list.getSnapshot, original.sessionGetSnapshot)
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('disables batch archiving when the client controller has no archive command', async () => {
+  const workspaces = {
+    list: store(() => ({ items: [], archivedSessionIds: [] })),
+    async refresh() {}
+  }
+  const sessions = {
+    list: store(() => ({ ids: [], byId: {} })),
+    async refresh() {}
+  }
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async () => statusResponse()
+
+  try {
+    const { plugin } = pluginDefinition()
+    const harness = context(workspaces, sessions)
+    plugin.apply(harness.ctx)
+    await settle()
+
+    const section = harness.registrations
+      .find(entry => entry.options.name === 'settings.section').component({ close() {} }).children[0]
+    const batchButton = findByClass(section, 'dac-list-actions').children
+      .find(child => child?.type === 'button' && child.children[0] === '批量归档')
+    assert.equal(batchButton.props.disabled, true)
+    // Deletion does not depend on the archive command: the Host status still
+    // advertises it here, so that entry point stays usable.
+    const deleteButton = findByClass(section, 'dac-list-actions').children
+      .find(child => child?.type === 'button' && child.children[0] === '批量删除')
+    assert.equal(deleteButton.props.disabled, false)
+    assert.equal(findByClass(section, 'dac-description').children[0].includes('当前 DSH 客户端不支持批量归档'), true)
+    harness.cleanup()
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('caps the visible archive count after 99 chats', async () => {
+  const ids = Array.from({ length: 100 }, (_, index) => `archived-${index}`)
+  const byId = Object.fromEntries(ids.map((id, index) => [id, archivedRow({
+    id,
+    displayTitle: id,
+    updatedAt: index
+  })]))
+  let visibleCount = 99
+  const workspaces = {
+    list: store(() => ({ items: [], archivedSessionIds: ids.slice(0, visibleCount) })),
+    async refresh() {}
+  }
+  const sessions = {
+    list: store(() => ({ ids, byId })),
+    async refresh() {}
+  }
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async () => statusResponse()
+  const { plugin } = pluginDefinition()
+  const harness = context(workspaces, sessions)
+
+  try {
+    plugin.apply(harness.ctx)
+    await settle()
+    const ArchiveSettingsSection = harness.registrations
+      .find(entry => entry.options.name === 'settings.section').component
+
+    let heading = ArchiveSettingsSection({ close() {} }).children[0].children[0]
+    assert.equal(heading.children[1].children[0], '99 条聊天')
+
+    visibleCount = 100
+    heading = ArchiveSettingsSection({ close() {} }).children[0].children[0]
+    assert.equal(heading.children[1].children[0], '99+ 条聊天')
+  } finally {
+    harness.cleanup()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('accepts deletion-unavailable status without managed Workspace fields', async () => {
+  const workspaces = {
+    list: store(() => ({ items: [], archivedSessionIds: [] })),
+    async refresh() {}
+  }
+  const sessions = {
+    list: store(() => ({ ids: [], byId: {} })),
+    async refresh() {}
+  }
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async () => statusResponse({
+    deletionSupported: false,
+    deletionUnavailable: '删除暂不可用',
+    restorationSupported: false,
+    restorationUnavailable: '恢复暂不可用'
+  })
+
+  try {
+    const { plugin } = pluginDefinition()
+    const harness = context(workspaces, sessions)
+    plugin.apply(harness.ctx)
+    await settle()
+
+    const rendered = harness.registrations
+      .find(entry => entry.options.name === 'settings.section').component({ close() {} })
+    const section = rendered.children[0]
+    assert.equal(
+      findByClass(section, 'dac-description').children[0],
+      '按工作区分组或单列表浏览归档聊天；当前 DSH 客户端不支持批量归档。恢复暂不可用。删除暂不可用。'
+    )
+    // No permanent-deletion route means no permanent-deletion entry point.
+    const deleteButton = findByClass(section, 'dac-list-actions').children
+      .find(child => child?.type === 'button' && child.children[0] === '批量删除')
+    assert.equal(deleteButton.props.disabled, true)
+    assert.equal(deleteButton.props.title, '删除暂不可用')
+    assert.equal(collectByClass(section, 'dac-note').length, 0)
+    assert.equal(findByClass(section, 'dac-empty').children[0], '暂无归档聊天')
+    harness.cleanup()
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('reports archive entries whose session summary is unreadable', async () => {
+  const workspaces = {
+    list: store(() => ({ items: [], archivedSessionIds: ['missing', 'present'] })),
+    async refresh() {}
+  }
+  const sessions = {
+    list: store(() => ({
+      ids: ['present'],
+      byId: { present: archivedRow({ id: 'present' }) }
+    })),
+    async refresh() {}
+  }
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async () => statusResponse()
+
+  try {
+    const { plugin } = pluginDefinition()
+    const harness = context(workspaces, sessions)
+    plugin.apply(harness.ctx)
+    await settle()
+
+    const section = harness.registrations
+      .find(entry => entry.options.name === 'settings.section').component({ close() {} }).children[0]
+    const notes = collectByClass(section, 'dac-note').map(node => node.children[0])
+    assert.equal(notes.some(text => text.includes('另有 1 条归档记录暂时读不到会话摘要')), true)
+    assert.equal(findByClass(section, 'dac-section-count').children[0], '1 条聊天')
+    harness.cleanup()
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('offers the manual bulk entry point and collapse-all on one row above the list', async () => {
+  const workspaceState = {
+    items: [
+      { workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['a'] },
+      { workspaceId: 'w2', path: '/two', title: 'two', sessionIds: ['b'] }
+    ],
+    archivedSessionIds: ['a', 'b']
+  }
+  const sessionState = {
+    ids: ['a', 'b'],
+    byId: { a: archivedRow({ id: 'a' }), b: archivedRow({ id: 'b', cwd: '/two' }) }
+  }
+  const workspaces = {
+    list: store(() => workspaceState),
+    async refresh() {}
+  }
+  const sessions = {
+    list: store(() => sessionState),
+    async refresh() {}
+  }
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async () => statusResponse()
+
+  try {
+    const { plugin } = pluginDefinition()
+    const harness = context(workspaces, sessions)
+    plugin.apply(harness.ctx)
+    await settle()
+
+    const section = harness.registrations
+      .find(entry => entry.options.name === 'settings.section').component({ close() {} }).children[0]
+    const listActions = findByClass(section, 'dac-list-actions')
+    const actionButtons = listActions.children.filter(Boolean)
+    assert.deepEqual(actionButtons.map(child => child.children[0]), ['批量归档', '批量删除', '展开全部'])
+    assert.equal(actionButtons[2].props.className, 'dac-button dac-button-small dac-list-toggle')
+    assert.equal(findByClass(section, 'dac-section-heading').children.length, 2)
+    assert.equal(findByClass(findByClass(section, 'dac-toolbar'), 'dac-list-actions'), undefined)
+    assert.equal(collectByClass(section, 'dac-group-body').length, 0)
+    assert.deepEqual(
+      collectByClass(section, 'dac-group-row').map(row => row.props['aria-expanded']),
+      [false, false]
+    )
+    harness.cleanup()
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})

@@ -1,0 +1,30 @@
+# 仓库级忽略规则。各插件目录内另有自己的 .gitignore 处理局部产物
+# （node_modules/、coverage/、dist/、*.tgz）。
+#
+# 注意：不要忽略 package-lock.json。零依赖的插件没有 lockfile，但一旦某个插件
+# 引入运行时依赖（现例：dsh-local-plugin-manager 依赖 js-yaml），lockfile 必须
+# 进版本库，否则 CI 无法用固定依赖树校验，发布物会随环境漂移。
+
+# 兜底忽略依赖目录（子目录 .gitignore 之外的任何层级）
+node_modules/
+
+# 打包产物
+*.tgz
+*.tar.gz
+
+# 日志
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# 构建与测试产物
+coverage/
+dist/
+*.tsbuildinfo
+
+# 编辑器与操作系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

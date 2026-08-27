@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-local-plugin-manager
+      name: dsh-local-plugin-manager
+      config:
+        profile: web
