@@ -9,6 +9,20 @@
 # 4. private: true 的包（当前为 dsh-local-plugin-manager）显式拒绝发布。
 # 5. --provenance 由 GitHub OIDC 身份签名，产出“该版本确由本仓库此 commit 发布”
 #    的可验证证明。
+#
+# 认证方式的迁移（重要，勿退化为只用长期 token）：
+# npm 已废弃 granular access token 的 2FA-bypass 能力——先是不能用于账户/包管理，
+# 约 2027 年 1 月起还将失去直接 publish 的权限。官方替代方案是 trusted publishing
+# （OIDC）：无长期 token，每次发布使用短期签名凭证。
+#
+# 但 trusted publisher 必须在【已存在的包】的设置页上配置，所以首个版本只能先用
+# token 发布（本工作流保留 secrets.NPM_TOKEN 正是为此）。正确顺序：
+#   ① 用 NPM_TOKEN 发布首个版本
+#   ② 到 npmjs.com 该包设置页添加 trusted publisher：
+#        组织或用户 = zhaoliang233，仓库 = dsh-plugins，
+#        工作流文件名 = release.yml（只填文件名，含扩展名，大小写敏感）
+#   ③ 验证 OIDC 发布可用后，删除仓库 Secret NPM_TOKEN 并撤销该 token
+# 配置完成后 npm CLI 会自动优先使用 OIDC，无需改动本文件。
 name: Release to npm
 
 on:
@@ -42,8 +56,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          # 不低于 22.14.0：trusted publishing（OIDC）的官方最低要求。
+          node-version: '22.14.0'
           registry-url: 'https://registry.npmjs.org'
+
+      # trusted publishing 需要 npm CLI >= 11.5.1，显式升级以满足该下限。
+      - name: 升级 npm（trusted publishing 要求 >= 11.5.1）
+        run: npm install -g npm@latest
 
       - name: 解析并校验 tag
         id: target
