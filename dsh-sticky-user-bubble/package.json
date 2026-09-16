@@ -1,6 +1,13 @@
 {
   "name": "dsh-sticky-user-bubble",
   "version": "0.1.3",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-sticky-user-bubble"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-sticky-user-bubble#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
   "description": "阅读长对话时把已滚出对话顶部的用户气泡固定在阅读区顶部。",
   "type": "module",
   "main": "lib/index.js",

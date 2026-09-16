@@ -1,6 +1,13 @@
 {
   "name": "dsh-mobile-compat",
   "version": "0.3.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-mobile-compat"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-mobile-compat#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
   "description": "为窄屏触控设备提供版本锁定的移动端适配：侧边栏抽屉、全屏设置、输入区与安全区修正。",
   "type": "module",
   "main": "lib/index.js",

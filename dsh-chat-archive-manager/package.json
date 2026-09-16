@@ -1,6 +1,13 @@
 {
   "name": "dsh-chat-archive-manager",
   "version": "0.1.2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-chat-archive-manager"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-chat-archive-manager#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
   "description": "在设置页提供「已归档」聊天管理：按工作区浏览、批量归档、恢复，以及二次确认的永久删除，不额外创建 Workspace。",
   "type": "module",
   "main": "lib/index.js",

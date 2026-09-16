@@ -1,6 +1,13 @@
 {
   "name": "dsh-extra-context",
   "version": "0.1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-extra-context"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-extra-context#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
   "description": "给当前 DSH 的全部会话与子代理统一附加一段额外说明和上下文：设置页分段维护、实时预览、模型自维护笔记。",
   "type": "module",
   "main": "lib/index.js",

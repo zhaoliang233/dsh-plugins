@@ -1,6 +1,13 @@
 {
   "name": "dsh-local-plugin-manager",
   "version": "0.1.3",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-local-plugin-manager"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-local-plugin-manager#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
   "description": "在「设置 > 插件 > 本地插件」中列出、启停或卸载当前 web profile 的本地 link 插件。",
   "type": "module",
   "main": "lib/index.js",

@@ -1,6 +1,13 @@
 {
   "name": "dsh-default-workspace",
   "version": "0.1.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-default-workspace"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-default-workspace#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
   "description": "创建并保护受管的「通用会话」默认 Workspace，并在侧边栏提供「新建通用会话」入口。",
   "type": "module",
   "main": "lib/index.js",
