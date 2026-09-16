@@ -40,7 +40,19 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # 插件运行时零依赖，不需要安装步骤；pack:check 会自行调用 npm pack。
+      # 依赖安装：多数插件零依赖，但已引入运行时依赖的插件必须在测试前装好。
+      # 现例：dsh-local-plugin-manager 依赖 js-yaml，其 3 个测试文件都会 require 它；
+      # 缺少安装步骤时只有该插件失败，其余零依赖插件仍会通过，症状容易被误读。
+      # 有 lockfile 时用 npm ci 保证依赖树可复现，否则回退 npm install。
+      - name: 安装依赖
+        working-directory: ${{ matrix.plugin }}
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund --registry=https://registry.npmjs.org
+          else
+            npm install --no-audit --no-fund --registry=https://registry.npmjs.org
+          fi
+
       # 显式绑定 npmjs 官方 registry，避免继承开发者机器上的公司私有 registry 配置。
       - name: 语法与静态检查
         working-directory: ${{ matrix.plugin }}
