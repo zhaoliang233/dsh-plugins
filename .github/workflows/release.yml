@@ -60,9 +60,13 @@ jobs:
           node-version: '22.14.0'
           registry-url: 'https://registry.npmjs.org'
 
-      # trusted publishing 需要 npm CLI >= 11.5.1，显式升级以满足该下限。
-      - name: 升级 npm（trusted publishing 要求 >= 11.5.1）
-        run: npm install -g npm@latest
+      # trusted publishing 需要 npm CLI >= 11.5.1。
+      # 注意必须固定在 11.x：Node 22.14.0 只满足 OIDC 的 Node 下限，但【不满足】
+      # npm 12 的 engines（^22.22.2 || ^24.15.0 || >=26.0.0），装 npm@latest 会以
+      # EBADENGINE 失败。11.x 既满足下限，也避开 npm 12 的行为变更（如 allowScripts
+      # 默认关闭）。另注：该 Node 自带 npm 仅 10.9.2，故此步不可省。
+      - name: 升级 npm 至 11.x（trusted publishing 要求 >= 11.5.1）
+        run: npm install -g 'npm@^11.5.1'
 
       - name: 解析并校验 tag
         id: target
