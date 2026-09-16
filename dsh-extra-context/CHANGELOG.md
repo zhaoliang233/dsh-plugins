@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2026-09-16
+
+### Changed
+
+- 首个发布到公共 npm registry 的版本，发布链路改用 GitHub Actions 的 OIDC 可信发布（trusted publishing），不再依赖长期 npm token。
+
+
 ## [0.1.0] - Unreleased
 
 ### Compatibility

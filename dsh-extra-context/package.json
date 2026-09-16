@@ -1,6 +1,6 @@
 {
   "name": "dsh-extra-context",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "给当前 DSH 的全部会话与子代理统一附加一段额外说明和上下文：设置页分段维护、实时预览、模型自维护笔记。",
   "type": "module",
   "main": "lib/index.js",
