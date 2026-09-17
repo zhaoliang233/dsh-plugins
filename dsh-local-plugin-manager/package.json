@@ -1,6 +1,6 @@
 {
   "name": "dsh-local-plugin-manager",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",

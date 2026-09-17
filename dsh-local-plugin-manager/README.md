@@ -22,7 +22,7 @@
 
 ```bash
 dsh plugin --profile web add dsh-local-plugin-manager        # 安装
-dsh plugin --profile web add dsh-local-plugin-manager@0.1.4  # 升级到指定版本
+dsh plugin --profile web add dsh-local-plugin-manager@0.1.5  # 升级到指定版本
 dsh plugin --profile web remove dsh-local-plugin-manager     # 卸载
 ```
 
