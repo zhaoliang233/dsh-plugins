@@ -48,7 +48,8 @@
   "scripts": {
     "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check client.js && bash -n install.sh && bash -n uninstall.sh",
     "test": "node --test test/*.test.js",
-    "verify": "npm run check && npm test"
+    "verify": "npm run check && npm test",
+    "prepublishOnly": "npm run verify"
   },
   "engines": {
     "node": ">=20",
@@ -57,7 +58,9 @@
   "dependencies": {
     "js-yaml": "4.3.2"
   },
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "keywords": [
     "deepseek-harness",
