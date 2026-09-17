@@ -6,6 +6,8 @@
 
 开发 **DeepSeek Harness（DSH）插件** 的工作区：用户提需求，agent 负责调研 DSH 内部机制、实现插件、编写挂载/卸载脚本并验证。
 
+7 个插件都**已发布到公共 npm registry**，用户安装走官方命令；本地 `./install.sh`（`link:` 源码）只用于开发。分发与发布流程见「发布与分发（npm / OIDC）」一节。
+
 ## 插件索引
 
 | 插件 | 一句话说明 |
@@ -18,7 +20,15 @@
 | `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，使“紧凑”排版立即折叠每个回合的思考过程（设置→通用可切回手动） |
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |
 
-每个插件内都有 `AGENTS.md`（技术）与 `README.md`（用户）。新增插件：在本表加一行，并在新目录内建立自己的 `AGENTS.md`。
+用户安装（7 个插件同理，包名 = 目录名）：
+
+```bash
+dsh plugin --profile web add dsh-sticky-user-bubble        # 安装 / 升到 caret 范围内的最新版
+dsh plugin --profile web add dsh-sticky-user-bubble@0.1.4  # 指定版本（升级必须显式写版本号）
+dsh plugin --profile web remove dsh-sticky-user-bubble     # 卸载
+```
+
+改变 profile 组成的安装/卸载都要**由用户重启 `dsh web`** 并刷新页面才生效。每个插件内都有 `AGENTS.md`（技术）与 `README.md`（用户），部分还有 `PUBLISHING.md`（发布清单）与 `CHANGELOG.md`（历史）。新增插件：在本表加一行，并在新目录内建立自己的 `AGENTS.md`。
 
 ## 工作区工具（非插件）
 
@@ -37,17 +47,30 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 
 - 部署为 web profile，宿主组成在 `~/.dsh/profiles/web/`：`cordis.yml` 只有注释和空 `[]`，实际组成 = `package.json#dsh.profile.bundles`（bundle 顺序）+ `cordis.patch.yml`。
 - 插件声明 `dsh.bundle.patch` 并附带 `cordis.patch.yml`，经 `dsh plugin --profile web add/remove` 进入 profile 的依赖与 bundle 顺序。现有插件都走官方 profile 管理；不要重新引入共享 node_modules 符号链接或直接改用户 patch 的 fallback 方案。
+- 两种安装形态并存：**用户机器**从 registry 装（profile 依赖是 caret 范围），**本机开发**用 `link:` 指向源码目录（改完源码需重启 `dsh web`，profile 不复制文件）。
 - 凭据在 `~/.dsh/.credentials.yaml`，经 `ctx.credentials.resolve/describe/set/unset` 读写；附件库（粘贴图片）在 `~/.dsh/attachments/v1/objects/<前2位>/<sha256>`。
 - DSH 源码位置以 `realpath "$(command -v dsh)"` 所属安装为准，当前为 `~/.nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh/`；调研机制时读该安装及其 `node_modules/@deepseek-ai/*/lib/*.js` 与 README。
 - 插件代码或组成变化后，检查 Host 状态接口和浏览器 boot graph。部署配置是否热加载见下节；热加载可用时刷新页面即可，否则需要请求用户重启。
 
-## 本地插件版本策略（用户规则）
+## 插件版本与兼容发布线（用户规则）
 
-本地插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
+插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
 - 当前运行 `@deepseek-ai/dsh 0.1.6-alpha.1`；逐包核对 `0.1.5-rc.2 → 0.1.6-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.6-alpha.1 <0.1.7`，其中 `0.1.6-alpha.1` 是逐版本验证版本。同线后续版本允许带警告运行；跨到 `0.1.7` 前必须重新读取源码和实时契约再扩大范围。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。
 - 声明必须四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门、插件内文档。
+
+## 发布与分发（npm / OIDC）
+
+7 个包都已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token：
+
+- 发布流程：改 `package.json#version` → 写 `CHANGELOG.md` 条目 → 跑该插件的 `npm run publish:check` → `git tag dsh-<插件>-v<版本>` → `git push origin HEAD && git push origin dsh-<插件>-v<版本>`。tag 必须与 `package.json#version` 完全一致；工作流还会拒绝 `private: true` 的包，并在发布后回查 registry。
+- 发版必须由用户明确授权：`commit`/`tag`/`push` 都属「提交规范」里的受限操作（只读检查不受限）。
+- **`release.yml` 在 `npm publish` 前必须安装依赖**：带运行时依赖的插件（现例 `dsh-local-plugin-manager` 的 `js-yaml`）否则会在 `prepublishOnly` 门禁里以 `ERR_MODULE_NOT_FOUND` 失败——`dsh-local-plugin-manager@0.1.4` 就是这样没发出去的。也不要缩短 registry 回查窗口：可见性实测可达数分钟，曾经的 12×10s 把"发布成功"误判成失败，还跳过了 GitHub Release 创建。
+- 认证：每个包在 npmjs.com 设置页配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`）。报 `ENEEDAUTH` / `Unable to authenticate` 时先核对这三个字段。
+- 有硬编码版本断言的 manifest 测试要同步（现例：`dsh-local-plugin-manager`、`dsh-mobile-compat`），否则发布门禁会失败。
+- 发布后核对三件事：registry 上的版本、该版本 `dist.attestations` 是否存在（证明是 OIDC 发布）、GitHub Release 是否创建。`gh` 已装在 `/usr/local/bin/gh`（brew 在这台 Intel Mac 上装不了 gh，用的是官方预编译二进制），已登录 `zhaoliang233`。
+- 升级语义：profile 依赖是 caret 范围，`dsh plugin --profile web add <包名>` **不会**自动升到新版本，必须显式写 `@<版本>`。
 
 ## 当前 DSH Web 进程（重要）
 
@@ -65,7 +88,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 
 ### 挂载/卸载脚本模式
 
-每个插件带 `install.sh` / `uninstall.sh`，默认 `DSH_PROFILE=web`：
+**分发主路线是 npm 官方安装**（见「发布与分发（npm / OIDC）」），`install.sh` / `uninstall.sh` 只服务开发与本机联调。每个插件都带这两个脚本，默认 `DSH_PROFILE=web`：
 
 - package 声明 `dsh.bundle.patch`；install 先跑校验，再调用 `dsh plugin --profile "$DSH_PROFILE" add "link:$PLUGIN_DIR"`；uninstall 调用官方 remove。
 - `cordis.patch.yml` 属于插件发布物；profile 的 `cordis.patch.yml` 属于用户覆盖层，安装脚本不得直接改写。
@@ -109,16 +132,21 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
    - 入口路径是**契约**，不是代码组织上限：宿主其余代码按模块拆到 `lib/<模块>.js`（现例：`dsh-chat-archive-manager/lib/archive-deletion.js`、`dsh-local-plugin-manager/lib/profile-manager.js`）。`lib/index.js` 只留 Cordis 入口/服务注册/HTTP 路由；单文件超过约 400 行，或出现独立事务边界（文件事务、profile 管理、凭据读写）时**按边界拆，不按行数硬拆**——多个能力共享同一套状态时，硬拆只会制造跨文件隐式状态。
    - `client.js` 是**单文件产物**，不是单文件源码：浏览器只按 `dsh-client-modules` 广告的 combo URL 取 bundle（见上文「双面插件」），factory 的 `require` 也只解析 seed 词与 boot graph 包名，相对路径必然抛错。要拆源码必须加构建步骤产出 `client.js`（官方 `dsh-client-ui-*` 即 tsdown 构建）；不引入构建时，在 factory 内用分区与普通函数做逻辑分层。
    - 新增 `lib/*.js` 时必须同步 `package.json#scripts.check` 的 `node --check` 列表，以及（若该插件有）`scripts/check-pack.js` 的期望文件清单。
-3. `./install.sh` 挂载 → 需要时请用户重启 → 验证 → 收尾（文档、清理）。
+   - 完整的包还会带 `CHANGELOG.md`（发布时写条目）与 `scripts/check-pack.js` 的精确打包白名单，必要时 `PUBLISHING.md`、机器可读契约文件；`package.json` 必须有 `repository`（provenance 校验要求）、`publishConfig.access: "public"`、`license`、`engines.node`，并绑好 `prepublishOnly → publish:check` 门禁。
+3. `./install.sh` 挂载（或直接 `dsh plugin --profile web add dsh-<插件>` 装 registry 版本）→ 需要时请用户重启 → 验证 → 收尾（文档、清理）→ 交付给用户时按「发布与分发」升版本、打 tag、发布并核对。
 
 ## 常用操作
 
 ```bash
-cd ~/Documents/dsh-plugins && ./install-all.sh      # 挂载工作区内全部插件
-cd ~/Documents/dsh-plugins && ./uninstall-all.sh    # 卸载全部插件
-cd ~/Documents/dsh-plugins/<插件名> && ./install.sh # 安装/挂载单个插件（幂等）
+cd ~/Documents/dsh-plugins && ./install-all.sh       # 开发路线：用 link: 挂载全部插件
+cd ~/Documents/dsh-plugins && ./uninstall-all.sh     # 卸载全部
+cd ~/Documents/dsh-plugins/<插件名> && ./install.sh  # 单个插件（幂等）
 cd ~/Documents/dsh-plugins/<插件名> && ./uninstall.sh
-node --check <插件名>/lib/*.js                      # 改动宿主代码后逐文件语法检查
+node --check <插件名>/lib/*.js                       # 改动宿主代码后逐文件语法检查
+
+dsh plugin --profile web add dsh-extra-context       # 用户路线：装 registry 上的版本
+dsh plugin --profile web add dsh-extra-context@0.1.2 # 升级（caret 范围不会自动升）
+dsh plugin --profile web remove dsh-extra-context    # 卸载
 ```
 
 批量脚本扫描一级子目录中的对应脚本，默认使用 `DSH_PROFILE=web`（可被调用方覆盖）；单个插件失败会继续处理其余插件，最后汇总并返回非零退出码。所有卸载脚本都给 pnpm 传 `--config.minimumReleaseAge=0`，避免卸载时 profile 重算被刚发布的其他包卡住；该参数只对当前命令生效，不改持久配置。
@@ -130,6 +158,22 @@ dsh plugin --profile web remove <插件名> --config.minimumReleaseAge=0
 ```
 
 **卸载原则**：官方 bundle 插件只移除 profile 依赖和 bundle 层，运行时补丁必须可逆；不改 dsh 源码与 `@deepseek-ai/*` 包，也不自动删除插件创建的用户数据。
+
+## 文档分工与语言（用户规则）
+
+每个插件的文档固定四类职责，**全部纯中文**（不再维护中英双语）：
+
+| 文档 | 面向谁 | 只写什么 |
+|---|---|---|
+| `README.md` | 使用者（npm 页面 / GitHub 访客） | 当前功能、要求（含兼容范围）、安装与卸载、使用方法、注意事项与已知边界 |
+| `AGENTS.md` | 后续 agent / 维护者 | 技术契约、结构与实现约束、历史沿革与决策理由、踩坑、发布与安装路线 |
+| `PUBLISHING.md` | 发布者 | 该插件的发布闸门、打 tag、tarball 隔离验证、发布后抽查；没有就不要新建，除非确有插件专有清单 |
+| `CHANGELOG.md` | 历史记录 | 每个版本的变更（含"移除了什么、为什么"） |
+
+- **README 不写沿革、不写决策**：例如"本包由 X 改名而来""曾用 Y 方案已移除""当时是未发布候选"这类内容属于 `AGENTS.md` / `CHANGELOG.md`，不进入 README。
+- **写之前先判断必要性**：不写会不会让后人踩坑？不会就不写；一句话能说清就别写一段；别处已解释过的机制只留指向（如指向根 `AGENTS.md`）。
+- 安装段固定给官方命令（`dsh plugin --profile web add/remove <包名>`，升级写成 `@<版本>`），源码 `./install.sh` 只作为开发路线一句话带过；并写明安装改变 bundle 列表需要重启 `dsh web`。
+- 机器可读的数据文件（如 `dsh-mobile-compat/compatibility.json`）不属于"文档"，保留英文；改它必须同步 `scripts/check-compat.js` 与相关测试。
 
 ## 提交规范（用户规则）
 
