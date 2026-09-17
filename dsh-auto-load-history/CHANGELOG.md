@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+### Changed
+
+- 改用 GitHub Actions 的 OIDC 可信发布（trusted publishing）自动发布，不再依赖长期 npm token。
+
+
 ## 0.1.0
 
 ### Compatibility
