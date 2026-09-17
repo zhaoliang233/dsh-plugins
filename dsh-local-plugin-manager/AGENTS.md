@@ -77,3 +77,8 @@ npm run verify
 ```
 
 真实 GUI 至少覆盖：第三个 tab 顺序、当前 profile 的全部 link 插件、每个插件的说明行与缺失占位、长说明的两行截断、源码路径截断、self 保护、禁用/启用后 Host fiber 与页面刷新、卸载确认、卸载后 profile manifest/lock、Figma patch 原样保留、重启后 tombstone 清理，以及非 loopback/跨源 action 拒绝。
+
+## 发布与安装路线
+
+- 用户路线是官方命令 `dsh plugin --profile web add dsh-local-plugin-manager`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线，它会先装 `js-yaml` 再跑 `npm run verify`。
+- 发布：`npm run verify`（`check` + `test`）是发布闸门，`prepublishOnly` 已绑定它；本包没有 `pack:check`。`.github/workflows/ci.yml` 在 Node 20/22 上执行同一闸门，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-local-plugin-manager-v<版本>` tag 后经 npm trusted publishing（OIDC）完成（`private: true` 会被工作流拒绝，本包已改为可公开发布）。

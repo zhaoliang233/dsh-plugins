@@ -14,7 +14,7 @@ const installScript = await readFile(new URL('../install.sh', import.meta.url), 
 
 test('declares one compatible-release-line dual Host and Settings-tab bundle', () => {
   assert.equal(manifest.name, PLUGIN_NAME)
-  assert.equal(manifest.version, '0.1.3')
+  assert.equal(manifest.version, '0.1.4')
   // 本包已由「仅本地 link 使用」改为可公开发布，护栏随之反转：
   // 断言必须显式声明 public，防止将来被误设为 private 或不声明 access。
   assert.equal(manifest.publishConfig.access, 'public')
