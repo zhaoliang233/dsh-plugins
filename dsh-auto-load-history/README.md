@@ -1,25 +1,20 @@
 # dsh-auto-load-history
 
-给 DeepSeek Harness Web 用的纯客户端插件：**打开会话时自动把整段历史加载完**。
+给 DeepSeek Harness Web 用的纯客户端插件：**打开会话时自动把整段历史加载完**，让「紧凑」排版立刻折叠每个回合的思考过程。
 
 ## 为什么需要它
 
-DSH 的「紧凑」排版只会在历史**全部加载完成**后才折叠每个回合的思考过程——核心的判断是 `ChatNodeSeat` 里的 `!historyIncomplete`，而 `historyIncomplete` 就是会话快照的 `hasMore`。也就是说只要还有更早的历史没加载，紧凑排版对所有回合都不生效，看起来和「普通」排版一样。
+DSH 的「紧凑」排版只有在历史**全部加载完成**后才会折叠每个回合的思考过程（核心判断是 `!historyIncomplete`，即会话快照的 `hasMore`）。只要还有更早的历史没加载，紧凑排版对所有回合都不生效，看起来和「普通」排版一样。
 
-清掉 `hasMore` 只有两条路：
-
-- 会话顶部反复点「加载更早」（每页 50 条消息）；
-- 点右侧回合导航里**最早**那个未加载的圆点（`loadThrough`，每页 200 条）。
-
-长会话就是几十次点击。这个插件把这件事自动化：会话一打开就开始分页补齐，紧凑排版随即生效。你不再需要为了看一眼折叠后的全貌而手动翻页。
+清掉 `hasMore` 原本只有两条路：在会话顶部反复点「加载更早」（每页 50 条），或点右侧回合导航里最早那个未加载的圆点（每页 200 条）。长会话就是几十次点击。这个插件把这件事自动化：会话一打开就分页补齐，紧凑排版随即生效。
 
 ## 行为
 
-- **触发**：当前查看的会话进入 `open` 状态且 `hasMore` 为真时开始；一页接一页，直到 `hasMore` 变成 `false`（整段日志加载完）。
-- **不会打断阅读**：如果读者已经向上滚离流底部，插件会暂停分页；等读者回到（接近）底部再继续。因此向上预加载内容不会把正在读的内容挤走。
+- **触发**：当前查看的会话进入 `open` 状态且 `hasMore` 为真时开始，一页接一页，直到 `hasMore` 变成 `false`。
+- **不打断阅读**：读者已经向上滚离流底部时暂停分页，回到（接近）底部再继续，因此预加载不会把正在读的内容挤走。
 - **失败闭合**：连续 3 页没有推进窗口（读取失败、日志到底但标记未清等）就停止本次补齐，把控制权交回 DSH 原生的「加载更早」按钮。
-- **可分页共存**：你自己点「加载更早」或点回合导航也完全没问题，插件只会在需要时继续补下一页。
-- **不写入任何会话数据**：只用公开的客户端会话接口读取更早的历史页，和点「加载更早」按钮做的事完全一样。
+- **与手动分页共存**：你自己点「加载更早」或点回合导航都没问题，插件只在需要时继续补下一页。
+- **不写入任何会话数据**：只用公开的客户端会话接口读取更早的历史页，和点「加载更早」做的事完全一样。
 
 ## 设置
 
@@ -28,26 +23,24 @@ DSH 的「紧凑」排版只会在历史**全部加载完成**后才折叠每个
 - **自动**（默认）：打开会话时自动加载全部历史。
 - **手动**：DSH 原生行为，只有你自己点「加载更早」才分页。
 
-这个偏好属于浏览器端的阅读习惯，保存在浏览器 `localStorage`（键 `dsh-auto-load-history.enabled`），跨标签页同步，不影响其他机器或其他浏览器。卸载插件不会删除它（不会修改 DSH 源码、会话历史或 `~/.dsh/settings.yaml`）。
+这个偏好是浏览器端的阅读习惯，保存在浏览器 `localStorage`（键 `dsh-auto-load-history.enabled`），跨标签页同步，不影响其他机器或其他浏览器。卸载插件不会删除它。
 
-## 安装 / 卸载
-
-```bash
-cd ~/Documents/dsh-plugins/dsh-auto-load-history
-./install.sh          # 默认 DSH_PROFILE=web
-```
-
-安装通过 DSH 官方 profile manager 以 `link:` 依赖挂载。**组成变化后请在 Warp 中重启 `dsh web` 并刷新页面**（之后只改 `client.js` 时刷新即可，或在 client-plugin watcher 运行时自动重载）。
+## 安装与卸载
 
 ```bash
-./uninstall.sh        # 从 profile 移除依赖与 bundle 层
+dsh plugin --profile web add dsh-auto-load-history        # 安装
+dsh plugin --profile web add dsh-auto-load-history@0.1.2  # 升级到指定版本
+dsh plugin --profile web remove dsh-auto-load-history     # 卸载
 ```
 
-## 兼容范围
+已发布为 [`dsh-auto-load-history`](https://www.npmjs.com/package/dsh-auto-load-history)。profile 依赖是 caret 范围，升级需要显式写版本号。安装会向 profile 增加 bundle，而 bundle 列表只在启动时读取，因此**需要重启 `dsh web` 并刷新页面**。
 
-- 支持范围：`@deepseek-ai/dsh >=0.1.5-alpha.1 <0.1.6`，其中 `0.1.5-alpha.1` 已逐版本核对。
-- 同线后续版本可带警告运行，但客户端会继续用能力检查决定是否启用（缺少 `SessionFace.loadOlder` 等契约时保持惰性，不会报错）。
-- 跨到 `0.1.6` 之前必须重新读取 DSH 源码与实时契约再扩大范围。
+从源码运行：`./install.sh` 通过官方 profile manager 安装 `link:<源码目录>`（默认 `DSH_PROFILE=web`），`./uninstall.sh` 移除。卸载只移除 profile 依赖与 bundle 层，不修改 DSH 源码、会话历史或 `~/.dsh/settings.yaml`。
+
+## 要求
+
+- **不用重启也能用**：这是纯客户端插件，改 `client.js` 后刷新页面即可（除非组成变化）。
+- 支持范围：`@deepseek-ai/dsh >=0.1.6-alpha.1 <0.1.7`，其中 `0.1.6-alpha.1` 已逐版本核对。同线后续版本可带警告运行，客户端继续用能力检查决定是否启用（缺少 `SessionFace.loadOlder` 等契约时保持惰性，不会报错）；跨到 `0.1.7` 之前必须重新读取 DSH 源码与实时契约。
 
 ## 已知限制
 
@@ -56,3 +49,7 @@ cd ~/Documents/dsh-plugins/dsh-auto-load-history
 - 若整段日志在极短时间内被极限压缩或读取超时，插件停止后需要手动点「加载更早」。
 
 技术细节、契约核对位置与验证清单见 [`AGENTS.md`](./AGENTS.md)。
+
+## License
+
+MIT

@@ -58,6 +58,11 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 `>=0.1.6-alpha.1 <0.1.7`，`0.1.6-alpha.1` 已逐版本核对；同线后续版本带警告运行，客户端能力检查（`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源。
 
+## 发布与安装路线
+
+- 用户路线是官方命令 `dsh plugin --profile web add dsh-auto-load-history`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线。
+- 发布：`npm run publish:check` 是唯一闸门（语法、测试、`scripts/check-pack.js` 的 tarball 白名单），`install.sh` 也必须先跑完整闸门；`.github/workflows/ci.yml` 只验证 Node 20/22，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-auto-load-history-v<版本>` tag 后经 npm trusted publishing（OIDC）完成。
+
 ## 验证
 
 ```bash
