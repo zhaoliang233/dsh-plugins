@@ -92,4 +92,8 @@ Host 测试职责：`test/archive-deletion.test.js` 用 `fakeLiveRuntime()`/`tra
 
 真实 GUI 验证至少覆盖：status/boot graph、旧版 archive Workspace 注册已移除、普通分组中不出现归档专用 Workspace、侧边栏一级“已归档”入口不存在、Settings 左侧“归档管理”菜单使用归档图标、页面标题无图标且计数以 8px 间距紧跟（含 99/100 边界）、红色删除按钮与确认 Modal、恢复到现有 Workspace / Workspace 已删除时进入未分组、live/cached delete 拒绝（运行中或有排队输入的 live 会话返回 `session-busy`；**本进程打开过的空闲 live 会话不再要求重启 `dsh web`，卸载后直接实删**，且删完 `lsof` 不再持有该会话的 `session.lock`）、隔离 profile 的 cold JSONL 实删；分组顺序与侧边栏一致、空组不显示、未分组桶、搜索过滤与强制展开、折叠状态、`归档先后` 排序、“匹配 n 条”与排除项提示、范围下拉（全部/各工作区/未分组）、预设档位与“1 天前”的日历边界、预览逐条取消、50 条确认闸门、执行进度与中止、结果清单（跳过/失败）、「撤销本次归档」、归档后列表计数即时更新；说明段紧跟标题且工具栏在其下方、搜索框左侧是官方搜索图标、批量归档在列表上方一行最左且“展开全部”在最右（无省略号）、按钮计数为半角括号；组头为原生工作区行形态（hover 换三角箭头、整行点击展开、默认折叠）、会话行为无边框卡片（hover 出现底色、无横线、无竖引导线、文字与组标题对齐）、meta 只显示相对时间（分组“20 天”/单列表“工作区 · 20 天”，都不含原位与目录）；批量删除按钮紧跟批量归档、同为 26px、间隔 8px、底色为危险色、`deletionSupported=false` 时禁用，删除弹窗第 2 步必须勾选确认才能执行、结果页没有撤销按钮、执行后页面计数即时减少；以及**批量弹窗在 33 条候选与窄视口下标题栏与底部按钮始终可见、只有清单滚动**。
 
-`.github/workflows/ci.yml` 只在 Node 20/22 执行发布闸门，不发布 npm。包已重命名为 registry 检查时尚未发布的 `dsh-chat-archive-manager`；`PUBLISHING.md` 记录发布前重新确认名称可用性、补齐公开仓库元数据和验证准确 tarball 的要求。
+## 发布与安装路线
+
+- 用户路线是官方命令 `dsh plugin --profile web add dsh-chat-archive-manager`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线。
+- 发布：`npm run publish:check` 是唯一闸门（语法、测试、`scripts/check-pack.js` 的 tarball 白名单），`install.sh` 也必须先跑完整闸门；`.github/workflows/ci.yml` 只验证 Node 20/22，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-chat-archive-manager-v<版本>` tag 后经 npm trusted publishing（OIDC）完成。
+- 改动删除事务或新增已验证 DSH 版本的发布，按 `PUBLISHING.md` 的破坏性能力清单逐项核对。

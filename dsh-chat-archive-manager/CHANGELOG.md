@@ -1,104 +1,107 @@
-# Changelog
+# 变更记录
 
-All notable changes to this project will be documented in this file.
+本文件记录本项目的所有重要变更。
 
-## [0.1.2] - Unreleased
+## [0.1.3] - 2026-09-17
 
-### Changed
+### 文档
 
-- Route Session restore through the public `WorkspaceRegistry.unarchiveSession()` API instead of writing registry state directly: the private writer is no longer a precondition, restore stays serialized behind destructive transactions, and an unarchived id still reports 409 `session-not-archived`.
-- Shapes every archived row like DSH's own archived-session page: no separators, an 8px-radius card that highlights on hover, a 13px title, and 12px tertiary meta. The hover token is `--dsw-alias-interactive-bg-hover` rather than the native page's `--dsw-alias-bg-layer-1`, which resolves to the panel's own white in the light theme and therefore highlights nothing there.
-- Replaces the absolute timestamp with a relative last-activity label (`20 天`, `1 个月`) using DSH's own thresholds, and drops the restore position and directory name from row meta; the Workspace name now leads the meta in `单列表` only.
-- Separates Workspace groups by spacing instead of horizontal rules and removes the nested group's vertical guide line, so the group header alone distinguishes a Workspace.
-- Renames the Settings entry and page heading from `已归档` to `归档管理` (one `SECTION_TITLE` constant behind the nav label, the heading, and the nav-icon patch, which matches that exact text).
-- Moves the page paragraph directly under the heading and the controls (search, view, sort) below it, so the page reads as title → explanation → controls → actions → list.
-- Moves `批量归档` out of the toolbar to the left end of the single row above the list, keeping `展开全部/折叠全部` at its right end; that row now always renders, and only the collapse toggle is conditional.
-- Gives the search box the shell's own search glyph (absolutely positioned inside the field, with the input inset by 36px) instead of a bare input.
-- Rewrites the page paragraph: `按工作区分组或单列表浏览归档聊天；批量归档支持按时间条件筛选。恢复会回到原来的工作区，原 Workspace 已删除时进入未分组；永久删除会移除会话日志，但不删除共享附件。` It now names both list views, drops the redundant "由你手动发起" (bulk archiving is a feature name, not a scheduling promise), states that restore returns to the original Workspace instead of the vague "回到普通列表", and joins restore and deletion into one sentence while both work.
+- 全部文档改为纯中文，不再维护中英双语；`README.md` 收敛为「功能 → 要求 → 安装与卸载 → 使用 → 永久删除的语义 → 注意事项」，只描述当前行为。
+- 安装入口改为官方命令 `dsh plugin --profile web add/remove dsh-chat-archive-manager`，并补上升级方式（profile 依赖是 caret 范围，需显式写版本号）；`./install.sh` 明确为源码 `link:` 开发路线。
+- 沿革（候选改名、名称可用性核对、发布前元数据要求）移入 `AGENTS.md` 与历史条目。
 
-### Added
+## [0.1.2] - 2026-09-17
 
-- Adds `批量删除` next to `批量归档` in the row above the list: the same three-step dialog, but over the archived chats themselves and ending in permanent deletion. It is error-colored like the per-row `永久删除` action, keeps an 8px gap from `批量归档`, disables itself when the Host reports no usable deletion route, always requires the acknowledgment checkbox, runs one durable deletion per chat with progress and abort, and offers no undo because deletion cannot be rolled back.
+首个公开发布到 npm registry 的版本。
 
-- Groups archived chats by their owning Workspace in DSH's own Workspace order, with one Ungrouped bucket, empty groups omitted, and a per-group count. A Workspace's archived chats keep their `sessionIds` slot, so a restore returns to the original position.
-- Adds a search box (title, directory, Workspace), a `按工作区分组`/`单列表` view switch, and `最近更新`/`归档先后` sorting. Archive order comes from the append order of `archivedSessionIds`, because DSH stores no archive timestamp.
-- Adds batch archiving from a three-step flow: scope (all chats, one Workspace, or Ungrouped) plus a cutoff preset of 24 hours, 1, 7, 15, 30, or 90 days or a custom local-midnight date; a frozen preview where every row can be deselected; and an execution step with progress, abort, per-chat failure reporting, and a one-click `撤销本次归档` for the batch just archived. The scope is chosen inside that dialog, so the page adds no per-Workspace duplicate entry.
-- Labels the bulk entry point `批量归档` without an ellipsis so it cannot read as an in-progress operation, and resolves `1 天前` from local midnight today rather than duplicating the rolling 24-hour window.
-- Keeps the batch dialog's title and action buttons visible: the actions moved into the Modal `footer` slot and only the chat list scrolls, with a tighter header and body margin.
-- Renders each workspace group header as DSH's own workspace row: folder icon that switches with the expanded state, a chevron that replaces it on hover and rotates when open, the title, and a muted count on one 34px row that toggles on click; nested session cards align their text with the group title.
-- Collapses every workspace group by default, with `展开全部/折叠全部` as a small button on the row directly above the list instead of the title row or toolbar.
-- Draws its own select and date indicators instead of relying on the browser: the arrow keeps a symmetric inset from the right edge, and the date field matches the select styling with a themed calendar glyph and a full-surface picker hit area.
-- Declares those mask glyphs on the control itself and percent-encodes the SVG payloads, fixing the solid-square indicators the portaled batch dialog showed when the variable could not be inherited.
-- Merges the page notes into one paragraph and rewrites the bulk sentence so it no longer reads like an automatic job.
-- Moves `折叠全部/展开全部` from the crowded toolbar row to the right end of the title row, and renders count-bearing action labels with half-width parentheses (`开始归档(3)`).
-- Shows the preview fully selected by storing deselected ids instead of selected ones, and moves `全选/全不选` onto the summary row as a compact 26px button rather than a row of its own; an empty selection now says so and disables the archive action.
-- Default-excludes running/waiting, blank, currently open, and all subagent chats from batch candidates; each exclusion is an explicit checkbox and the counts of eligible and excluded chats are shown live.
-- Skips a chat that gained activity between the preview and the execution, and reports it instead of archiving it. Above 50 selected chats the preview requires an explicit acknowledgment.
-- Reports archived ids whose session summary is currently unreadable instead of dropping them silently.
+### 变更
 
-### Fixed
+- 恢复改走公开的 `WorkspaceRegistry.unarchiveSession()`，不再直接写 registry state：私有 writer 不再是前置条件，恢复继续排在破坏性事务之后，未归档 id 仍返回 409 `session-not-archived`。
+- 每行都改成与 DSH 自带归档页同形的卡片：无分隔线、8px 圆角、hover 出现底色、标题 13px、副标题 12px 弱化。hover 用 `--dsw-alias-interactive-bg-hover`，而不是原生页的 `--dsw-alias-bg-layer-1`（后者在浅色主题下就是面板底色，等于没有 hover 效果）。
+- 用相对最近更新（`20 天`、`1 个月`）取代绝对时间戳，并从副标题里去掉恢复位置与目录名；工作区名只在单列表中作为开头。
+- 工作区分组之间改用间距区分，去掉嵌套组的竖直引导线，只靠组头表达工作区。
+- 设置入口与页面标题由 `已归档` 改名为 `归档管理`（导航标签、页面标题与图标补丁共用同一个 `SECTION_TITLE` 常量）。
+- 页面说明段移到标题正下方、控件（搜索/视图/排序）移到说明之下，页面顺序固定为 标题 → 说明 → 控件 → 操作 → 列表。
+- `批量归档` 从工具栏移到列表正上方唯一一行的最左端，`展开全部/折叠全部` 留在最右端；该行始终渲染，只有折叠按钮是条件渲染。
+- 搜索框改用外壳自带的搜索图标（绝对定位在框内，输入区左侧留出 36px）。
 
-- Tags the injected stylesheet with `data-plugin="dsh-chat-archive-manager"`. DSH claims every untagged `<style>` for whichever client bundle materializes next and its hot reload removes `style[data-plugin=<id>]`, so an untagged sheet could be handed to another plugin and then deleted — or kept after an update — and the page showed the previous bundle's rules until a manual refresh.
-- Permanently deletes an archived chat that this `dsh web` process has opened but is no longer using, instead of refusing with "restart dsh web". DSH registers every resumed Session through a process-lifetime `ctx.effect` and keeps its JSONL write lease open, and no Host API closes a Session, so an idle archived chat could previously only be deleted after a restart. The delete path now unloads exactly that one idle Session in the agent factory's own disposal order (cancel the driver, await the settled activity, dispose the agent scope, release the write lease, detach both registry entries) after every read-only check has passed, and re-checks idleness immediately before unloading. A running Session or one with queued input is refused as `session-busy`; a runtime whose private structure does not match the verified shape keeps the previous fail-closed refusal, and cold-Session deletion is unaffected either way.
-- Confirms in the permanent-deletion dialog that a chat still open in the current `dsh web` has its Session closed first.
+### 新增
 
-### Notes
+- 列表正上方一行增加 `批量删除`：与批量归档同一套三步弹窗，但作用于归档聊天本身并以永久删除结束；与单行「永久删除」同款危险色，与 `批量归档` 保持 8px 间距，宿主无可用删除能力时整体禁用，无论几条都必须勾选确认，逐条串行并支持进度与中止，结果页没有撤销。
+- 按工作区分组浏览：只渲染非空组，其余进入唯一的“未分组”桶，每组带计数；归档聊天保留原 Workspace 的席位，恢复时回到原位置。
+- 搜索框（标题 / 目录 / 工作区）、`按工作区分组`/`单列表` 视图切换，以及 `最近更新`/`归档先后` 排序（归档顺序取自 `archivedSessionIds` 的追加序，因为 DSH 不记录归档时间戳）。
+- 批量归档的三步流程：范围（全部 / 某个工作区 / 未分组）加时间条件（24 小时、1/7/15/30/90 天，或自定义日期的本地 00:00）、冻结预览、执行进度与中止、逐条失败报告，以及针对刚归档批次的「撤销本次归档」。范围只在弹窗内选择，页面不再重复提供按工作区的入口。
+- 批量入口文案固定为不带省略号的 `批量归档`（避免被读成正在执行）；`1 天前` 取本地今天 00:00，刻意不与滚动 24 小时重复。
+- 弹窗标题与操作按钮常驻：动作按钮放进 Modal 的 `footer`，只有聊天列表滚动。
+- 组头渲染成 DSH 自己的工作区行：随展开状态切换的文件夹图标、hover 时替换为并随展开旋转的箭头、标题与弱化计数，34px 一行、整行可点。
+- 所有工作区分组默认折叠，`展开全部/折叠全部` 是列表上方一行里的紧凑按钮。
+- 自绘下拉与日期指示器（不依赖浏览器原生箭头），日期字段与下拉同款，图标用主题色、点击控件任意位置都能打开日历。
+- 把 mask 变量定义在控件自身并对 SVG 数据 URI 做百分号编码，修掉批量弹窗（portal 到 `document.body`）里继承不到变量时出现的实心方块指示器。
+- 预览默认全选（内部存的是被取消勾选的 id），`全选/全不选` 是汇总行里的 26px 紧凑按钮；取消到 0 条时汇总文案会说明并禁用归档按钮。
+- 批量候选默认排除运行中/等待交互、空白、当前打开以及全部子代理聊天；每个排除项都是显式勾选框，并实时显示可用与排除条数。
+- 预览与执行之间出现新活动的聊天会被跳过并列出；超过 50 条需要显式勾选确认。
+- 读不到摘要的归档 id 会被报告，而不是静默丢弃。
 
-- Both features are client-bundle changes only: archiving uses DSH's own `workspaces.archiveSession()` client command, so no Host route, private ABI access, or Workspace accounting rewrite was added. Batch archiving runs one durable Host operation per chat, serially.
-- Batch archiving and the undo action disable themselves when the client controller does not expose `archiveSession`, and undo also requires the existing restore route to be available; grouping stays available in both cases.
+### 修复
 
-## [0.1.1] - Unreleased
+- 注入的样式表补打 `data-plugin="dsh-chat-archive-manager"`，避免未打标签的样式被别的 bundle 认领、升级后残留，导致页面继续使用上一代规则直到手动刷新。
+- 本进程打开过、当前已空闲的归档聊天现在可以直接永久删除，不再一律要求重启 `dsh web`：在所有只读校验通过后，按 agent factory 自己的卸载顺序卸载这一个空闲会话（取消 driver、等待活动结束、dispose agent scope、释放 JSONL 写租约、摘除两个 registry 条目），并在真正卸载前重新确认空闲。运行中或有排队输入的会话仍返回 `session-busy`；私有结构与已验证形状不符时保持原有的 fail-closed 拒绝。
+- 永久删除确认弹窗会说明：仍开在当前 `dsh web` 的聊天会先关闭其会话再删除。
 
-### Compatibility
+### 说明
 
-- Declare the DSH compatibility range a second time in the official `package.json#engines.dsh` field (new in DSH 0.1.6) and guard it against `dshCompatibility.range` in the manifest test.
+- 两组批量功能都是纯客户端改动：归档使用 DSH 自带的 `workspaces.archiveSession()` 客户端命令，因此没有新增宿主路由、私有 ABI 访问或 Workspace 记账改写；批量归档每条一次 durable 宿主操作，串行执行。
+- 客户端 controller 未暴露 `archiveSession` 时批量归档与撤销自动禁用；撤销还需要宿主恢复路由可用；两种情况下列表分组都仍然可用。
 
-- Re-audited the Host, client, Web authentication, Settings slot, Workspace registry, Session controller, and JSONL persistence contracts against DSH `0.1.6-alpha.1`; the JSONL backend gained only the message-projection argument on `Session.fromRestore`, so the fail-closed deletion runtime still resolves and the isolated host reports `deletionSupported`/`restorationSupported` as true. Moved the compatible release line to `>=0.1.6-alpha.1 <0.1.7`; only `0.1.6-alpha.1` is individually verified.
-- Re-audited the Host, client, Web authentication, Settings slot, Workspace registry, Session controller, and JSONL persistence contracts against DSH `0.1.5-alpha.1`.
-- Narrowed the compatible release line to `>=0.1.5-alpha.1 <0.1.6`; only `0.1.5-alpha.1` is individually verified.
-- Re-checked the deletion ABI source against the locally running DSH `0.1.5-rc.1`: Workspace registry caches, `JsonlBackendTracker` sets/maps, `migrationPreparations`/`coldLogMemo`, and the generation-blind `locate()` contract are unchanged. `0.1.5-rc.1` is deliberately **not** added to `verifiedVersions` because no full end-to-end delete/restore run was performed on it.
+## [0.1.1] - 本地候选
 
-### Fixed
+### 兼容性
 
-- Refuse a Session log that DSH has not migrated to the current v3 generation (`session.jsonl[.zstd]`, `session.vN.jsonl[.zstd]`) with an explicit `unsupported-artifact` migration message. `JsonlSessionPersistence.locate()` is generation-blind, so the previous code probed an absent v3 path and leaked a raw `ENOENT` into a generic "restart dsh web and retry" failure that could never succeed.
-- Report an artifact that vanished between listing and validation as `session-not-found` (404) instead of an internal error.
-- Test fixtures now mirror the real generation-blind `locate()` contract, and the legacy-generation regression covers both plaintext and zstd artifacts so this failure mode can no longer hide.
-- Migrated permanent deletion from the removed coordinator and direct persistence methods to the `0.1.5-alpha.1` `create/open/stat/list` handle model.
-- Added fail-closed probes for `JsonlBackendTracker`, open writers and handles, pending materialization, migration preparation, compression mode, and cold-log cache shape.
-- Bound plaintext and zstd deletion witnesses to matching `list()` and `stat()` revisions, backend-decoded headers, and physical inode/size observations.
-- Tombstone guards now drain admitted per-session operations and global listings before rename, reject later create/open/stat access, and restore exact descriptors on disposal.
+- 在官方新增的 `package.json#engines.dsh` 字段第二次声明 DSH 兼容范围，并在 manifest 测试中守卫同源。
+- 针对 DSH `0.1.6-alpha.1` 重新核对 Host、客户端、Web 认证、Settings slot、Workspace registry、Session controller 与 JSONL 持久化契约：JSONL backend 只在 `Session.fromRestore` 上新增了消息投影参数，fail-closed 的删除运行时仍可解析，隔离宿主报告 `deletionSupported`/`restorationSupported` 为 true。兼容线移到 `>=0.1.6-alpha.1 <0.1.7`，仅 `0.1.6-alpha.1` 逐版本验证。
+- 兼容线收窄为 `>=0.1.5-alpha.1 <0.1.6`，仅 `0.1.5-alpha.1` 逐版本验证；另核对本地运行的 `0.1.5-rc.1` 的删除 ABI，但**不**把它列入已验证清单（没有做过完整端到端删除/恢复）。
 
-## [0.1.0] - Local candidate
+### 修复
 
-### Added
+- 对 DSH 尚未迁移到当前 v3 generation 的日志（`session.jsonl[.zstd]`、`session.vN.jsonl[.zstd]`）返回明确的 `unsupported-artifact` 迁移提示。`JsonlSessionPersistence.locate()` 是 generation-blind 的，此前会探测一个不存在的 v3 路径并抛出裸 `ENOENT`，最终变成“请重启 dsh web 后重试”这种永远不可能成功的失败。
+- 在列举与校验之间消失的 artifact 返回 `session-not-found`(404)，而不是内部错误。
+- 测试 fixture 改为复刻真实的 generation-blind `locate()` 契约，旧 generation 回归同时覆盖未压缩与 zstd 两种 artifact。
+- 永久删除从已移除的 coordinator 与直接持久化调用迁移到 `0.1.5-alpha.1` 的 `create/open/stat/list` handle 模型。
+- 增加对 `JsonlBackendTracker`、open writers/handles、pending materialization、迁移准备、压缩模式与 cold-log cache 形状的 fail-closed 探测。
+- 把未压缩与 zstd 两种删除 witness 绑定到匹配的 `list()`/`stat()` revision、backend 解码的 header 与物理 inode/size 观测。
+- tombstone 守卫在 rename 前先 drain 已准入的单会话操作与全局列举，之后拒绝 create/open/stat，并在卸载时恢复精确 descriptor。
 
-- Settings-section archive manager backed directly by DSH's authoritative `archivedSessionIds`.
-- One-click restoration through a serialized Host route, preserving existing accounting or falling back to Ungrouped.
-- Explicit permanent-delete confirmation and current archived-chat count without a duplicate Workspace group.
-- Plain and zstd JSONL deletion through the DSH `>=0.1.2-alpha.3 <0.1.3` compatible release line, individually verified on alpha.3 and alpha.4.
-- Durable same-filesystem deletion transaction with source/trash identity witnesses and fail-closed quarantine.
-- Cold-session, coordinator-cache, descendant, path, symlink, and journal validation.
-- Best-effort derived-state cleanup while preserving content-addressed attachments.
-- Node.js 20/22 CI, manifest checks, exact package-content validation, and local publishing checklist.
+## [0.1.0] - 本地候选
 
-### Changed
+### 新增
 
-- Renamed the package and plugin identity from the conflicting local candidate `dsh-archived-chats` to `dsh-chat-archive-manager`.
-- Moved archive management out of the first-level sidebar footer and into Settings navigation, leaving the dynamic Cordis plugin control independent.
-- Reused the archive glyph in Settings navigation, placed the compact count immediately after the one-line title, and capped it at `99+ chats`.
-- Added row-level red permanent-delete styling and a restore action immediately after it.
-- Removed synthetic grouped-view archive projection and all Host/browser Workspace command interceptors.
-- Upgrades unregister the exact legacy `$DSH_HOME/workspaces/archived` Workspace while retaining its directory, session logs, original Workspace accounting, and archive set.
+- 直接以 DSH 权威的 `archivedSessionIds` 为数据源的设置页归档管理。
+- 一键恢复走串行宿主路由，保留既有记账或回落到“未分组”。
+- 明确的永久删除确认，以及不产生重复 Workspace 分组的归档计数。
+- 在 DSH `>=0.1.2-alpha.3 <0.1.3` 兼容线上支持未压缩与 zstd JSONL 删除，alpha.3 与 alpha.4 逐版本验证。
+- 同文件系统的 durable 删除事务，带 source/trash identity witness 与 fail-closed quarantine。
+- 对冷会话、coordinator cache、后代、路径、符号链接与 journal 的校验。
+- 尽力清理派生状态，同时保留内容寻址附件。
+- Node.js 20/22 CI、manifest 检查、精确打包内容校验与本地发布清单。
 
-### Fixed
+### 变更
 
-- Preserved the receiver of the DSH alpha.3/alpha.4 Workspace class store when subscribing from React, preventing the archived Settings page from rendering blank.
-- Replaced the removed `dsh-client-runtime` manifest edge with the current Session and Workspace controller packages.
-- Declared the bounded compatible release line and alpha.3/alpha.4 verification list; local installation and Host startup now reject out-of-line DSH versions before any migration, private ABI initialization, or route registration.
-- Rejected non-object JSON roots as client errors instead of surfacing an internal failure.
+- 包名与插件身份从冲突的本地候选 `dsh-archived-chats` 改为 `dsh-chat-archive-manager`。
+- 归档管理从侧边栏底部一级入口移到“设置”导航，DSH 自带的动态 Cordis 插件入口保持独立。
+- 设置导航复用归档图标，紧凑计数紧跟单行标题，并封顶为 `99+ 条聊天`。
+- 增加行级红色永久删除样式，恢复操作紧随其后。
+- 移除 synthetic 的分组视图归档投影，以及所有 Host/浏览器的 Workspace 命令拦截器。
+- 升级时注销 `$DSH_HOME/workspaces/archived` 这一旧版空壳 Workspace 注册，保留其目录、会话日志、原 Workspace 记账与归档集合。
 
-### Security
+### 修复
 
-- A non-empty deletion journal never triggers automatic rename, rollback, roll-forward, or recursive removal.
-- Runtime-private deletion support disables itself when the tested backend, registry, coordinator, or cache ABI does not match.
-- Restoration and deletion reuse DSH `connection.requestRejection()` for trusted-host and signed browser-cookie authentication, then require same-origin marked JSON requests as an additional CSRF fence.
+- React 订阅时保留 DSH alpha.3/alpha.4 Workspace class store 的接收者，避免归档设置页渲染成空白。
+- 用当前的 Session 与 Workspace controller 包替换已移除的 `dsh-client-runtime` manifest 依赖。
+- 声明有界兼容线与 alpha.3/alpha.4 验证清单；本地安装与 Host 启动在任何迁移、私有 ABI 初始化或路由注册前拒绝范围外的 DSH。
+- 非对象 JSON 根作为客户端错误返回，不再冒成内部失败。
+
+### 安全
+
+- 非空删除 journal 永不触发自动重命名、回滚、前滚或递归删除。
+- 运行时私有的删除能力在校验的 backend、registry、coordinator 或 cache ABI 不匹配时自动关闭。
+- 恢复与删除复用 DSH `connection.requestRejection()` 的 trusted-host 与签名浏览器 cookie 认证，随后要求同源且带标记的 JSON 请求作为额外 CSRF 防线。
