@@ -252,7 +252,6 @@ function oneSegmentReport(overrides = {}) {
     ok: true,
     writable: true,
     enabled: true,
-    notes: '',
     bytes: 7,
     estimatedTokens: 6,
     maxBytes: 8192,
@@ -289,12 +288,11 @@ function mountPanel(handler, hooks = {}) {
   // 宿主侧状态：模拟真实宿主"写入后回读即最新"的行为。
   // enabled 也必须在这里跟住——曾漏掉它，于是 report.enabled 长期停留在默认 true，
   // 表现成"切了总开关、预览却不跟着变"（看起来像产品缺陷，其实是桩失真）。
-  let hostState = { enabled: undefined, segments: undefined, notes: undefined }
+  let hostState = { enabled: undefined, segments: undefined }
   const report = () => {
     const base = handler()
     if (hostState.enabled !== undefined) base.enabled = hostState.enabled
     if (hostState.segments !== undefined) base.segments = hostState.segments
-    if (hostState.notes !== undefined) base.notes = hostState.notes
     // 真实宿主会按当前设置重新渲染，桩也必须这样，否则"提交后读回旧值"会被误判为 UI 缺陷
     if (hostState.segments !== undefined) {
       const body = previewFor({
@@ -302,8 +300,7 @@ function mountPanel(handler, hooks = {}) {
         segments: (base.segments ?? []).map((segment) => ({
           enabled: segment.enabled !== false,
           text: typeof segment.text === 'string' ? segment.text : ''
-        })),
-        notes: typeof base.notes === 'string' ? base.notes : ''
+        }))
       })
       base.rendered = body === '' ? '' : `以下内容由用户在 dsh-extra-context 中配置\n\n--- 额外上下文开始 ---\n\n${body}\n\n--- 额外上下文结束 ---`
       base.bytes = Buffer.byteLength(base.rendered, 'utf8')
@@ -314,21 +311,20 @@ function mountPanel(handler, hooks = {}) {
     return base
   }
 
-  /** 与宿主 renderExtraContext 的正文口径一致：只拼启用且非空的规则与备注。 */
+  /** 与宿主 renderExtraContext 的正文口径一致：只拼启用且非空的规则。 */
   function previewFor(settings) {
     if (!settings.enabled) return ''
-    const parts = settings.segments
+    return settings.segments
       .filter((segment) => segment.enabled && segment.text.trim() !== '')
       .map((segment) => segment.text.trim())
-    if (settings.notes.trim() !== '') parts.push(`【模型笔记】\n${settings.notes.trim()}`)
-    return parts.join('\n\n')
+      .join('\n\n')
   }
   const context = {
     /** 两个插槽的注册（设置页分区 + 导航图标挂载点），按插槽名取用 */
     registrations: [],
     settingsScope: {
       bind: () => ({
-        getSnapshot: () => ({ status: 'ready', writable: true, revision: 1, value: { enabled: true, segments: [], notes: '', maxBytes: 8192 } }),
+        getSnapshot: () => ({ status: 'ready', writable: true, revision: 1, value: { enabled: true, segments: [], maxBytes: 8192 } }),
         subscribe: () => () => {},
         mutate: async (operations) => {
           const gate = writeGate
@@ -353,7 +349,6 @@ function mountPanel(handler, hooks = {}) {
                 }
               })
             }
-            if (operation?.path?.[0] === 'notes') hostState.notes = operation.value
             if (operation?.path?.[0] === 'enabled') hostState.enabled = operation.value
           }
           if (hostState.segments !== undefined) writeLog.push(hostState.segments)
@@ -365,7 +360,7 @@ function mountPanel(handler, hooks = {}) {
           if (typeof hooks.afterWrite === 'function') {
             const next = hooks.afterWrite(writeLog)
             if (next !== undefined) {
-              hostState = { enabled: next.enabled, segments: next.segments, notes: next.notes }
+              hostState = { enabled: next.enabled, segments: next.segments }
               return
             }
           }
@@ -402,7 +397,7 @@ function mountPanel(handler, hooks = {}) {
     if (typeof hooks.beforeReadback === 'function') await hooks.beforeReadback()
     return { ok: true, json: async () => report() }
   }
-  plugin.apply(context, hooks.config ?? {})
+  plugin.apply(context)
   const sectionEntry = context.registrations.find((entry) => entry.options.name === 'settings.section')
   // 只在这里兜底断言分区存在；导航挂载点的接线由专门用例负责，
   // 放在这里会让"挂载点丢了"表现成整套面板用例一起红，掩盖真正的失败点。
@@ -860,10 +855,9 @@ test('apply 必须按官方契约绑定设置命名空间：namespace + decode',
   assert.equal(bound[0].namespace, 'extra-context', '命名空间必须与宿主一致')
   assert.equal(typeof bound[0].decode, 'function', '必须提供 decode')
   // decode 按官方契约收到 section 值本身
-  const decoded = bound[0].decode({ enabled: false, segments: [{ id: 'a', text: 'x', enabled: true }], notes: 'n' })
+  const decoded = bound[0].decode({ enabled: false, segments: [{ id: 'a', text: 'x', enabled: true }] })
   assert.equal(decoded.enabled, false, 'decode 必须读到真正的 section 值')
   assert.equal(decoded.segments.length, 1, 'decode 必须保留规则')
-  assert.equal(decoded.notes, 'n', 'decode 必须保留备注')
   // 脏数据不得让 decode 抛错（面板会整页空白）
   for (const dirty of [undefined, null, 'x', 42, [], { segments: 'oops' }]) {
     const safe = bound[0].decode(dirty)
@@ -1286,54 +1280,6 @@ test('坏数据不得让界面崩掉：规则 id 冲突、缺字段、超长摘�
   }
 })
 
-test('备注功能默认关闭：不渲染入口，也不出现在预览里', async () => {
-  // 默认关闭是明确的产品决定（模型维护的笔记会长期占用每轮上下文）。
-  const panel = mountPanel(() => oneSegmentReport({ notes: '旧的备注内容' }))
-  try {
-    const tree = await panel.settle()
-    assert.equal(collect(tree).filter((node) => node.type === 'textarea').length, 0, '默认收起时不应有任何输入框')
-    // 展开规则后只应出现规则正文那一个，不得有备注输入框
-    findCaret(collect(tree)).props.onClick()
-    const expanded = panel.render()
-    assert.equal(textareaCount(expanded), 1, '功能关闭时只应有规则正文输入框')
-    assert.equal(collect(expanded).some((node) => String(node.props.className).includes('dec-textarea-notes')), false, '功能关闭时不得渲染备注输入框')
-    assert.equal(gatherStrings(tree).some((text) => text.includes('旧的备注内容')), false, '功能关闭时备注不得出现在任何界面文案里')
-    const preview = collect(tree).find((node) => node.props?.className === 'dec-preview-text')
-    assert.equal(preview === undefined ? '' : gatherStrings(preview).join('').includes('旧的备注内容'), false, '功能关闭时备注不得进入预览（预览要对得上实际注入）')
-  } finally {
-    panel.unmount()
-  }
-})
-
-test('备注功能打开：入口出现，输入同样失焦才写，并进入预览', async () => {
-  const panel = mountPanel(() => oneSegmentReport({ notes: '' }), { config: { notes: true } })
-  try {
-    let tree = await panel.settle()
-    const notesArea = collect(tree).find((node) => node.type === 'textarea' && String(node.props.className).includes('dec-textarea-notes'))
-    assert.notEqual(notesArea, undefined, '功能打开后必须出现备注输入框')
-    assert.equal(notesArea.props.disabled, false, '备注输入框不得被禁用')
-    assert.equal(notesArea.props.value, '', '初始备注为空')
-
-    const writesBefore = panel.mutations.length
-    notesArea.props.onChange({ target: { value: '以后都用简体中文' } })
-    for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
-    assert.equal(panel.mutations.length, writesBefore, '备注同样不得在打字过程中写设置')
-
-    collect(panel.render()).find((node) => node.type === 'textarea' && String(node.props.className).includes('dec-textarea-notes')).props.onBlur()
-    for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
-    assert.equal(panel.mutations.length > writesBefore, true, '备注失焦必须写入')
-    assert.equal(panel.mutations[panel.mutations.length - 1][0].path[0], 'notes', '备注必须写到 notes 字段')
-
-    tree = panel.render()
-    const preview = collect(tree).find((node) => node.props?.className === 'dec-preview-text')
-    assert.notEqual(preview, undefined, '预览必须存在')
-    const body = gatherStrings(preview).join('')
-    assert.equal(body.includes('以后都用简体中文'), true, '备注必须进入预览')
-    assert.equal(body.includes('模型笔记'), true, '备注在预览里必须标明是模型笔记（避免被当成用户指令）')
-  } finally {
-    panel.unmount()
-  }
-})
 
 test('回归护栏：读回未返回时不得用旧值回滚在途输入', async () => {
   // 产品侧守卫（client.js 的 commit 成功分支）：
@@ -1385,32 +1331,6 @@ test('回归护栏：读回未返回时不得用旧值回滚在途输入', async
   }
 })
 
-test('回归护栏：备注输入框在写入进行中同样不得被禁用', async () => {
-  // 与规则正文同一类真实故障（给已聚焦元素加 disabled → 浏览器强制失焦），
-  // 但备注框曾不在守护范围内：把它的 disabled 改成 busy，全套测试仍会通过。
-  const panel = mountPanel(() => oneSegmentReport({ notes: '' }), { config: { notes: true } })
-  try {
-    await panel.settle()
-    const notesArea = () => collect(panel.render()).find((node) => node.type === 'textarea'
-      && String(node.props.className).includes('dec-textarea-notes'))
-    assert.notEqual(notesArea(), undefined, '功能打开后必须出现备注输入框')
-
-    notesArea().props.onChange({ target: { value: '写备注的过程中' } })
-    panel.holdWrites()
-    notesArea().props.onBlur()
-    for (let i = 0; i < 4; i += 1) await new Promise((r) => setImmediate(r))
-    assert.equal(panel.mutations.length, 0, '闸门未放行时不得已写入')
-    assert.equal(notesArea().props.disabled, false, '写入进行中备注输入框不得被禁用')
-    assert.equal(notesArea().props.value, '写备注的过程中', '写入进行中备注内容不得回滚')
-
-    panel.releaseWrites()
-    for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
-    assert.equal(notesArea().props.disabled, false, '写入结束后备注输入框也不得被禁用')
-  } finally {
-    panel.releaseWrites()
-    panel.unmount()
-  }
-})
 
 test('规则行的字数必须与用户看到的字数一致（不得用字节数冒充）', async () => {
   // 用户实测反馈："为什么规则的字符统计跟我看到的字数不一致?"
@@ -1557,19 +1477,6 @@ test('回归护栏：添加规则必须提交、生成不重复的 id，并把�
   }
 })
 
-test('页面显示可核对的构建版本', async () => {
-  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8')
-  const build = /const CLIENT_BUILD = '([^']+)'/u.exec(source)
-  assert.notEqual(build, null, 'bundle 必须有构建标识')
-  const panel = mountPanel(oneSegmentReport)
-  try {
-    const texts = gatherStrings(await panel.settle())
-    assert.equal(texts.some((text) => text.includes(build[1])), true, '页面必须显示当前构建版本，便于核对刷新是否生效')
-  } finally {
-    panel.unmount()
-  }
-})
-
 test('回归护栏：写入失败后错误停留，重试必须真的重写失败的内容', async () => {
   // 两个真实缺陷一起守：
   // ① 失败后必须保留错误（唯一允许的提示），不允许静默失败；
@@ -1685,7 +1592,7 @@ test('刷新场景：镜像未就绪时先到宿主报告，箭头依然可用�
     assert.equal(textareaCount(tree), 0, '报告落地后仍应默认收起')
 
     // C. 镜像随后到达（内容一致）→ 不得擅自展开
-    mirrorValue = { enabled: true, segments: oneSegmentReport().segments, notes: '', maxBytes: 8192 }
+    mirrorValue = { enabled: true, segments: oneSegmentReport().segments, maxBytes: 8192 }
     tree = await pump(4)
     assert.equal(textareaCount(tree), 0, '镜像到达后不得擅自展开')
 
@@ -1886,7 +1793,7 @@ test('写入失败必须报错并给出重试（这是唯一保留的提示）',
   const context = {
     settingsScope: {
       bind: () => ({
-        getSnapshot: () => ({ status: 'ready', writable: true, revision: 1, value: { enabled: true, segments: [], notes: '', maxBytes: 8192 } }),
+        getSnapshot: () => ({ status: 'ready', writable: true, revision: 1, value: { enabled: true, segments: [], maxBytes: 8192 } }),
         subscribe: () => () => {},
         mutate: async () => { throw new Error('mirror down') },
         describe: () => ({ namespaces: [], writable: true })

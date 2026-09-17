@@ -2,8 +2,7 @@
  * dsh-extra-context 宿主半体。
  *
  * 职责：把「额外说明与上下文」注册成进程级的 system prompt section，
- * 让所有会话、子代理、workflow 子步骤都带上它；同时提供设置页所需的
- * 状态接口与模型自维护笔记工具（笔记默认关闭，需部署显式开启）。
+ * 让所有会话、子代理、workflow 子步骤都带上它；同时提供设置页所需的状态接口。
  *
  * 关键机制（已按 DSH 0.1.6-alpha.1 源码核对）：
  * - `ctx.systemPrompt.section()` 注册在调用者 fiber 的全局层，对所有 agent 生效；
@@ -23,36 +22,28 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DEFAULT_SETTINGS,
-  NOTES_MAX_BYTES,
-  NOTES_TOOL_NAME,
   PLUGIN_NAME,
   SETTINGS_NAMESPACE,
   SECTION_NAME,
   SECTION_ORDER,
-  appendNote,
   buildStatus,
   byteLength,
   effectiveSegments,
-  estimateTokens,
   normalizeSettings,
   renderExtraContext
 } from './rules.js'
 
 // 导出面刻意保持最小：只导出测试与兼容检查真正引用的符号。
-// NOTES_MAX_BYTES / DEFAULT_SETTINGS 只在文件内部使用，不再对外重导出
+// DEFAULT_SETTINGS 只在文件内部使用，不再对外重导出
 // （曾把 rules.js 的导出整份转发一遍，于是"哪些符号真的需要对外"变得不可知；
 //  测试需要它们时直接从 rules.js 取）。
 export {
-  NOTES_TOOL_NAME,
   PLUGIN_NAME,
   SETTINGS_NAMESPACE,
   SECTION_NAME,
   SECTION_ORDER,
-  appendNote,
   buildStatus,
-  byteLength,
   effectiveSegments,
-  estimateTokens,
   normalizeSettings,
   renderExtraContext
 }
@@ -62,7 +53,7 @@ export const CLIENT_HEADER = 'x-dsh-extra-context-client'
 export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
 
 /** 本插件真正用得上的服务；settings 是可选服务，单独用 ctx.inject 管理生命周期。 */
-export const inject = ['systemPrompt', 'tools']
+export const inject = ['systemPrompt']
 
 const DEFAULT_ENTRY_PATH = fileURLToPath(import.meta.url)
 
@@ -159,7 +150,6 @@ function createSettingsSchema(z) {
   return z.object({
     enabled: z.boolean().default(DEFAULT_SETTINGS.enabled),
     segments: z.array(segment).default([]),
-    notes: z.string().default(''),
     maxBytes: z.number().default(DEFAULT_SETTINGS.maxBytes)
   })
 }
@@ -207,9 +197,9 @@ function explicitUserFields(settings, namespace, scope, log) {
   return new Set()
 }
 
-/** 设置段是否已有实际内容（空 segments 且空 notes 视为未配置）。 */
+/** 设置段是否已有实际内容（空 segments 视为未配置）。 */
 function isConfigured(settings) {
-  return effectiveSegments(settings).length > 0 || settings.notes.trim() !== ''
+  return effectiveSegments(settings).length > 0
 }
 
 function requestHeader(request, name) {
@@ -259,25 +249,15 @@ function messageOf(error) {
  * @returns {Promise<() => Promise<void>>}
  */
 async function createRuntime(input) {
-  const { ctx, schema, initial, log, notesFeature = false } = input
+  const { ctx, schema, initial, log } = input
   let current = normalizeSettings(initial)
   let settingsScope = null
 
   // 全局 system prompt section：进程级，一次注册对所有 agent 生效。
   // text 用函数形式，每次组装读取最新快照，因此设置改动即时生效、无需重注册。
-  /**
-   * 实际贡献给 system prompt 的内容。
-   *
-   * 备注功能关闭时**不读**设置里的 notes：那是一份可能由旧配置遗留的数据，
-   * 功能既然关着就不该继续占用每轮上下文。曾经这里只看设置值不看开关，
-   * 结果是"功能关了，旧备注照样注入"——模型看到的东西和设置页说的不一致。
-   */
+  /** 实际贡献给 system prompt 的内容（防御性读取，脏数据退化为空串）。 */
   function renderForPrompt() {
-    const settings = normalizeSettings(current)
-    if (notesFeature !== true && settings.notes !== '') {
-      return renderExtraContext({ ...settings, notes: '' })
-    }
-    return renderExtraContext(settings)
+    return renderExtraContext(normalizeSettings(current))
   }
 
   const disposer = ctx.systemPrompt.section({
@@ -361,7 +341,7 @@ async function createRuntime(input) {
       log('warn', 'schemastery schema unavailable; settings namespace not registered')
       return
     }
-    // 不传 base：设置文件里没有这一段时，解析值就是 schema 默认（空 segments、空 notes）。
+    // 不传 base：设置文件里没有这一段时，解析值就是 schema 默认（空 segments）。
     // 这正是「尚未配置」的表示，此时保留 initial（组合层配置）作为生效值。
     const scope = settings.register(SETTINGS_NAMESPACE, schema, { applies: 'live' })
     settingsScope = scope
@@ -377,61 +357,7 @@ async function createRuntime(input) {
     return undefined
   })
 
-  // 模型自维护笔记工具：写回 settings 命名空间，随规则一起进入 system prompt。
-  // 默认不注册——它会给模型多加一个工具，只有部署显式配置 `notes: true` 才启用。
-  const notesDisposer = notesFeature === true ? ctx.tools.register({
-    name: NOTES_TOOL_NAME,
-    description:
-      '维护一段跨会话长期有效的笔记，它会随本部署的额外上下文一起出现在所有会话的 system prompt 里。'
-      + '适用于用户明确表达的长期偏好、跨会话约定或需要长期记住的事实。'
-      + '不要写入密钥、凭据、个人敏感信息或临时任务状态；不要用它记录当前这一轮的对话内容。'
-      + `笔记总量上限 ${String(NOTES_MAX_BYTES)} 字节。action=read 读取，action=append 追加一行，action=clear 清空。`,
-    parameters: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: ['read', 'append', 'clear'],
-          description: 'read 读取当前笔记；append 追加 entry；clear 清空全部笔记。'
-        },
-        entry: {
-          type: 'string',
-          description: 'action=append 时必填。一到两句话，写成对后续会话可独立理解的事实。'
-        }
-      },
-      required: ['action'],
-      additionalProperties: false
-    },
-    output: {
-      schema: { type: 'string' },
-      render(_args, value) {
-        return [{ type: 'text', text: value }]
-      }
-    },
-    async execute(args) {
-      const action = args !== null && typeof args === 'object' ? args.action : undefined
-      if (action === 'read') {
-        const notes = normalizeSettings(current).notes
-        return notes.trim() === '' ? '(笔记为空)' : notes
-      }
-      if (settingsScope === null) {
-        return `不可用：settings 服务未挂载，笔记无法持久化。当前笔记：${normalizeSettings(current).notes.trim() || '(空)'}`
-      }
-      if (action === 'append') {
-        const result = appendNote(current, args.entry)
-        if (!result.ok) return `拒绝：${result.reason}`
-        await write({ notes: result.notes })
-        return `已追加。当前笔记共 ${String(byteLength(result.notes))} 字节，从下一次请求起随 system prompt 生效。`
-      }
-      if (action === 'clear') {
-        await write({ notes: '' })
-        return '已清空笔记。'
-      }
-      return '参数不合法：action 必须是 read、append 或 clear。'
-    }
-  }) : undefined
-
-  // 只读状态接口，供本插件设置页显示编译结果与预算。
+  // 只读状态接口：插件自己的诊断口径（预览预算与可写能力）。
   ctx.inject(['webServer', 'connection'], (webContext) => {
     const rejectionOf = typeof webContext.connection?.requestRejection === 'function'
       ? (request) => webContext.connection.requestRejection(request)
@@ -455,23 +381,13 @@ async function createRuntime(input) {
           return
         }
         try {
+          // buildStatus 与 renderForPrompt 走同一条渲染路径，因此状态里的
+          // rendered/bytes/estimatedTokens/overBudget/source 就是实际注入口径。
           const status = buildStatus(current, { sectionOrder: SECTION_ORDER })
-          // 口径必须与**实际注入**一致：buildStatus 会按设置值算 rendered/token/notes，
-          // 而备注功能关闭时注入口径是"剔除遗留 notes"。两处不一致会让这个诊断接口
-          // 在"功能关闭 + 存在遗留笔记"时报出虚高的数字，把排查引向错误方向。
-          const injected = renderForPrompt()
           const body = {
             ok: true,
             writable: settingsScope !== null,
-            ...status,
-            rendered: injected,
-            bytes: byteLength(injected),
-            estimatedTokens: estimateTokens(injected),
-            overBudget: byteLength(injected) > status.maxBytes,
-            source: injected === '' ? 'none' : 'segments',
-            // 关闭时如实报 0：这些笔记不会被注入，报出真实体积只会误导
-            notes: notesFeature === true ? status.notes : '',
-            notesBytes: notesFeature === true ? status.notesBytes : 0
+            ...status
           }
           if (debug) {
             // `?debug=1`：把宿主真实注册的命名空间描述原样返回。
@@ -533,7 +449,6 @@ async function createRuntime(input) {
   }
 
   return async () => {
-    notesDisposer?.()
     disposer?.()
   }
 }
@@ -552,8 +467,7 @@ export async function applyCompatibleRuntime(ctx, config = {}, options = {}) {
   }
 
   const missing = [
-    typeof ctx.systemPrompt?.section === 'function' ? null : 'systemPrompt.section()',
-    typeof ctx.tools?.register === 'function' ? null : 'tools.register()'
+    typeof ctx.systemPrompt?.section === 'function' ? null : 'systemPrompt.section()'
   ].filter((name) => name !== null)
   if (missing.length > 0) {
     throw new Error(`${PLUGIN_NAME}: incompatible DSH runtime, missing ${missing.join(', ')}`)
@@ -579,8 +493,7 @@ export async function applyCompatibleRuntime(ctx, config = {}, options = {}) {
   // 无 settings 服务时的兜底：仅更新内存快照（本次进程内仍生效，重启后丢失）。
   const initial = normalizeSettings(config ?? DEFAULT_SETTINGS)
   const schema = z === null ? null : createSettingsSchema(z)
-  const notesFeature = config !== null && typeof config === 'object' && config.notes === true
-  const runtime = await createRuntime({ ctx, schema, initial, log, notesFeature })
+  const runtime = await createRuntime({ ctx, schema, initial, log })
   ctx.effect(() => runtime, `${PLUGIN_NAME}: runtime`)
 }
 

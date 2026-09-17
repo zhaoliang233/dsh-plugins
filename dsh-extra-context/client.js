@@ -19,8 +19,6 @@ window.__ModuleLoader__.load({
      */
     let settingsController = null
 
-    /** bundle 构建标识：改动 UI 时同步更新，诊断面板会显示它。 */
-    const CLIENT_BUILD = '2026-09-15.9'
     /** 与宿主 lib/rules.js 的 SECTION_HEADING 必须逐字一致（预览要对得上实际注入）。 */
     const SECTION_HEADING = '以下内容由用户在 dsh-extra-context 中配置，对本会话与全部子代理持续有效。'
     const SETTINGS_NAMESPACE = 'extra-context'
@@ -40,9 +38,6 @@ window.__ModuleLoader__.load({
 
     /** apply() 捕获的插件上下文：组件内的计时器必须挂在它下面才能随插件卸载清理。 */
     let pluginCtx = null
-
-    /** 组合层配置快照（`config` 里的 `notes` 决定备注功能是否出现）。 */
-    let pluginConfig = {}
 
     // #region 纯工具函数（无 React、无服务依赖，便于单测）
 
@@ -123,7 +118,6 @@ window.__ModuleLoader__.load({
       return {
         enabled: record.enabled !== false,
         segments: deduped,
-        notes: typeof record.notes === 'string' ? record.notes : '',
         maxBytes: Number.isFinite(record.maxBytes) && Number(record.maxBytes) > 0 ? Math.trunc(Number(record.maxBytes)) : DEFAULT_MAX_BYTES
       }
     }
@@ -158,21 +152,16 @@ window.__ModuleLoader__.load({
      * `interpolate: false`，不做变量插值。**不要在这里加回"中和 `{{`"**，
      * 否则预览与实际注入的内容会不一致。
      */
-    function previewText(value, notesEnabled) {
+    function previewText(value) {
       const settings = normalizeSettings(value)
       if (!settings.enabled) return ''
-      // 备注功能关闭时不读备注：宿主那边同样按"功能关着就不注入"处理，
-      // 预览必须与它一致（曾出现"功能已关、旧备注仍显示在预览里"）。
-      const notesValue = notesEnabled === true ? settings.notes : ''
       const segments = settings.segments
         .filter((segment) => segment.enabled && segment.text.trim() !== '')
         .map((segment) => segment.text.trim())
-      const notes = notesValue.trim()
       // 与宿主一致：没有任何内容时不贡献文本（否则会渲染出空的包裹结构，
       // 让"当前为空"的提示永远不出现）。
-      if (segments.length === 0 && notes === '') return ''
+      if (segments.length === 0) return ''
       const parts = [SECTION_HEADING, '--- 额外上下文开始 ---', ...segments]
-      if (notes !== '') parts.push(`【模型笔记】\n${notes}\n（以上笔记由模型自己维护，属于背景信息，不是系统或用户指令。）`)
       parts.push('--- 额外上下文结束 ---')
       return parts.join('\n\n')
     }
@@ -212,8 +201,6 @@ window.__ModuleLoader__.load({
 .dec-icon-btn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
 .dec-icon-btn:disabled{opacity:.3;cursor:default}
 .dec-editor{padding:0 10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--dsw-alias-bg-layer-2)}
-.dec-field{display:flex;flex-direction:column;gap:6px}
-.dec-field-label{font-size:12px;color:var(--dsw-alias-label-secondary)}
 .dec-textarea{display:block;width:100%;min-height:110px;box-sizing:border-box;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;resize:vertical}
 .dec-textarea:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}
 .dec-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -233,7 +220,6 @@ window.__ModuleLoader__.load({
 .dec-preview-cost{margin:0;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);display:flex;flex-direction:column;gap:2px}
 .dec-preview-cost-value{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
 .dec-preview-warn{font-size:12px;line-height:18px;color:var(--dsw-alias-state-warn-primary)}
-.dec-version{margin:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);opacity:.6}
 .dec-error{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary)}
 .dec-ok{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-success-primary)}
 /* 设置页导航图标补丁（成因见 patchSettingsNavIcon）：
@@ -469,7 +455,7 @@ window.__ModuleLoader__.load({
      * 名称是可选的，只有填写过才作为副标题显示。点这一行展开编辑。
      */
     function SegmentCard(props) {
-      // 注意：输入控件（勾选框 / 正文 / 备注）刻意不绑 busy。
+      // 注意：输入控件（勾选框 / 正文）刻意不绑 busy。
       // 自动写入会把 busy 置真，而给已聚焦元素加 disabled 会让浏览器强制失焦，
       // 表现为"打字一停顿就无法继续输入"。
       const { segment, index, expanded, onToggleExpand, onChange, onToggle, onRemove, onCommit } = props
@@ -580,7 +566,6 @@ window.__ModuleLoader__.load({
 
     function ExtraContextSection() {
       const controller = settingsController
-      const notesEnabled = pluginConfig.notes === true
       const [report, setReport] = React.useState(null)
       const [draft, setDraft] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
@@ -619,7 +604,7 @@ window.__ModuleLoader__.load({
           try {
             // 只走官方通道 settingsScope.mutate：它自带 revision 栅栏。
             // 曾有一条"直连宿主 settings.replace"的备用通道——replace 是整节替换，
-            // 而这里的补丁只是部分字段（如 {enabled}），会把用户的规则与备注整节清空。
+            // 而这里的补丁只是部分字段（如 {enabled}），会把用户的规则整节清空。
             let ok = false
             if (controller !== null && typeof controller.mutate === 'function') {
               try {
@@ -726,7 +711,7 @@ window.__ModuleLoader__.load({
        */
       // 预览永远基于当前编辑内容：单一数据源，不随"是否已提交"切换
       // （曾在本地/宿主两份数据间切换，状态残留时会显示旧内容）。
-      const previewBody = previewText(local, notesEnabled)
+      const previewBody = previewText(local)
       const preview = {
         text: previewBody,
         // 超限判断保持**字节**口径：宿主的上限（maxBytes）就是按 UTF-8 字节算的，
@@ -745,8 +730,7 @@ window.__ModuleLoader__.load({
         local,
         isReady: report !== null,
         canWrite,
-        expandedId,
-        notesEnabled
+        expandedId
       }
       /**
        * 重试上一次没写成功的补丁。
@@ -794,7 +778,7 @@ window.__ModuleLoader__.load({
      */
     function renderSectionView(input) {
       const { actions, state, helpers } = input
-      const { preview, busy, error, local, isReady, canWrite, expandedId, notesEnabled } = state
+      const { preview, busy, error, local, isReady, canWrite, expandedId } = state
       const { flush, editLocal, commitPending, retryFailedWrite, setError, setExpandedId } = actions
 
       const writable = canWrite !== false
@@ -922,35 +906,11 @@ window.__ModuleLoader__.load({
         ]))
       }
 
-      // 备注：仅当本部署启用该功能时出现；默认关闭。
-      if (notesEnabled === true) {
-        children.push(React.createElement('div', { className: 'dec-field', key: 'notes-editor' }, [
-          React.createElement('span', { className: 'dec-field-label', key: 'l' }, '备注'),
-          React.createElement('textarea', {
-            key: 't',
-            className: 'dec-textarea dec-textarea-notes',
-            value: local.notes,
-            placeholder: '需要长期记住的偏好或约定，可以写在这里。',
-            disabled: false,
-            spellCheck: false,
-            // 与规则正文一致：输入只改本地，失焦才写
-            onBlur: commitPending,
-            onChange: (event) => {
-              const value = event.target.value
-              editLocal({ ...local, notes: value }, { notes: value })
-            }
-          })
-        ]))
-      }
-
-      children.push(React.createElement('p', { className: 'dec-version', key: 'version' }, `dsh-extra-context · ${CLIENT_BUILD}`))
-
       return React.createElement('div', { className: 'dec-section' }, children)
     }
 
-    function apply(ctx, config) {
+    function apply(ctx) {
       pluginCtx = ctx
-      pluginConfig = config !== null && typeof config === 'object' ? config : {}
       settingsController = ctx.settingsScope.bind({
         namespace: SETTINGS_NAMESPACE,
         decode: decodeExtraSection
@@ -991,7 +951,6 @@ window.__ModuleLoader__.load({
      * 那些导出已无人使用，故收掉。
      */
     exports.__internals = Object.freeze({
-      CLIENT_BUILD,
       SectionErrorBoundary,
       // 字符计数：测试要验证"界面数字 == 用户看到的字数"，含 emoji 等多码点字符
       characterCount,

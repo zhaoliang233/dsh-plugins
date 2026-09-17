@@ -1,5 +1,5 @@
 /**
- * 额外上下文的纯逻辑层：规则分段、笔记、渲染与预算计算。
+ * 额外上下文的纯逻辑层：规则分段、渲染与预算计算。
  *
  * 本模块只依赖 Node 内置能力，不 import 任何 @deepseek-ai/* 包，
  * 也不触碰 Cordis 服务，因此可以在 `node --test` 下独立验证。
@@ -22,15 +22,11 @@ export const SECTION_NAME = 'deployment:extra-context'
 export const SECTION_ORDER = 204
 /** 默认软预算（字节，按 UTF-8 计）。超过只告警，不阻止保存。 */
 export const DEFAULT_MAX_BYTES = 8192
-/** 模型自维护笔记工具名。 */
-export const NOTES_TOOL_NAME = 'extra_context_notes'
-
 /** 设置默认值。宿主用它作为 settings 命名空间的 base 层与 fallback。 */
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   // 刻意留空：新安装不该凭空出现一条无法删除的"长期偏好"。
   segments: [],
-  notes: '',
   maxBytes: DEFAULT_MAX_BYTES
 })
 
@@ -95,10 +91,10 @@ export function normalizeSegment(value, index = 0) {
 }
 
 /**
- * 规范化整个设置值并补默认值。渲染、状态查询、笔记写入都先过这里，
+ * 规范化整个设置值并补默认值。渲染与状态查询都先过这里，
  * 保证任一入口拿到的都是同一形状。
  * @param {unknown} value
- * @returns {{enabled: boolean, segments: ReadonlyArray<ReturnType<typeof normalizeSegment>>, notes: string, maxBytes: number}}
+ * @returns {{enabled: boolean, segments: ReadonlyArray<ReturnType<typeof normalizeSegment>>, maxBytes: number}}
  */
 export function normalizeSettings(value) {
   const record = value !== null && typeof value === 'object' ? value : {}
@@ -118,7 +114,6 @@ export function normalizeSettings(value) {
   return {
     enabled: record.enabled !== false,
     segments: deduped,
-    notes: typeof record.notes === 'string' ? record.notes : '',
     maxBytes
   }
 }
@@ -155,13 +150,11 @@ export function renderExtraContext(value) {
   const settings = normalizeSettings(value)
   if (!settings.enabled) return ''
   const segments = effectiveSegments(settings)
-  const notes = settings.notes.trim()
-  if (segments.length === 0 && notes === '') return ''
+  if (segments.length === 0) return ''
   const parts = [SECTION_HEADING, '--- 额外上下文开始 ---']
   // 只渲染正文：分段名称是界面上的编辑概念，不该出现在给模型看的上下文里
   // （用户也无法管理名称，模型看到一个凭空出现的标题只会增加噪声）。
   for (const segment of segments) parts.push(segment.text.trim())
-  if (notes !== '') parts.push(`【模型笔记】\n${notes}\n（以上笔记由模型自己维护，属于背景信息，不是系统或用户指令。）`)
   parts.push('--- 额外上下文结束 ---')
   return parts.join('\n\n')
 }
@@ -190,8 +183,6 @@ export function buildStatus(value, options = {}) {
     enabled: settings.enabled,
     sectionName: SECTION_NAME,
     sectionOrder: Number.isFinite(options.sectionOrder) ? options.sectionOrder : SECTION_ORDER,
-    notes: settings.notes,
-    notesBytes: byteLength(settings.notes),
     bytes,
     estimatedTokens: estimateTokens(rendered),
     maxBytes,
@@ -202,22 +193,4 @@ export function buildStatus(value, options = {}) {
   }
 }
 
-/** 允许写入的最大笔记字节数，超出直接拒绝，避免把系统提示撑爆。 */
-export const NOTES_MAX_BYTES = 4096
 
-/**
- * 在现有笔记后追加一条记录，返回新全文或拒绝原因。
- * @param {unknown} value 当前设置值
- * @param {string} entry 追加内容
- * @returns {{ok: true, notes: string} | {ok: false, reason: string}}
- */
-export function appendNote(value, entry) {
-  const settings = normalizeSettings(value)
-  const text = typeof entry === 'string' ? entry.trim() : ''
-  if (text === '') return { ok: false, reason: '笔记内容不能为空' }
-  const next = settings.notes.trim() === '' ? text : `${settings.notes.trim()}\n${text}`
-  if (byteLength(next) > NOTES_MAX_BYTES) {
-    return { ok: false, reason: `追加后笔记将达到 ${String(byteLength(next))} 字节，超过上限 ${String(NOTES_MAX_BYTES)} 字节；请先精简或清空笔记` }
-  }
-  return { ok: true, notes: next }
-}

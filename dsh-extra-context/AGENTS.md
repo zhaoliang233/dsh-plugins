@@ -73,8 +73,8 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ## 文件职责
 
-- `lib/rules.js`：纯逻辑（规范化 / 过滤 / 渲染 / 预算 / 笔记追加）。**不对用户文本做任何改写**——`{{…}}` 由 section 的 `interpolate: false` 原样放行，不再用“把 `{{` 拆成零宽字符”的老 hack。只依赖 Node 内置，可在 `node --test` 下独立验证。顺序即数组顺序，`order` 字段已随排序功能移除。
-- `lib/index.js`：Cordis 入口。版本门 → 装配 section / settings 命名空间 / 笔记工具 / 状态路由。其余导出仅为测试与兼容检查可见。
+- `lib/rules.js`：纯逻辑（规范化 / 过滤 / 渲染 / 预算）。**不对用户文本做任何改写**——`{{…}}` 由 section 的 `interpolate: false` 原样放行，不再用“把 `{{` 拆成零宽字符”的老 hack。只依赖 Node 内置，可在 `node --test` 下独立验证。顺序即数组顺序，`order` 字段已随排序功能移除。
+- `lib/index.js`：Cordis 入口。版本门 → 装配 section / settings 命名空间 / 状态路由。其余导出仅为测试与兼容检查可见。
 - `client.js`：单文件 CJS 惰性 bundle（无构建步骤，逻辑分层靠函数分区）。`apply()` 做三件事：绑定设置命名空间、注入插件样式表、注册两个插槽（`settings.section` id `extra-context` order 25；`settings.action` id `extra-context-nav-icon` order 25，仅作导航图标补丁的挂载点）。客户端**不**做 schema 校验（bundle 里拿不到 schemastery，`dsh-client-ui-settings` 也不导出 `Schema`）；宿主是权威，组件对任何字段都防御性读取。
 
 ## 运行期行为
@@ -83,7 +83,6 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 |---|---|
 | system prompt | `<name: deployment:extra-context, order: 204, interpolate: false, text: () => renderForPrompt()>`；用户文本里的 `{{…}}` 原样进入 prompt |
 | 设置命名空间 | `extra-context`，`applies: 'live'`，写入 `$DSH_HOME/settings.yaml` |
-| 笔记工具 | `extra_context_notes(action: read/append/clear)`，上限 4096 字节、超限拒绝。**默认不注册**：只有组合配置 `config.notes === true` 才注册；未启用时 status 的 `notes/notesBytes` 恒为空，`renderForPrompt` 也会剔除遗留 notes（README 说明了如何在 profile 插件行写 `config: { notes: true }`） |
 | 状态路由 | `GET /dsh-extra-context/status`，要求 `x-dsh-extra-context-client: 1` 且同源；`connection.requestRejection` 可用时先做鉴权判断 |
 | 设置页导航图标 | 由 `settings.action` 挂载点 + `patchSettingsNavIcon()` 在设置面板打开期间绘制 `IconContextInjectionOutline16`；面板关闭即回滚成壳层齿轮（见实现事实 4） |
 
@@ -95,13 +94,18 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 - `cordis.patch.yml`：一行 `insert`。**新增插件首次安装必须重启 `dsh web`**——bundle 列表只在启动时读取（`patchReload: live` 只热重载 patch 文件，不重读 bundle 列表）。
 - `install.sh` / `uninstall.sh`：兼容性检查 + `npm run publish:check` + 官方 `dsh plugin --profile` 管理；卸载保留 `settings.yaml` 里的用户数据。
 
+## 发布与安装路线
+
+- 用户路线是官方命令 `dsh plugin --profile web add dsh-extra-context`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线。
+- 发布：`npm run publish:check` 是唯一闸门（语法、测试、`scripts/check-pack.js` 的 8 文件白名单），`install.sh` 也必须先跑完整闸门；`.github/workflows/ci.yml` 只验证 Node 20/22，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-extra-context-v<版本>` tag 后经 npm trusted publishing（OIDC）完成。本包是首个验证 OIDC 自动发布的包。
+
 ## 测试与守卫
 
 `test/` 下的护栏不是“断言存在”，而是**注入缺陷后必须失败**（逐条人工验证过）。按主题归纳：
 
-- 写入时机与并发：失焦才写入（改成 `onChange` 直接提交 → 失败）、勾选/增删/总开关当场提交、`busy` 期间动作按钮禁用而输入控件（含备注框）不 `disabled`——这三条规则本身见「已知边界」，这里守的是实现；另有“失败补丁必须留住并能重写”“commit 成功不得回滚在途输入”（用 `hooks.beforeReadback()` 构造窗口，别用“等固定若干微任务”）。
+- 写入时机与并发：失焦才写入（改成 `onChange` 直接提交 → 失败）、勾选/增删/总开关当场提交、`busy` 期间动作按钮禁用而输入控件不 `disabled`——这三条规则本身见「已知边界」，这里守的是实现；另有“失败补丁必须留住并能重写”“commit 成功不得回滚在途输入”（用 `hooks.beforeReadback()` 构造窗口，别用“等固定若干微任务”）。
 - 组合层优先级：`describe` 无 `user` 键时不得回退 `scope.get()`、`describe` 抛错必须保留组合层、字段级合并而非整体替换。
-- 文本口径：section 必须声明 `interpolate: false`、渲染结果不得含零宽空格、客户端预览不得再中和 `{{`、预览必须与宿主 `renderExtraContext()` 同口径（含包裹标记、空内容不包裹）、备注关闭时预览与入口都不出现备注、宿主不得把遗留笔记注入或计入状态接口、状态接口的口径与鉴权（删掉 `trustedClientRequest` 校验 → 失败）。
+- 文本口径：section 必须声明 `interpolate: false`、渲染结果不得含零宽空格、客户端预览不得再中和 `{{`、预览必须与宿主 `renderExtraContext()` 同口径（含包裹标记、空内容不包裹）、状态接口的口径与鉴权（删掉 `trustedClientRequest` 校验 → 失败）。
 - 界面几何与一致性：图标按钮内容必须同型（回退文本 `'✕'` → 失败）且同尺寸档、规则行字数必须是字符数（回退 `byteLength` → 失败）、预览容器边框足够可见（新增 `border-l1` 规则必须被扫到，只查第一条匹配规则会漏）、客户端 `normalizeSettings` 必须去重、错误边界必须真的接在渲染树上。
 - 导航图标补丁：挂载点/CSS 变量/dataset 键**三处同源**（各自写一遍字面量就会静默失效）、必须补 `xmlns`、可回滚（引用计数递减、断开 MutationObserver、重建后补回）、`apply` 必须注册 `settings.action`、样式必须插件级注入（删掉 `apply()` 里的 `installStyles(ctx)` → 单测与 `tools/dsh-icons/verify-nav-icon.js` 的 `stylesInjected/originalIconHidden/maskApplied/squareIconBox` 四项同时失败）、样式表引用计数必须递减而不是清零。
 
@@ -117,7 +121,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 - `$DSH_HOME/AGENTS.md` 已承担“用户级工作指导”；两者分工只写在 README 的对照表里，设置页刻意不重复技术说明。
 - 这段文本每轮都在上下文里（token 成本），故有偏长提醒；软上限只提醒、不阻止任何改动。
 - **没有保存动作，也不做“打字即写入”**：输入过程只改本地（`editLocal`），**失焦时提交**（`commitPending`）；显式动作（添加/删除/勾选框/总开关）点了即写；组件卸载时兜底写入未提交的改动。提交串行化（pending + flush）避免并发覆盖，成功不提示，只有写入失败才出现错误与重试。（曾用“输入停顿 600ms 自动写入”，写入触发的重渲染打断输入，已改掉并加回归测试。）
-- **输入控件绝不禁用**：写入期间 `busy` 为真，而给已聚焦元素加 `disabled` 会让浏览器强制失焦（表现为“打字一停顿就再也输入不了”）。`textarea`/勾选框/备注显式 `disabled: false`，`busy` 只用于按钮。
+- **输入控件绝不禁用**：写入期间 `busy` 为真，而给已聚焦元素加 `disabled` 会让浏览器强制失焦（表现为“打字一停顿就再也输入不了”）。`textarea`/勾选框显式 `disabled: false`，`busy` 只用于按钮。
 - **勾选/增删/总开关必须当场提交**：这些是明确点击动作（没有“边打边看”的过程），漏提交会表现为“勾了像没勾”。
 - **图标按钮两条硬约束**（用户实测反馈，两次都踩过）：①内容必须同型——删除按钮原用文本 `'✕'`、展开按钮用 SVG，class 相同却因基线对齐差 1.5px；现在两者都是 SVG，按钮 `inline-flex` + `align-items:center` 居中、图标 `display:block` 去掉行内盒间隙，**别把图标按钮的内容写成文本字符**（它还会随字体渲染变化）。②必须同尺寸档——官方图标按 `14`/`16` 分档（`IconXxx14`/`IconXxx16`），曾用 `IconCloseOutline16`（16 档描边）搭 `IconTriangleRightFill14`（14 档实心），实测删除图标 12×12、箭头 5×8，明显一大一小；**同一行里的图标必须同档**，本条用 `IconCloseFill14`，换图标前先确认档位。
 - **呈现用字符数、判断用字节数**（用户反馈“字符统计跟我看到的字数不一致”）：UTF-8 一个汉字 3 字节，把字节数标成“字”会大出约 2.7 倍（实测那条 67 字的规则显示成 183）。`characterCount()`（`Intl.Segmenter` 字素簇，emoji/组合字符算一个可见字符）**只用于界面呈现**（规则行「N 字」、预览「约 N 个字符」）；`byteLength()`（UTF-8 字节）**只用于预算与上限**（`overBudget` 必须字节口径，宿主上限 `maxBytes` 就是字节，换成字符数会“看着没超、实际已超”）。新增任何“给用户看的体积数字”时先问：这是字节还是字符？
@@ -127,15 +131,15 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ```bash
 npm run check       # node --check ×4 + bash -n ×2
-npm test            # 73 项：版本门/定位/规范化/渲染/预算/笔记/装配/客户端组件、样式、
-                    #        写入时机与重试、预览与备注口径、状态路由鉴权、字段级合并、
+npm test            # 67 项：版本门/定位/规范化/渲染/预算/装配/客户端组件、样式、
+                    #        写入时机与重试、预览口径、状态路由鉴权、字段级合并、
                     #        错误边界、图标对齐与字数口径、导航图标补丁、样式表注入与引用计数
 npm run pack:check  # 发布物 = 8 个文件
 ```
 
-- `test/host.test.js`：用伪 Cordis ctx 验证版本门、DSH 定位、规范化/渲染/预算、settings 注册与热更新、笔记工具、组合层与用户层优先级、删除语义。
-- `test/client.test.js`：以 stub `__ModuleLoader__` + stub React/primitives 加载 bundle，验证 `apply` 的命名空间绑定（`namespace` + `decode` 契约）、slot 注册、组件渲染成元素树、样式表打标、失焦写入、写入失败与重试、预览口径与备注开关。
-- **已在真实部署验证**：Host 工具清单、`GET /dsh-extra-context/status`、设置页分区、设置写盘、预览与消耗提示，以及“新建会话自动带上最新上下文”（用真实子代理逐字核对过 system prompt 内容）。
+- `test/host.test.js`：用伪 Cordis ctx 验证版本门、DSH 定位、规范化/渲染/预算、settings 注册与热更新、组合层与用户层优先级、删除语义。
+- `test/client.test.js`：以 stub `__ModuleLoader__` + stub React/primitives 加载 bundle，验证 `apply` 的命名空间绑定（`namespace` + `decode` 契约）、slot 注册、组件渲染成元素树、样式表打标、失焦写入、写入失败与重试、预览口径。
+- **已在真实部署验证**：`GET /dsh-extra-context/status`、设置页分区、设置写盘、预览与消耗提示，以及“新建会话自动带上最新上下文”（用真实子代理逐字核对过 system prompt 内容）。
 - **导航图标补丁在真实浏览器里量过**（固定场景已固化进工作区工具）：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context` 用壳层原样抽取的导航 CSS + 真实 bundle（极简 React 垫片挂到真 DOM，保证 ref/`outerHTML`/`getComputedStyle` 都是真的）搭出与设置面板同构的 `nav button` 结构，并自动探测本插件的补丁契约（`data-dec-nav-icon` / `var(--dec-nav-icon-mask)` / 用 `display:none` 隐藏原 svg），契约与代码不同源时直接报错。量测结果：补丁行与壳层原生行的 `labelOffsetLeft/Top` 相同（36/9），原 svg `display:none`、`::before` 为 16×16 且 `mask-image` 是 data URI，壳层其他行保持齿轮且无任何 dataset 痕迹。**这不是实机设置页**，实机观感仍需用户刷新页面目视确认。
 - 仍未实机验证：客户端 bundle 的裸单包路径 `/plugins/<id>/client.js` 取不到（`dsh-client-modules` 只广告/应答 combo URL `/plugins/??<id>/client.js&rev=<rev>`），所以“客户端是否加载”只能靠页面现象判断，不能用 curl 断言。
 

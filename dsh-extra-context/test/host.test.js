@@ -8,25 +8,21 @@ import test from 'node:test'
 
 import {
   CLIENT_HEADER,
-  NOTES_TOOL_NAME,
   STATUS_PATH,
   SECTION_NAME,
   SECTION_ORDER,
   SETTINGS_NAMESPACE,
-  appendNote,
   buildStatus,
-  byteLength,
   applyForEntry,
   applyForVersion,
   classifyDshVersion,
   createRuntime,
   effectiveSegments,
-  estimateTokens,
   normalizeSettings,
   readDshPackage,
   renderExtraContext
 } from '../lib/index.js'
-import { DEFAULT_MAX_BYTES, NOTES_MAX_BYTES, createSegmentId } from '../lib/rules.js'
+import { DEFAULT_MAX_BYTES, byteLength, createSegmentId, estimateTokens } from '../lib/rules.js'
 
 /**
  * 真实 DSH 安装的 package.json 绝对路径。
@@ -82,7 +78,6 @@ test('normalizeSettings 对脏数据保持形状稳定', () => {
   const dirty = normalizeSettings({
     enabled: 'yes',
     maxBytes: -1,
-    notes: 42,
     segments: [
       { id: 'a', label: 7, enabled: 0, text: 'hello' },
       null,
@@ -91,7 +86,6 @@ test('normalizeSettings 对脏数据保持形状稳定', () => {
   })
   assert.equal(dirty.enabled, true)
   assert.equal(dirty.maxBytes, DEFAULT_MAX_BYTES)
-  assert.equal(dirty.notes, '')
   assert.equal(dirty.segments.length, 3)
   assert.equal(dirty.segments[0].enabled, true)
   assert.equal(dirty.segments[0].label, '')
@@ -114,21 +108,18 @@ test('effectiveSegments 只保留启用且非空的分段，并保持数组顺�
   // 顺序即数组顺序：即使旧数据残留 order 字段也不再影响结果
   assert.deepEqual(effectiveSegments(value).map((segment) => segment.id), ['c', 'a', 'e'])
 })
-test('renderExtraContext 渲染分段与笔记，禁用或空内容时不贡献任何文本', () => {
+test('renderExtraContext 渲染分段，禁用或空内容时不贡献任何文本', () => {
   const rendered = renderExtraContext({
     segments: [
       { id: 'a', label: '长期偏好', enabled: true, order: 10, text: '回答用中文。' },
       { id: 'b', label: '', enabled: true, order: 20, text: '提交信息不要超过 10 行。' }
-    ],
-    notes: '用户在 macOS 上工作。'
+    ]
   })
   assert.equal(rendered.includes('回答用中文。'), true)
   assert.equal(rendered.includes('提交信息不要超过 10 行。'), true)
   // 分段名称不得出现在给模型看的文本里
   assert.equal(rendered.includes('【长期偏好】'), false)
   assert.equal(rendered.includes('长期偏好'), false)
-  assert.equal(rendered.includes('【模型笔记】'), true)
-  assert.equal(rendered.includes('用户在 macOS 上工作。'), true)
   assert.equal(rendered.startsWith('以下内容由用户在'), true)
   assert.equal(rendered.includes('持续有效'), true)
   // 引导语必须简短：结构说明不能比规则本身还长（曾经有 4 行免责声明）。
@@ -163,14 +154,7 @@ test('buildStatus 报告分段明细与预算', () => {
   assert.equal(empty.rendered, '')
   assert.equal(empty.overBudget, false)
 })
-test('appendNote 合并与限长', () => {
-  assert.deepEqual(appendNote({ notes: 'a' }, 'b'), { ok: true, notes: 'a\nb' })
-  assert.deepEqual(appendNote({ notes: '' }, ' b '), { ok: true, notes: 'b' })
-  assert.equal(appendNote({ notes: 'a' }, '   ').ok, false)
-  const full = 'x'.repeat(NOTES_MAX_BYTES)
-  const rejected = appendNote({ notes: full }, 'y')
-  assert.equal(rejected.ok, false)
-  assert.equal(rejected.reason.includes(String(NOTES_MAX_BYTES)), true)
+test('字节数与 token 估算', () => {
   assert.equal(byteLength('中文') === 6, true)
   assert.equal(estimateTokens('中文字符') === 4, true)
 })
@@ -319,9 +303,9 @@ function sectionText(state) {
   assert.notEqual(state.section, null)
   return typeof state.section.text === 'function' ? state.section.text() : state.section.text
 }
-test('装配注册全局 section 与笔记工具，并跟随设置热更新', async () => {
+test('装配注册全局 section，并跟随设置热更新', async () => {
   const { ctx, state } = createFakeCtx()
-  await createRuntime({ ctx, schema: { fake: true }, initial: { segments: [], notes: '' }, log: () => {}, notesFeature: true })
+  await createRuntime({ ctx, schema: { fake: true }, initial: { segments: [] }, log: () => {} })
 
   assert.equal(state.section.name, SECTION_NAME)
   assert.equal(state.section.order, SECTION_ORDER)
@@ -331,29 +315,10 @@ test('装配注册全局 section 与笔记工具，并跟随设置热更新', as
   assert.equal(state.registers[0].options.applies, 'live')
   assert.equal(sectionText(state), '')
 
-  const tool = state.tools.find((candidate) => candidate.name === NOTES_TOOL_NAME)
-  assert.notEqual(tool, undefined)
-
   // 设置改动必须即时反映到下一次 prompt 组装，无需重新注册 section。
   state.watcher?.({ segments: [{ id: 'a', label: 'L', enabled: true, order: 1, text: 'hello' }] }, {})
   assert.equal(sectionText(state).includes('hello'), true)
   assert.equal(state.section.name, SECTION_NAME)
-})
-test('笔记工具读写设置', async () => {
-  const { ctx, state } = createFakeCtx()
-  await createRuntime({ ctx, schema: { fake: true }, initial: { segments: [], notes: '' }, log: () => {}, notesFeature: true })
-  const tool = state.tools.find((candidate) => candidate.name === NOTES_TOOL_NAME)
-
-  assert.equal(await tool.execute({ action: 'read' }, {}), '(笔记为空)')
-  const appended = await tool.execute({ action: 'append', entry: '记得用中文回答' }, {})
-  assert.equal(appended.includes('已追加'), true)
-  assert.equal(state.value.notes, '记得用中文回答')
-  assert.equal((await tool.execute({ action: 'append', entry: '   ' }, {})).includes('拒绝'), true)
-  assert.equal((await tool.execute({ action: 'bogus' }, {})).includes('参数不合法'), true)
-  assert.equal((await tool.execute({ action: 'read' }, {})).includes('记得用中文回答'), true)
-  assert.equal((await tool.execute({ action: 'clear' }, {})).includes('已清空'), true)
-  assert.equal(state.value.notes, '')
-
 })
 test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链路', { skip: REAL_DSH_MANIFEST === undefined ? 'PATH 中没有 dsh' : false }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-extra-context-entry-'))
@@ -377,12 +342,11 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
 
     const { applyCompatibleRuntime } = await import('../lib/index.js')
     const { ctx, state } = createFakeCtx()
-    const config = { enabled: true, segments: [{ id: 'seed', enabled: true, order: 1, text: '组合层基线' }], notes: '', maxBytes: 1024 }
-    await applyCompatibleRuntime(ctx, { ...config, notes: true }, { entryPath: entry })
+    const config = { enabled: true, segments: [{ id: 'seed', enabled: true, order: 1, text: '组合层基线' }], maxBytes: 1024 }
+    await applyCompatibleRuntime(ctx, config, { entryPath: entry })
 
     assert.equal(state.section.name, SECTION_NAME)
     assert.equal(state.section.order, SECTION_ORDER)
-    assert.equal(state.tools.some((tool) => tool.name === NOTES_TOOL_NAME), true)
   
     assert.equal(state.registers.length, 1, 'settings 命名空间应已注册')
     assert.equal(state.registers[0].ns, SETTINGS_NAMESPACE)
@@ -392,7 +356,7 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
 
     // 「尚未配置」时保留组合层基线；用户写入后以设置为准。
     assert.equal(sectionText(state).includes('组合层基线'), true)
-    state.watcher?.({ segments: [{ id: 'a', enabled: true, order: 1, text: '设置层文本' }], notes: '', maxBytes: 1024, enabled: true }, {})
+    state.watcher?.({ segments: [{ id: 'a', enabled: true, order: 1, text: '设置层文本' }], maxBytes: 1024, enabled: true }, {})
     assert.equal(sectionText(state).includes('设置层文本'), true)
     assert.equal(sectionText(state).includes('组合层基线'), false)
   } finally {
@@ -406,7 +370,7 @@ test('删除全部分段后必须保持空，不得回退到组合层默认', as
   await createRuntime({
     ctx,
     schema: { fake: true },
-    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, order: 10, text: '组合层基线' }], notes: '', maxBytes: 8192 },
+    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, order: 10, text: '组合层基线' }], maxBytes: 8192 },
     log: () => {}
   })
   // 用户一开始显式写过 segments，所以组合层基线生效
@@ -425,7 +389,7 @@ test('删除全部分段后必须保持空，不得回退到组合层默认', as
   await createRuntime({
     ctx: fresh,
     schema: { fake: true },
-    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, order: 10, text: '组合层基线' }], notes: '', maxBytes: 8192 },
+    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, order: 10, text: '组合层基线' }], maxBytes: 8192 },
     log: () => {}
   })
   freshState.user = {}
@@ -445,50 +409,14 @@ test('F1 回归：用户从未写过时，组合层 config 必须生效（不得
   await createRuntime({
     ctx,
     schema: { fake: true },
-    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], notes: '', maxBytes: 8192 },
+    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 },
     log: () => {}
   })
   // 模拟真实 DSH 的行为：用户从未写过 → describe 的行里**没有** user 键
   state.user = undefined
-  state.value = { enabled: true, segments: [], notes: '', maxBytes: 8192 }   // resolved 值
+  state.value = { enabled: true, segments: [], maxBytes: 8192 }   // resolved 值
   state.watcher?.(state.value, {})
   assert.equal(sectionText(state).includes('组合层基线'), true, '从未配置时组合层 config 必须生效')
-})
-
-test('备注功能关闭时，遗留笔记既不注入、也不算进状态接口的数字', async () => {
-  // 两处口径必须一致：section 注入与实际 status 响应。
-  // 曾出现"注入已剔除 notes、但 /status 仍按读 notes 计算"的矛盾——诊断接口虚高，
-  // 而且没有任何测试拦着（宿主备注门零守卫，变异后全绿）。
-  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], notes: '遗留的笔记内容', maxBytes: 8192 }
-  const resolved = { enabled: true, segments: [], notes: '遗留的笔记内容', maxBytes: 8192 }
-
-  // 前提：用户确实写过字段（只写了 notes），组合层基线必须按字段级合并保留下来
-  for (const [label, notesFeature] of [['未开启', undefined], ['显式关闭', false]]) {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {}, notesFeature })
-    state.user = { notes: '遗留的笔记内容' }
-    state.value = resolved
-    state.watcher?.(state.value, {})
-    const text = sectionText(state)
-    assert.equal(text.includes('组合层基线'), true, `${label}：规则仍须注入`)
-    assert.equal(text.includes('遗留的笔记内容'), false, `${label}：关闭时不得注入遗留笔记`)
-    assert.equal(state.routeBody?.notes, '', `${label}：状态接口不得报出不会被注入的笔记`)
-    assert.equal(state.routeBody?.notesBytes, 0, `${label}：关闭时 notesBytes 必须为 0`)
-    assert.equal(state.routeBody?.rendered.includes('遗留的笔记内容'), false, `${label}：状态接口的 rendered 必须与注入口径一致`)
-    assert.equal(state.routeBody?.bytes, byteLength(state.routeBody?.rendered ?? ''), `${label}：bytes 必须按实际注入内容计算`)
-  }
-
-  // 开启时必须真的注入，且状态接口如实反映
-  {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {}, notesFeature: true })
-    state.user = { notes: '遗留的笔记内容' }
-    state.value = resolved
-    state.watcher?.(state.value, {})
-    const text = sectionText(state)
-    assert.equal(text.includes('遗留的笔记内容'), true, '开启时必须注入笔记')
-    assert.equal(state.routeBody?.notesBytes > 0, true, '开启时 notesBytes 必须反映真实体积')
-  }
 })
 
 test('回归护栏：describe 调用失败时必须保留组合层，而不是回退到解析值', async () => {
@@ -496,10 +424,10 @@ test('回归护栏：describe 调用失败时必须保留组合层，而不是�
   // 兜底分支读 scope.get()——那是 resolved 值（恒含全部字段），于是被判"用户写过"，
   // 组合层 config 被整体丢弃。注释当时写的是"较保守，宁可保留组合层基线"，与实际相反。
   const { ctx, state } = createFakeCtx()
-  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], notes: '', maxBytes: 8192 }
+  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 }
   state.describeOverride = () => { throw new Error('describe boom') }
   await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-  state.value = { enabled: true, segments: [], notes: '', maxBytes: 8192 }
+  state.value = { enabled: true, segments: [], maxBytes: 8192 }
   state.watcher?.(state.value, {})
   assert.equal(sectionText(state).includes('组合层基线'), true, 'describe 失败时组合层必须保留')
 })
@@ -508,28 +436,26 @@ test('回归护栏：用户只改一个字段，组合层 config 的其余字段
   // 真实缺陷：applyResolved 曾经是 `current = next` 整体替换。因为注册时不传 base，
   // resolved 里没有组合层内容，于是用户在设置页只动一个开关，组合层 config 里的
   // 基线规则就整体消失——而文档承诺的是"其余字段回落到组合层值"。
-  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], notes: '', maxBytes: 8192 }
+  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 }
 
   // ① 只写 enabled → 基线规则必须保留
   {
     const { ctx, state } = createFakeCtx()
     await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
     state.user = { enabled: true }
-    state.value = { enabled: true, segments: [], notes: '', maxBytes: 8192 }
+    state.value = { enabled: true, segments: [], maxBytes: 8192 }
     state.watcher?.(state.value, {})
     assert.equal(sectionText(state).includes('组合层基线'), true, '只改开关时基线规则必须保留')
   }
 
-  // ② 只写 notes（功能开启）→ 基线规则与笔记同时生效
+  // ② 只写 maxBytes → 基线规则同样必须保留（字段级合并，不是整体替换）
   {
     const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {}, notesFeature: true })
-    state.user = { notes: '我的笔记' }
-    state.value = { enabled: true, segments: [], notes: '我的笔记', maxBytes: 8192 }
+    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
+    state.user = { maxBytes: 4096 }
+    state.value = { enabled: true, segments: [], maxBytes: 4096 }
     state.watcher?.(state.value, {})
-    const text = sectionText(state)
-    assert.equal(text.includes('组合层基线'), true, '只写 notes 时基线规则必须保留')
-    assert.equal(text.includes('我的笔记'), true, '用户写的 notes 必须生效')
+    assert.equal(sectionText(state).includes('组合层基线'), true, '只写 maxBytes 时基线规则必须保留')
   }
 
   // ③ 显式写 segments → 以用户为准（用户能覆盖基线，规则删得掉）
@@ -537,7 +463,7 @@ test('回归护栏：用户只改一个字段，组合层 config 的其余字段
     const { ctx, state } = createFakeCtx()
     await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
     state.user = { segments: [{ id: 'mine', enabled: true, text: '用户自己的规则' }] }
-    state.value = { enabled: true, segments: [{ id: 'mine', enabled: true, text: '用户自己的规则' }], notes: '', maxBytes: 8192 }
+    state.value = { enabled: true, segments: [{ id: 'mine', enabled: true, text: '用户自己的规则' }], maxBytes: 8192 }
     state.watcher?.(state.value, {})
     const text = sectionText(state)
     assert.equal(text.includes('用户自己的规则'), true, '用户写的规则必须生效')
@@ -549,7 +475,7 @@ test('回归护栏：用户只改一个字段，组合层 config 的其余字段
     const { ctx, state } = createFakeCtx()
     await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
     state.user = { segments: [] }
-    state.value = { enabled: true, segments: [], notes: '', maxBytes: 8192 }
+    state.value = { enabled: true, segments: [], maxBytes: 8192 }
     state.watcher?.(state.value, {})
     assert.equal(sectionText(state).includes('组合层基线'), false, '用户显式清空后基线不得复活')
   }
@@ -558,8 +484,8 @@ test('回归护栏：用户只改一个字段，组合层 config 的其余字段
 test('describe 的各种形状都必须安全：user 为空/为 null/为数组/不含本命名空间', async () => {
   // 判定"用户是否显式配置过"完全依赖 describe 的返回形状，而它是外部服务给的。
   // 这里逐个形状验证:任何形状都不得抛错，也不得把"没写过"误判成"写过"。
-  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], notes: '', maxBytes: 8192 }
-  const resolved = { enabled: true, segments: [], notes: '', maxBytes: 8192 }
+  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 }
+  const resolved = { enabled: true, segments: [], maxBytes: 8192 }
 
   // ① 无 user 键 / user 为空对象 / user 为 null / user 是数组 → 都算"没写过"，组合层必须生效
   for (const user of [undefined, {}, null, []]) {
@@ -630,7 +556,6 @@ test('状态路由的鉴权与状态码语义：405/403/200/?debug=1/500', async
   state.value = {
     enabled: true,
     segments: [{ id: 'bad', enabled: true, text: { toString() { throw new Error('render boom') } } }],
-    notes: '',
     maxBytes: 8192
   }
   state.watcher?.(state.value, {})
@@ -695,8 +620,7 @@ test('F2 回归：用户文本里的 {{…}} 必须原样保留，且 section �
   // 这件事自 DSH 0.1.6 起由官方 `interpolate: false` 承担：本段原样保留用户文本，
   // 不再把 `{{` 拆成 `{`+零宽空格+`{`（模型不该看到零宽字符）。
   const rendered = renderExtraContext({
-    segments: [{ id: 'a', enabled: true, text: '请按 {{user_name}} 与 {{ handlebars }} 的风格回答' }],
-    notes: ''
+    segments: [{ id: 'a', enabled: true, text: '请按 {{user_name}} 与 {{ handlebars }} 的风格回答' }]
   })
   assert.equal(rendered.includes('{{user_name}}'), true, '用户文本必须逐字保留')
   assert.equal(rendered.includes('{{ handlebars }}'), true, '含空格的引用同样逐字保留')
@@ -705,7 +629,7 @@ test('F2 回归：用户文本里的 {{…}} 必须原样保留，且 section �
   // 终点断言：宿主注册 section 时必须真的声明 interpolate: false。
   // 少了它，用户写 {{name}} 就会让每一次模型请求都失败（很难排查）。
   const { ctx, state } = createFakeCtx()
-  await createRuntime({ ctx, schema: { fake: true }, initial: { segments: [], notes: '' }, log: () => {}, notesFeature: true })
+  await createRuntime({ ctx, schema: { fake: true }, initial: { segments: [] }, log: () => {} })
   assert.equal(state.section.interpolate, false, 'section 必须声明 interpolate: false')
 
   const source = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
