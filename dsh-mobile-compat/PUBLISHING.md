@@ -1,57 +1,58 @@
-# Publishing Checklist
+# 发布清单
 
-This checkout is a local release candidate. Do not publish it without a separate package-name and version decision.
+`dsh-mobile-compat` 已发布到公共 npm registry（`0.3.1` 起，2026-09-14）。发布由 tag 驱动：推送 `dsh-mobile-compat-v<版本>` 会触发根仓库 `.github/workflows/release.yml`，经 npm trusted publishing（OIDC）带 provenance 发布，不依赖长期 token；工作流会拒绝与 `package.json` 版本不一致的 tag、拒绝 `private: true` 的包，并在发布后回查 registry 上的版本。
 
-## Compatibility gate
-
-`compatibility.json` is the machine-readable contract matrix and `package.json#dshCompatibility` points to it. The compatible release line is `>=0.1.6-alpha.1 <0.1.7`; `0.1.6-alpha.1` is individually source-verified.
-
-Later alpha, beta, rc, and final versions on the same `0.1.6` line may run with a warning only while the runtime version gate, public capability checks, and exact structural probes all pass. Never use an unbounded range, lower the bound below `0.1.6-alpha.1`, or cross into `0.1.6` without reading the published source and updating the range, verified list, contract matrix, runtime gate, installer, docs, and tests together.
-
-Run:
+## 发布闸门
 
 ```bash
+npm run publish:check      # 语法检查 + 单元测试 + tarball 内容白名单（含兼容矩阵校验）
+npm publish --dry-run      # 跑 prepublishOnly 并构造包，不上传
+```
+
+## 打 tag
+
+```bash
+git tag dsh-mobile-compat-v0.3.2
+git push origin dsh-mobile-compat-v0.3.2
+```
+
+## 安装路线
+
+用户路线是官方 profile manager 直接装 registry 上的包（`dsh plugin --profile web add dsh-mobile-compat`，卸载用 `remove`）；源码 checkout 保留本地 `link:` 路线 `./install.sh` / `./uninstall.sh`（同样先跑完整 `publish:check`）。
+
+发布前用隔离 DSH Home 验证准确 tarball：
+
+```bash
+release_root="$(mktemp -d /tmp/dsh-mobile-compat-release.XXXXXX)"
+mkdir -p "$release_root/artifacts"
+npm pack --ignore-scripts --pack-destination "$release_root/artifacts"
+tarball="$release_root/artifacts/dsh-mobile-compat-0.3.2.tgz"   # 换成本次发布的版本
+DSH_HOME="$release_root/dsh-home" \
+  dsh plugin --profile web add "$tarball" --config.minimumReleaseAge=0
+DSH_HOME="$release_root/dsh-home" dsh web --dump-config
+DSH_HOME="$release_root/dsh-home" dsh plugin --profile web remove dsh-mobile-compat
+```
+
+## 兼容性与浏览器证据
+
+兼容发布线由 `compatibility.json` 的机器可读矩阵声明（`package.json#dshCompatibility` 指向它）；只有逐版本读过 DSH 源码并核对契约的版本才能写进 `verifiedVersions`，跨发布线或收录未核对版本都必须先重新读源码。发布前必须：
+
+```bash
+npm run compatibility:check    # 与当前安装的 dsh --version 比对
 node scripts/check-compat.js --manifest
-node scripts/check-compat.js --installed
 ```
 
-## Runtime gate
-
-The Host reads the actual executing CLI's `@deepseek-ai/dsh/package.json` and exposes only `{ package, version }` at the no-store `GET /dsh-mobile-compat/status` route after DSH `connection.requestRejection(req)` browser authentication. The Client sends same-origin credentials and uses `connection.generation.getSnapshot()/subscribe()` only as a connected/retry trigger before reading the plugin route for the release version. A missing generation capability, failed status request, or version outside the compatible release line leaves the plugin inert.
-
-A compatible version is still insufficient by itself. AppFrame, direct Slot seats, SidebarRoot, Workspace header, Settings dialog, the direct ConversationRoot/body/scroll relationship, Conversation outer attributes, and the Composer's accessible textbox must match the probed contract before style, viewport, Locale, or `shell.overlay` contributions activate. Safe-area and header-clearance CSS must target the owned ConversationRoot marker, not an ancestor selected only through `:has()`. A failed probe must preserve native layout and emit one diagnostic.
-
-## Candidate gate
+新增已验证版本、跨发布线或改动结构探测时，浏览器回归必须重跑——两个 URL 显式指向隔离 DSH Home 的随机端口 server 与隔离 Chrome，绝不连接用户自己的 3080 GUI：
 
 ```bash
-npm run publish:check
-npm pack --ignore-scripts
+DSH_MOBILE_DEVTOOLS=http://127.0.0.1:9333 \
+DSH_MOBILE_SMOKE_URL=http://127.0.0.1:<isolated-port>/ \
+DSH_MOBILE_SMOKE_PREFIX=/tmp/dsh-mobile-compat \
+npm run test:browser
 ```
 
-The pack check uses an exact allowlist. The package must contain the Host entry, browser bundle, compatibility matrix, profile patch, user documentation, changelog, publishing notes, license, and manifest only.
+覆盖 320x568、390x844、457x707、568x320、844x390、900/901px、1023/1024px 与桌面布局。真实软键盘、安全区、长会话、代码/媒体、主题与 Locale 仍需人工实机复核；Chromium 模拟不算证据。更细的清单见 `AGENTS.md`。
 
-## Upgrade review
+## CI
 
-1. Read the actual candidate npm artifacts and record the exact package versions reviewed.
-2. Recheck `connection.generation`, `layout.toggleSidebar()`, AppFrame direct host children, direct `sidebar`/`main`/`rightbar` Slot seats, SidebarRoot inline width, `shell.overlay`, Workspace header/search/actions, Settings dialog/direct nav, Conversation outer attributes, Composer textbox semantics, client dependency graph, viewport metadata, and overlay stacking.
-3. Update `compatibility.json#contracts` so every private structural dependency names its owner, expected relation, and individually verified versions.
-4. Verify unsupported-version, missing-capability, and structure-mismatch paths leave no style, body marker, viewport patch, Slot entry, or ARIA/inert mutation.
-5. Verify mobile mode never calls `layout.closeRightbar()` and a desktop-mobile-desktop round trip preserves the native rightbar preference.
-
-Never accept CSS Module hashes, `window.__DSH_BOOT__`, or deep Conversation DOM as compatibility evidence.
-
-## Browser evidence
-
-Use an isolated profile/server and isolated Chrome target; never replace the user-owned GUI. Run `test/browser-regression.mjs` at minimum across 320x568, 390x844, 457x707, 568x320, 844x390, 900/901px, 1023/1024px, and desktop.
-
-Required assertions include runtime and structure markers, Sidebar width parity, touch targets, Workspace controls, Drawer accessibility and cleanup, breakpoint reconciliation, Settings geometry, a 16px native or contenteditable Composer, overflow, console errors, uncaught page errors, and failed requests.
-
-Also manually validate long conversations, code/media overflow, theme and locale switching, reduced motion, real iOS/Android software keyboards, landscape drawer scrolling, and nonzero safe-area insets. Chromium emulation is not evidence for real keyboard or notch behavior.
-
-## Local profile install
-
-```bash
-./install.sh
-```
-
-The script validates the installed version and `web` profile, runs all release gates, and uses DSH's official profile manager with a `link:` dependency. It does not edit the user's patch layer directly.
+`.github/workflows/ci.yml` 在 Node.js 20/22 上执行 `npm run publish:check`，不发布任何东西；发布是 `.github/workflows/release.yml` 的独立作业，走 OIDC 认证。

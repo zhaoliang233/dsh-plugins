@@ -82,6 +82,11 @@ AppFrame position、SidebarRoot inline width、Workspace header/search/action �
 6. 人工补测真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题和 Locale。
 7. 调整兼容范围上界（跨到 `0.1.7`）或下界之前，必须完成以上检查并重新读取源码。
 
+## 发布与安装路线
+
+- 用户路线是官方命令 `dsh plugin --profile web add dsh-mobile-compat`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线。
+- 发布：`npm run publish:check` 是唯一闸门（含 `node scripts/check-compat.js --manifest` 与 `scripts/check-pack.js` 的 tarball 白名单），`install.sh` 也必须先跑完整闸门；`.github/workflows/ci.yml` 只验证 Node 20/22，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-mobile-compat-v<版本>` tag 后经 npm trusted publishing（OIDC）完成。
+
 ## 验证命令
 
 ```bash

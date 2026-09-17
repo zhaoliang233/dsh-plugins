@@ -53,7 +53,7 @@ test('compatibility matrix declares the verified 0.1.6 release line', () => {
   assert.match(readme, />=0\.1\.6-alpha\.1 <0\.1\.7/)
   assert.match(readme, /0\.1\.6-alpha\.1/)
   assert.match(agents, /兼容发布线/)
-  assert.match(publishing, /compatible release line/)
+  assert.match(publishing, /兼容发布线/)
 })
 
 test('client source declares release-line, connection, and structure gates', () => {
