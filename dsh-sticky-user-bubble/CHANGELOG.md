@@ -1,64 +1,73 @@
-# Changelog
+# 变更记录
 
-All notable changes to this project will be documented in this file.
+本文件记录本项目的所有重要变更。
 
-## [0.1.3] - Unreleased
+## [0.1.4] - 2026-09-17
 
-### Compatibility
+### 文档
 
-- Declare the DSH compatibility range a second time in the official `package.json#engines.dsh` field (new in DSH 0.1.6) and guard it against `dshCompatibility.range` in the manifest test.
+- 全部文档改为纯中文，不再维护中英双语；`README.md` 收敛为「功能 → 要求 → 安装与卸载 → 已知边界」，只描述当前行为，实现结构与开发检查命令移到 `AGENTS.md`。
+- 安装入口改为官方命令 `dsh plugin --profile web add/remove dsh-sticky-user-bubble`，并补上升级方式（profile 依赖是 caret 范围，需显式写版本号）；`./install.sh` 明确为源码 `link:` 开发路线。
+- 要求一节里的兼容范围更正为 `>=0.1.6-alpha.1 <0.1.7`（此前文档仍写着旧的 `0.1.5` 发布线，与 manifest 不一致）。
 
-- Re-audited the Session/Chat snapshot, Slot, core DOM-marker, and geometry contracts against DSH `0.1.6-alpha.1`: the chat row markup (`data-chat-flow`, `data-chat-anchor-key`/`-flow-key`/`-flow-kind`), the `.EvIC1a_*` flow CSS, `[data-conversation-scroll]`, and `[data-composer-seat]` are emitted by unchanged code; the only new DOM shape is that `@`/slash reference chips now render as a `<button>` when they activate something, which the clone already neutralizes (it clears `tabindex` and sets `tabIndex = -1` on every copied element). Moved the supported line to `>=0.1.6-alpha.1 <0.1.7`; `0.1.6-alpha.1` is individually verified.
-- Audited DSH `0.1.5-alpha.1` Session, Chat, Slot, client-module, and DOM contracts; narrowed the supported line to `>=0.1.5-alpha.1 <0.1.6` with same-line capability-check warnings.
+## [0.1.3] - 2026-09-17
 
-### Added
+首个公开发布到 npm registry 的版本。
 
-- Prefers explicit user-bubble markers when available and otherwise combines authoritative message text, paint, padding, and geometry to identify the source bubble.
-- Observes the active source bubble, its bounded ancestor chain to the scrollport, theme attributes, stylesheet nodes, font loading, the visual viewport, and existing conversation geometry through one coalesced measurement scheduler.
-- Records a non-visual compatibility state on the clone host and fails closed for detached sources, invalid measurements, unsupported root layouts, and geometry mismatches.
+### 兼容性
 
-### Changed
+- 在官方新增的 `package.json#engines.dsh` 字段第二次声明 DSH 兼容范围，并在 manifest 测试中守卫同源。
+- 针对 DSH `0.1.6-alpha.1` 重新核对 Session/Chat 快照、Slot、核心 DOM 标记与几何契约：聊天行标记（`data-chat-flow`、`data-chat-anchor-key`/`-flow-key`/`-flow-kind`）、`.EvIC1a_*` flow CSS、`[data-conversation-scroll]`、`[data-composer-seat]` 都由未变代码产出；唯一新增的 DOM 形态是 `@`/slash 引用 chip 在可点击时渲染成 `<button>`，而克隆本就把它中和（清除 `tabindex` 并把复制元素的 `tabIndex` 置为 `-1`）。兼容线移到 `>=0.1.6-alpha.1 <0.1.7`，`0.1.6-alpha.1` 逐版本验证。
+- 针对 DSH `0.1.5-alpha.1` 核对 Session、Chat、Slot、client module 与 DOM 契约后，兼容线曾收窄为 `>=0.1.5-alpha.1 <0.1.6`。
 
-- Hand the top slot over to the next user card instead of covering it: once that card's leading edge comes within the flow gap, the clone moves up with it, keeps that spacing, is clipped at the scrollport edge, and is gone when the card reaches the reading line.
-- Cap the hover/focus expansion by the free room above the next user card: a long pinned message stops at the card's reserved gap, scrolls internally beyond it, stays collapsed when no room is left, and tightens as the card approaches even while it is already expanded.
-- Measures unclamped clone content at its real width so fixed source `height` and `min-height` values do not determine three-line overflow or expanded height.
-- Uses actual rendered line boxes when available, falling back to computed line height only when the browser cannot expose line rectangles.
-- Copies a bounded set of computed text and visual styles to cloned descendants so ancestor-dependent styling survives the move into `shell.overlay` more reliably.
-- Caps exceptionally long expanded bubbles to the available conversation viewport and makes the expanded bubble internally scrollable.
+### 新增
 
-### Fixed
+- 可用时优先使用显式的 user-bubble 标记，否则联合权威消息文本、paint、padding 与几何来识别源气泡。
+- 用一个合并后的测量调度器观察当前源气泡、其到 scrollport 的有界祖先链、主题属性、样式表节点、字体加载、visual viewport 与会话几何。
+- 在克隆 host 上记录非视觉的兼容状态，并对已断开、测量无效、不支持的根布局与几何不匹配 fail closed。
 
-- Stop the collapse/expand flicker while the conversation streams. A resized flow (every token of an answer resizes it), source attribute or theme change replaced the rendered clone, and the fresh clone started collapsed until the browser's hover recompute expanded it again. Layout resizes now take the ordinary comparison path instead of forcing a rebuild, and the hover/focus intent lives in an effect-level ref that a rebuild carries over to its successor (restoring focus when the keyboard owned the expansion).
-- Cap the expanded bubble by the composer, not just by the scrollport. The composer is sticky at the bottom *inside* the conversation scrollport, so a long pinned message expanded with no following card ran down over the input card and the frame's status bar. `availableHeight` now ends at the `[data-composer-seat]` top minus the usual 16px (falling back to the previous viewport limit when that seat is missing).
-- Move the capped expansion's inner scrolling off the bubble root and onto the content wrapper. The scrollbar used to sit on the bubble's border, crossing the rounded corners, at the global brightness. It now stays inside the bubble's padding, uses DSH's dimmed in-card thumb (`l2`, like the composer card), and the wrapper is an input target only while it owns the scrollbar.
-- Gate the pinned clone on the bubble's real paint boundary instead of the reading line. Visibility was compared against `scrollport.top + readingInset`, which sits 16px below the scrollport's clip edge in the audited layout, so the clone appeared while the original bubble's bottom padding and corners were still fully visible. The clone now waits until the bubble's bottom leaves the scrollport clip edge, narrowed by any clipping or independently scrolling ancestor.
-- Pins user messages that contain an `@`/slash token: the core renderer projects the token into a reference chip that shows only the token's last path segment, so the rendered bubble text never matched the raw snapshot text and that row failed closed as `bubble-not-found`. Bubble text is now rebuilt through each chip's `title` attribute before comparing.
-- Reads the audited DSH Chat target through `uiConversation.binding(id).target('chat')` instead of assuming lifecycle snapshots still contain `chat`.
-- Searches the authoritative user row when the audited DSH line omits the legacy `data-time-hover-root` marker, while retaining the marker path for older bundles.
-- Filters clone-host mutations from the document observer so compatibility refreshes cannot create a self-triggering render loop.
+### 变更
+
+- 把顶部位置让给下一条用户卡片而不是盖住它：卡片前沿进入 flow 间距后副本随之上移、保留该间距、在 scrollport 边缘被裁切，卡片到达阅读线时副本已消失。
+- 用下一条用户卡片上方的可用空间限制 hover/focus 展开：长消息停在该卡片预留的间距处，超出部分内部滚动；没有空间时保持折叠，卡片逼近时即使已展开也会实时收紧。
+- 按真实宽度测量未截断的克隆内容，使源气泡固定的 `height`/`min-height` 不再决定三行截断或展开高度。
+- 能拿到实际行框时使用行框，浏览器不提供行矩形时才退回 computed line-height。
+- 向克隆后代复制有边界的 computed 文本与视觉样式，让依赖祖先选择器的样式在移入 `shell.overlay` 后更可靠地保留。
+- 极长的展开气泡按可用对话视口限高，并允许内部滚动。
+
+### 修复
+
+- 修掉会话流式生成时的折叠/展开闪断：回答的每个 token 都会改变 flow 尺寸，此前会重建克隆并让新副本先折叠、等浏览器重算 hover 后才重新展开。现在布局 resize 走普通比较路径而不强制重建，hover/focus 意图保存在 effect 级 ref 中，由重建后的副本继承（键盘触发的展开还会恢复焦点）。
+- 展开高度改为受 composer 限制而不只是 scrollport：composer 是 scrollport **内部**底部的 sticky 元素，展开的长消息此前会压住输入卡片与底部状态栏；`availableHeight` 现在止于 `[data-composer-seat]` 顶部再减 16px（找不到该座位时退回视口限高）。
+- 把限高后的内部滚动从气泡 root 移到内容 wrapper：滚动条此前压在气泡圆角边框上且使用全局亮度的滑块，现在落在气泡 padding 内、使用 DSH 的卡片内暗色滑块（`l2`，与 composer 卡片一致），并且 wrapper 只在真正拥有滚动条时才接收指针事件。
+- 固定副本的可见性改为以气泡真实绘制边界为准，而不是阅读线：此前与 `scrollport.top + readingInset` 比较，而在已核对布局里两者相差 16px，导致原气泡底部内边距与圆角仍完全可见时副本就出现了；现在等气泡底部离开 scrollport 裁剪边（并被任何裁剪或独立滚动祖先的 padding box 收窄）才出现。
+- 固定包含 `@`/slash token 的用户消息：核心渲染器把 token 投影成只显示最后一段路径的引用 chip，导致渲染文本与快照原文不一致、该行此前 fail closed 成 `bubble-not-found`；现在会先按每个 chip 的 `title` 重建气泡文本再比较。
+- 通过 `uiConversation.binding(id).target('chat')` 读取已核对的 DSH Chat target，不再假设生命周期快照里仍有 `chat`。
+- 已核对的 DSH 行不再带旧版 `data-time-hover-root` 时，直接在权威用户行内搜索；旧 bundle 的 marker 路径保留。
+- 从 document observer 中过滤克隆 host 自身的变更，避免兼容性刷新造成自触发的渲染循环。
 
 ## [0.1.1]
 
-### Added
+### 新增
 
-- Makes the pinned bubble clickable and keyboard-accessible, scrolling the conversation back to the corresponding original user or steering message.
-- Limits long pinned bubbles to three lines with an ellipsis, then reveals the complete content while hovered or keyboard-focused.
+- 固定气泡可点击、可用键盘激活，点击后滚动回对应的原始用户或 steering 消息。
+- 长固定气泡限制三行并以省略号截断，鼠标悬停或键盘聚焦时显示完整内容。
 
-### Fixed
+### 修复
 
-- Applies line clamping to a padding-free inner wrapper so Chromium cannot reveal part of a fourth line inside the bubble's bottom padding.
+- 把行截断应用在无 padding 的内层 wrapper 上，避免 Chromium 在气泡底部内边距里露出第四行的一部分。
 
 ## [0.1.0]
 
-### Added
+### 新增
 
-- Pins the active user or steering message bubble at the top of the DSH Web conversation while its original bubble has scrolled above the reading edge.
-- Uses live conversation/Chat snapshots to resolve message text and the core conversation data attributes to locate the rendered row.
-- Reuses the rendered bubble's measured geometry and computed visual styles so the pinned copy follows the native bubble across widths and themes.
-- Fails closed when the expected chat markers or a measurable text bubble are absent.
-- Cleans up slot registrations, scroll listeners, observers, scheduled frames, and session subscriptions on unload.
-- Adds official profile metadata, local link installation, release checks, and Node 20/22-compatible tests.
+- 当原始气泡已滚出阅读边缘后，在 DSH Web 对话顶部固定当前用户或 steering 消息气泡。
+- 用实时的会话/Chat 快照解析消息文本，用核心对话 data 属性定位渲染行。
+- 复用已渲染气泡的测量几何与 computed 视觉样式，使副本在不同宽度与主题下跟随原生气泡。
+- 预期聊天标记缺失或找不到可测量的文本气泡时 fail closed。
+- 卸载时清理 Slot 注册、滚动监听、observer、已排期的帧与会话订阅。
+- 增加官方 profile 元数据、本地 link 安装、发布检查与 Node 20/22 兼容的测试。
 
-### Fixed
+### 修复
 
-- Interprets measured DOMRect dimensions as border-box totals so the cloned bubble does not add the native content-box padding a second time.
+- 把测得的 DOMRect 尺寸按 border-box 总量解释，避免克隆气泡重复加上原生 content-box 的 padding。

@@ -81,6 +81,11 @@ clone 的 hover/focus 意图存在 effect 级 `cloneStateRef.current`（`{ updat
 - 让位距离与展开上限都按折叠高度和下一个 durable 行的位置推算：按「让位」的排除规则，pending submission echo 与 pending steering 不会成为「下一个卡片」，它们短暂经过顶部时仍可能被副本遮挡。展开窗口只剩 `gap` 级空间时 hover 不再展开（避免退化成极窄的内部滚动窗口）；要读全文时向上滚一点让卡片离开即可恢复。
 - DSH 升级后必须重新确认 `uiConversation` 的 Chat target、ChatSnapshot 节点结构、row marker、`data-time-hover-root`（如仍存在）、专用 bubble marker、`data-composer-seat`、root display/writing-mode、computed style、line rect 和 Slot contract，再声明兼容。
 
+## 发布与安装路线
+
+- 用户路线是官方命令 `dsh plugin --profile web add dsh-sticky-user-bubble`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线。
+- 发布：`npm run publish:check` 是唯一闸门（语法、测试、`scripts/check-pack.js` 的 tarball 白名单），`install.sh` 也必须先跑完整闸门；`.github/workflows/ci.yml` 只验证 Node 20/22，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-sticky-user-bubble-v<版本>` tag 后经 npm trusted publishing（OIDC）完成。
+
 ## 验证
 
 ```bash

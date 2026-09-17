@@ -1,26 +1,49 @@
-# Publishing Checklist
+# 发布清单
 
-This checkout is a local release candidate for `dsh-sticky-user-bubble@0.1.3`. Its supported DSH release line is `>=0.1.5-alpha.1 <0.1.6`; `0.1.5-alpha.1` is source-verified. Do not publish to npm without a separate package-name and version decision.
+`dsh-sticky-user-bubble` 已发布到公共 npm registry（`0.1.3` 起，2026-09-17）。发布由 tag 驱动：推送 `dsh-sticky-user-bubble-v<版本>` 会触发根仓库 `.github/workflows/release.yml`，经 npm trusted publishing（OIDC）带 provenance 发布，不依赖长期 token；工作流会拒绝与 `package.json` 版本不一致的 tag、拒绝 `private: true` 的包，并在发布后回查 registry 上的版本。
 
-## Candidate gate
-
-```bash
-npm run publish:check
-npm pack --ignore-scripts
-```
-
-The pack check uses an exact file allowlist. The package must contain the Host entry, browser bundle, profile patch, documentation, license, and manifest only.
-
-## Local profile install
+## 发布闸门
 
 ```bash
-./install.sh
+npm run publish:check      # 语法检查 + 单元测试 + tarball 内容白名单
+npm publish --dry-run      # 跑 prepublishOnly 并构造包，不上传
 ```
 
-The script uses DSH's official profile manager with a `link:` dependency. It does not edit the user's profile patch directly.
+## 打 tag
 
-## Runtime verification
+```bash
+git tag dsh-sticky-user-bubble-v0.1.4
+git push origin dsh-sticky-user-bubble-v0.1.4
+```
 
-After installing a composition or changing the Host/client bundle, restart `dsh web` in the user's terminal when no client-plugin watcher has been confirmed, then refresh the page. Verify the profile dump contains `dsh-sticky-user-bubble` and the Web boot graph includes `@deepseek-ai/dsh-client-ui-chat`, then check a long conversation at desktop and narrow widths.
+## 安装路线
 
-The client must hide the pinned copy at the top of a conversation, show the corresponding user bubble only after it has fully left the painted band, hand the slot over to the next user card (keeping the message gap, never covering that card), switch in both scroll directions, navigate back to the original message when activated, clamp long copies to three lines without fourth-line leakage, restore natural content height only within the room left by the next card and the composer (`[data-composer-seat]`), keep the in-bubble scrollbar inside the bubble padding, and disappear for stale snapshots, unsupported layouts, ambiguous bubble candidates, or missing core markers. Repeat the smoke test with altered font size, line height, padding, a gradient/small-radius bubble, fixed source height, theme changes, and a narrow viewport.
+用户路线是官方 profile manager 直接装 registry 上的包（`dsh plugin --profile web add dsh-sticky-user-bubble`，卸载用 `remove`）；源码 checkout 保留本地 `link:` 路线 `./install.sh` / `./uninstall.sh`（同样先跑完整 `publish:check`）。
+
+发布前用隔离 DSH Home 验证准确 tarball：
+
+```bash
+release_root="$(mktemp -d /tmp/dsh-sticky-user-bubble-release.XXXXXX)"
+mkdir -p "$release_root/artifacts"
+npm pack --ignore-scripts --pack-destination "$release_root/artifacts"
+tarball="$release_root/artifacts/dsh-sticky-user-bubble-0.1.4.tgz"   # 换成本次发布的版本
+DSH_HOME="$release_root/dsh-home" \
+  dsh plugin --profile web add "$tarball" --config.minimumReleaseAge=0
+DSH_HOME="$release_root/dsh-home" dsh web --dump-config
+DSH_HOME="$release_root/dsh-home" dsh plugin --profile web remove dsh-sticky-user-bubble
+```
+
+## 发布后抽查
+
+客户端行为有改动时，重启后刷新页面，在长对话里确认：
+
+- `dsh web --dump-config` 的 bundle graph 含 `dsh-sticky-user-bubble`，boot graph 含 `@deepseek-ai/dsh-client-ui-chat`。
+- 顶部初始隐藏；原气泡（含底部内边距与圆角）完全离开可视区后才出现副本。
+- 让位时保留消息间距、新卡片不被遮挡；点击或键盘激活能回到原消息。
+- 长内容 hover/focus 展开不越过 composer；流式回答期间展开状态不闪断。
+
+更细的 GUI 清单见 `AGENTS.md` 的「验证」。
+
+## CI
+
+`.github/workflows/ci.yml` 在 Node.js 20/22 上执行 `npm run publish:check`，不发布任何东西；发布是 `.github/workflows/release.yml` 的独立作业，走 OIDC 认证。
