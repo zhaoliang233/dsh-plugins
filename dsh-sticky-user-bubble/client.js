@@ -1305,9 +1305,26 @@ window.__ModuleLoader__.load({
       return { overlayRef, copyHostRef }
     }
 
+    // The Session list moved its navigation cell between DSH 0.1.6 alphas: `state.current`
+    // exists through alpha.1, while alpha.2 drops it and derives the main-view Session from
+    // the `mainView` retention count — the same shape the shell's own title/panel code reads.
+    function currentSessionIdOf(state) {
+      if (state === undefined || state === null) return undefined
+      if (typeof state.current === 'string' && state.current !== '') return state.current
+      const byId = state.byId
+      if (byId === null || typeof byId !== 'object') return undefined
+      for (const summary of Object.values(byId)) {
+        if (summary === null || summary === undefined) continue
+        const retainedBy = summary.retainedBy
+        if (retainedBy === null || retainedBy === undefined) continue
+        if ((retainedBy.mainView ?? 0) > 0 && typeof summary.id === 'string') return summary.id
+      }
+      return undefined
+    }
+
     function createStickyUserBubbleOverlay(sessions, uiConversation) {
       return function StickyUserBubbleOverlay({ useSessions }) {
-        const currentId = useSessions((state) => state?.current)
+        const currentId = useSessions(currentSessionIdOf)
         let binding
         let session
         let chatSource = EMPTY_CHAT_SOURCE

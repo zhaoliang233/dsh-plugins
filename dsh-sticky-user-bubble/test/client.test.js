@@ -567,7 +567,7 @@ function mountSticky(dom, text = 'hello from the user', options = {}) {
   if (uiConversation !== undefined) context.uiConversation = uiConversation
   plugin.apply(context)
   const rendered = runtime.render(component.value, {
-    useSessions(selector) { return selector({ current: 'session-a' }) }
+    useSessions(selector) { return selector(options.sessionList ?? { current: 'session-a' }) }
   })
   rendered.tree.props.ref.current = dom.overlay
   rendered.tree.children[0].props.ref.current = dom.host
@@ -643,6 +643,58 @@ test('keeps an independent Chat target inactive when the session snapshot is clo
       currentChat: true,
       sessionState: { openState: 'closed' }
     })
+    assert.equal(dom.host.firstChild, undefined)
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-state'), 'inactive-snapshot')
+  } finally {
+    mounted?.cleanup()
+    restore()
+  }
+})
+
+test('resolves the current session from mainView retention when the list drops its current cell', () => {
+  // DSH 0.1.6-alpha.2 removed SessionListState.current; the shell now derives the
+  // main-view Session from the retention counts instead.
+  const dom = createBrowserDom({ withHoverRoot: false })
+  const restore = installBrowserGlobals(dom)
+  let mounted
+  try {
+    dom.bubble.rect = { left: 600, top: 30, right: 900, bottom: 70, width: 300, height: 40 }
+    mounted = mountSticky(dom, 'hello from the user', {
+      currentChat: true,
+      sessionList: {
+        ids: ['session-b', 'session-a'],
+        byId: {
+          'session-b': { id: 'session-b', retainedBy: { mainView: 0, sidebar: 1 } },
+          'session-a': { id: 'session-a', retainedBy: { mainView: 1 } }
+        },
+        phase: 'ready'
+      }
+    })
+
+    assert.ok(mounted.chatSource)
+    assert.ok(dom.host.firstChild)
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-state'), 'ready')
+  } finally {
+    mounted?.cleanup()
+    restore()
+  }
+})
+
+test('stays inactive when no session is retained by the main view', () => {
+  const dom = createBrowserDom({ withHoverRoot: false })
+  const restore = installBrowserGlobals(dom)
+  let mounted
+  try {
+    dom.bubble.rect = { left: 600, top: 30, right: 900, bottom: 70, width: 300, height: 40 }
+    mounted = mountSticky(dom, 'hello from the user', {
+      currentChat: true,
+      sessionList: {
+        ids: ['session-b'],
+        byId: { 'session-b': { id: 'session-b', retainedBy: { sidebar: 1 } } },
+        phase: 'ready'
+      }
+    })
+
     assert.equal(dom.host.firstChild, undefined)
     assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-state'), 'inactive-snapshot')
   } finally {

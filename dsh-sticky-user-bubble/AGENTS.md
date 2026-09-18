@@ -11,7 +11,8 @@
 - `inject: ['slots', 'sessions', 'uiConversation']` 是客户端插件对象的硬依赖声明。
 - UI 注册：`ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'dsh-sticky-user-bubble', order: 0 }, ...))`。
 - `shell.overlay` 是 root-scoped frame-wide additive layer；插件自己的 layer/host 保持 `pointer-events: none`，只有当前固定气泡用 `pointer-events: auto`，不会阻塞会话其余区域。
-- root Slot 只有 `useSessions`，没有 `useSession`：组件用 `useSessions(state => state.current)`，再经 `ctx.sessions.binding(currentId).session` 读生命周期快照、经 `ctx.uiConversation.binding(currentId).target('chat')` 读 Chat 目标；两个 observable 都经稳定闭包包装后无条件调用 `React.useSyncExternalStore`。
+- root Slot 只有 `useSessions`，没有 `useSession`：组件用 `useSessions(currentSessionIdOf)` 取当前会话 id，再经 `ctx.sessions.binding(currentId).session` 读生命周期快照、经 `ctx.uiConversation.binding(currentId).target('chat')` 读 Chat 目标；两个 observable 都经稳定闭包包装后无条件调用 `React.useSyncExternalStore`。
+- **当前会话 id 的取法是跨 alpha 的双路径**（`currentSessionIdOf`）：`0.1.6-alpha.1` 的 `SessionListState` 有 `current: SessionId | undefined`；`0.1.6-alpha.2` 删掉了它（连同 `currentAddress`），导航改由视图持有关系表达，壳层自己的取法是 `Object.values(state.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id`（`dsh-client-ui-layout` 的 `DocumentTitle`、`dsh-client-ui-cordis` 的当前会话行、`dsh-client-ui-settings-general` 都这么写）。插件按 `current` → `retainedBy.mainView` 的顺序解析，两者都取不到时返回 `undefined`、组件保持 inert。**别再写回单一来源**：alpha.2 上只会得到 `undefined`，表现为状态永远停在 `inactive-snapshot`、气泡一次都不显示（本轮实测踩到）。
 - `package.json#dsh.client.inject` 必须包含 `@deepseek-ai/dsh-client-ui-chat`，确保 Chat target/node definitions 与当前 bundle 一起可用。
 
 ## 快照与消息归组
@@ -65,7 +66,9 @@ clone 的 hover/focus 意图存在 effect 级 `cloneStateRef.current`（`{ updat
 
 ## 兼容发布线
 
-范围 DSH `>=0.1.6-alpha.1 <0.1.7`，`0.1.6-alpha.1` 已逐版本验证。同线后续版本可带警告运行，但客户端必须继续通过 Session/Chat snapshot、Slot、核心 DOM 标记和几何自检；跨到 `0.1.7` 前必须重新读取源码和实时契约。Host 版本门、installer 与 manifest 必须同步该范围；`package.json#engines.dsh` 与同一 range 同源，`test/manifest.test.js` 有同源断言守卫。
+范围 DSH `>=0.1.6-alpha.1 <0.1.7`，其中 `0.1.6-alpha.2` 已逐版本验证（`0.1.6-alpha.1` 亦验证过：两个 alpha 的差异只有会话列表的当前会话单元格，见「Client 服务与 Slot」的双路径解析）。同线后续版本可带警告运行，但客户端必须继续通过 Session/Chat snapshot、Slot、核心 DOM 标记和几何自检；跨到 `0.1.7` 前必须重新读取源码和实时契约。Host 版本门、installer 与 manifest 必须同步该范围；`package.json#engines.dsh` 与同一 range 同源，`test/manifest.test.js` 有同源断言守卫。
+
+`0.1.6-alpha.1 → 0.1.6-alpha.2` 的逐项核对结果：`ChatSnapshot` 仍是 `{ order, nodes, locations, navigation, timeline, legacy }`（`order` 为 key 数组、`nodes.get(key)` 返回含 `kind`/`data.content` 的节点）、`uiConversation.binding(id).target('chat')` 仍返回 `{ getSnapshot, subscribe }`、`SessionSnapshot` 仍带 `sessionId`/`openState`/`removed`、聊天行仍带 `data-chat-flow`/`data-chat-flow-key`/`data-chat-flow-kind`/`data-chat-anchor-key`、`[data-conversation-scroll]` 与 `[data-composer-seat]`（`scrollBody` 直接子元素、`position:sticky`）仍在、flow 内层 padding 仍是 16px。**唯一破坏性变化是 `SessionListState` 丢掉 `current`/`currentAddress`**（`SessionSnapshot` 另删了 `queue`，本插件不读它）。
 
 ## 已知限制与升级策略
 
@@ -79,6 +82,7 @@ clone 的 hover/focus 意图存在 effect 级 `cloneStateRef.current`（`{ updat
 - 可见性边界依赖 source 到 scrollport 之间祖先的 computed `overflow-y`/`overflow` 与 `borderTopWidth`：若 DSH 把裁剪或滚动放进新的中间层（或让内层聊天容器重新成为 scroller），上文的 16px 差值随之变化，升级时必须重新核对这两个元素的真实 overflow 与 padding。
 - 阅读区下界依赖 composer 位置，核对点：`ConversationRoot` 的 `composerSeat` 仍带 `data-composer-seat`、仍是 `scrollBody` 的直接子元素且 `position:sticky; bottom:0`；DSH 改名或移动 composer 后限高退回视口，展开的气泡会重新压住输入卡片与状态栏。
 - 让位距离与展开上限都按折叠高度和下一个 durable 行的位置推算：按「让位」的排除规则，pending submission echo 与 pending steering 不会成为「下一个卡片」，它们短暂经过顶部时仍可能被副本遮挡。展开窗口只剩 `gap` 级空间时 hover 不再展开（避免退化成极窄的内部滚动窗口）；要读全文时向上滚一点让卡片离开即可恢复。
+- **当前会话的解析必须两条路都留着**：只有 `current` 时 alpha.2 会全盘失效（状态停在 `inactive-snapshot`），只有 `mainView` 时旧版失效。升级后先确认 `SessionListState` 的字段（`ids`/`byId`/`phase`/`subagentsByParent`）、`SessionSummary.retainedBy` 仍由 `retainInfo` 投影，以及 `mainView` 仍是主视图的 source 名。
 - DSH 升级后必须重新确认 `uiConversation` 的 Chat target、ChatSnapshot 节点结构、row marker、`data-time-hover-root`（如仍存在）、专用 bubble marker、`data-composer-seat`、root display/writing-mode、computed style、line rect 和 Slot contract，再声明兼容。
 
 ## 发布与安装路线
@@ -96,3 +100,5 @@ npm run publish:check
 安装后检查 `dsh web --dump-config` 的 bundle graph 是否包含 `dsh-sticky-user-bubble`。Host 入口或 profile/package 组成改变需要用户在 Warp 中重启 `dsh web`；客户端 bundle 改变后刷新页面，除非已确认 client-plugin watcher 正在运行。
 
 GUI 验证覆盖：顶部初始隐藏、下滚/上滚切换、点击/键盘跳回原消息、原气泡（含底部内边距与圆角）完全离开可视区后才出现副本、让位时保留消息间距且新卡片不被遮挡、长内容 hover/focus 展开的高度上限随下一个卡片收紧（超出部分内部滚动、空间过小时保持三行）、展开高度不越过 composer（输入卡片与底部状态栏保持可见）、流式回答/工具调用持续更新时展开状态不闪断、三行 ellipsis 与第四行完全隐藏、不同 font-size/line-height/padding/border、透明/渐变/小圆角、固定 height/min-height、主题与字体变化、窄屏、会话和 Chat/trajectory 切换、历史 prepend、含 `@` 引用 chip 的用户消息、unsupported layout fail closed，以及 clone 内部控件不可触发且不阻塞 composer。
+
+**不等用户操作也能自己做一轮真机回归**：另起一个受管后台宿主 `dsh web --port 0 --no-open`（不接管当前 GUI），用无头 Chromium 打开它打印的带 token URL，点开一个长会话后直接写 `[data-conversation-scroll].scrollTop`，读取 `[data-dsh-sticky-user-bubble-state]` 与 host 内 clone 的 `getBoundingClientRect()`/`clipPath` 即可覆盖出现、让位、切换与会话跳回（2026-09-19 即用此法复现并复核 `0.1.6-alpha.2` 的回归）。调试期间可以临时把快照形状写进 host 的 `data-*` 属性，但**必须在该轮结束前删掉**（本轮已删）。
