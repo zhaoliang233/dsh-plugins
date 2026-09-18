@@ -27,6 +27,7 @@ function pluginDefinition() {
   const IconSearch = () => null
   const IconTrash = () => null
   const Modal = () => null
+  const Switch = props => ({ type: 'switch', props })
   const plugin = definition.factory(id => {
     if (id === 'react') return React
     if (id === '@deepseek-ai/dsh-client-ui-primitives') {
@@ -39,7 +40,8 @@ function pluginDefinition() {
         IconSearchOutline16: IconSearch,
         IconTrashOutline16: IconTrash,
         IconTriangleRightFill14: () => null,
-        Modal
+        Modal,
+        Switch
       }
     }
     throw new Error(`unexpected require: ${id}`)
@@ -47,7 +49,7 @@ function pluginDefinition() {
   return {
     plugin,
     internals: plugin.__internals,
-    types: { IconArchive, IconFolderClose, IconFolderOpen, IconRefresh, IconSearch, IconTrash, Modal },
+    types: { IconArchive, IconFolderClose, IconFolderOpen, IconRefresh, IconSearch, IconTrash, Modal, Switch },
     notifications
   }
 }
@@ -642,9 +644,10 @@ test('registers the Settings section and archive nav icon marker with reversible
     plugin.apply(harness.ctx)
     await settle()
 
-    assert.equal(harness.registrations.length, 2)
+    assert.equal(harness.registrations.length, 3)
     const sectionRegistration = harness.registrations.find(entry => entry.options.name === 'settings.section')
     const navIconRegistration = harness.registrations.find(entry => entry.options.name === 'settings.action')
+    const suppressionRegistration = harness.registrations.find(entry => entry.options.name === 'settings.general.item')
     assert.deepEqual(sectionRegistration.options, {
       name: 'settings.section',
       id: 'archived-chats',
@@ -656,14 +659,56 @@ test('registers the Settings section and archive nav icon marker with reversible
       id: 'dsh-chat-archive-manager.nav-icon',
       order: 30
     })
+    assert.equal(suppressionRegistration.options.id, 'dsh-chat-archive-manager.native-archived-sessions')
+    assert.equal(suppressionRegistration.options.order, 90)
     const navIconTemplate = navIconRegistration.component()
     assert.equal(navIconTemplate.props.className, 'dac-nav-icon-template')
     assert.equal(navIconTemplate.children[0].type, types.IconArchive)
+    // The General row is the shell's own row shape: title + description on the
+    // left, the shell's Switch primitive on the right (never a self-drawn control).
+    const suppressionRow = suppressionRegistration.component({
+      getSuppressed: () => true,
+      getApplied: () => true,
+      subscribeSuppressed: () => () => {},
+      setSuppressed: () => {}
+    })
+    assert.equal(suppressionRow.props.className, 'dac-general-row')
+    assert.equal(suppressionRow.props['data-dac-native-archive-row'], '')
+    assert.equal(suppressionRow.children[0].props.className, 'dac-general-row-text')
+    assert.equal(suppressionRow.children[0].children[0].children[0], '屏蔽自带归档页')
+    assert.equal(suppressionRow.children[0].children[1].children[0].includes('隐藏 DSH 自带的「已归档会话」设置页'), true)
+    // No notice while the patch is actually applied.
+    assert.equal(suppressionRow.children[0].children[2], false)
+    const suppressionSwitch = suppressionRow.children[1].type(suppressionRow.children[1].props)
+    assert.equal(suppressionRow.children[1].type, types.Switch)
+    assert.equal(suppressionSwitch.type, 'switch')
+    assert.equal(suppressionSwitch.props.checked, true)
+    assert.equal(suppressionSwitch.props.label, '屏蔽自带归档页')
+    // With the switch on but the patch unapplied, the row reports it instead of
+    // pretending the native page is hidden.
+    const degradedRow = suppressionRegistration.component({
+      getSuppressed: () => true,
+      getApplied: () => false,
+      subscribeSuppressed: () => () => {},
+      setSuppressed: () => {}
+    })
+    assert.equal(degradedRow.children[0].children[2].props.className, 'dac-general-row-note')
+    assert.equal(degradedRow.children[0].children[2].props.role, 'status')
+    assert.equal(degradedRow.children[0].children[2].children[0], '未能定位 DSH 自带的「已归档会话」菜单项，原生页保持显示。')
     assert.equal(fixture.styles.length, 1)
     // Untagged sheets are claimed by whichever bundle materializes next, and HMR removes
     // style[data-plugin=<id>]: the sheet must declare this plugin as its owner.
     assert.equal(fixture.styles[0].dataset.plugin ?? fixture.styles[0].getAttribute?.('data-plugin'), 'dsh-chat-archive-manager')
     assert.equal(fixture.styles[0].textContent.includes('[data-dac-archive-nav]::before'), true)
+    // The native-page suppression hides the shell's own nav row with a marked
+    // attribute rule, and its General row copies the shell's row metrics.
+    assert.equal(fixture.styles[0].textContent.includes('[data-dac-native-archive-hidden]{display:none!important}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-general-row{display:flex;align-items:center;gap:8px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-general-row-text{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0;padding-right:48px}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-general-row-title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}'), true)
+    assert.equal(fixture.styles[0].textContent.includes('.dac-general-row-description{color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:400;line-height:18px}'), true)
+    // The degradation notice uses the shell's warn label colour, never a self-invented one.
+    assert.equal(fixture.styles[0].textContent.includes('.dac-general-row-note{color:var(--dsw-alias-state-warn-label);font-size:12px;font-weight:400;line-height:18px}'), true)
     assert.equal(fixture.styles[0].textContent.includes('.dac-section-heading{display:flex;align-items:baseline;gap:8px;'), true)
     // The batch dialog is portaled to document.body, so the glyph variables must
     // live on the control itself rather than on an ancestor it cannot inherit.
@@ -767,7 +812,7 @@ test('renders grouped archive management inside Settings and leaves core list se
     const harness = context(workspaces, sessions)
     plugin.apply(harness.ctx)
 
-    assert.equal(harness.registrations.length, 2)
+    assert.equal(harness.registrations.length, 3)
     const sectionRegistration = harness.registrations.find(entry => entry.options.name === 'settings.section')
     const { options, component: ArchiveSettingsSection } = sectionRegistration
     assert.deepEqual(options, {
@@ -1074,4 +1119,306 @@ test('offers the manual bulk entry point and collapse-all on one row above the l
   } finally {
     globalThis.fetch = previousFetch
   }
+})
+
+// ---------------------------------------------------------------------------
+// Native archived-sessions suppression
+// ---------------------------------------------------------------------------
+
+/** Storage double for the browser-local suppression preference. */
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial))
+  return {
+    values,
+    getItem(key) { return values.has(key) ? values.get(key) : null },
+    setItem(key, value) { values.set(key, value) },
+    removeItem(key) { values.delete(key) }
+  }
+}
+
+/**
+ * Settings-panel DOM double: one role=dialog nav whose buttons mirror the
+ * section entries, in entry order (the join the patch relies on). The nav has
+ * the shell's own two children — the title seat first, the section list last —
+ * so `options.titleButton` reproduces a third-party plugin that replaced
+ * `settings.header` with its own control.
+ */
+function settingsDom(labels, options = {}) {
+  const buttons = labels.map(label => ({ textContent: label, dataset: {} }))
+  const titleButtons = options.titleButton === undefined ? [] : [{ dataset: {}, ...options.titleButton }]
+  const list = {
+    querySelectorAll(selector) {
+      return selector === 'button' ? buttons : []
+    }
+  }
+  const title = {
+    querySelectorAll(selector) {
+      return selector === 'button' ? titleButtons : []
+    }
+  }
+  const nav = {
+    children: [title, list],
+    querySelectorAll(selector) {
+      return selector === 'button' ? [...titleButtons, ...buttons] : []
+    }
+  }
+  return {
+    buttons,
+    titleButtons,
+    nav,
+    document: {
+      body: {},
+      querySelector(selector) {
+        return selector === '[role="dialog"][aria-modal="true"] nav' ? nav : null
+      }
+    }
+  }
+}
+
+/** Window double carrying a MutationObserver a test can fire by hand. */
+function observerWindow() {
+  const observers = []
+  const listeners = new Map()
+  return {
+    observers,
+    listeners,
+    MutationObserver: class {
+      constructor(callback) {
+        this.callback = callback
+        this.disconnected = false
+        observers.push(this)
+      }
+      observe(target, options) {
+        this.target = target
+        this.options = options
+      }
+      disconnect() { this.disconnected = true }
+      fire() { this.callback() }
+    },
+    addEventListener(type, listener) { listeners.set(type, listener) },
+    removeEventListener(type) { listeners.delete(type) }
+  }
+}
+
+function suppressionHarness(internals) {
+  const dom = settingsDom(['通用', '模型', '已归档会话', '归档管理'])
+  const view = observerWindow()
+  const storage = memoryStorage()
+  const preference = internals.createNativeSuppressionStore(storage)
+  const cleanups = []
+  const ctx = {
+    slots: {
+      entries(name) {
+        return name === 'settings.section'
+          ? ['general', 'models', 'archived-sessions', 'archived-chats'].map(id => ({ options: { id } }))
+          : []
+      }
+    },
+    effect(factory) {
+      const cleanup = factory()
+      if (typeof cleanup === 'function') cleanups.push(cleanup)
+    }
+  }
+  internals.installNativeArchiveSuppression(ctx, { document: dom.document, window: view, preference })
+  return {
+    ...dom,
+    view,
+    storage,
+    preference,
+    key: internals.NATIVE_SUPPRESS_DATASET_KEY,
+    unload() {
+      for (const cleanup of cleanups.reverse()) cleanup()
+      cleanups.length = 0
+    }
+  }
+}
+
+test('defaults the native-page suppression on and keeps the preference browser-local', () => {
+  const { internals } = pluginDefinition()
+  const key = internals.NATIVE_SUPPRESS_STORAGE_KEY
+  assert.equal(internals.NATIVE_ARCHIVE_SECTION_ID, 'archived-sessions')
+  // Absent, unparsable, or unreadable storage all mean "on": the native page
+  // duplicates this manager's own section, so a fresh install shows one entry.
+  assert.equal(internals.readNativeSuppression(null), true)
+  assert.equal(internals.readNativeSuppression(memoryStorage()), true)
+  assert.equal(internals.readNativeSuppression(memoryStorage({ [key]: 'true' })), true)
+  assert.equal(internals.readNativeSuppression(memoryStorage({ [key]: 'false' })), false)
+  assert.equal(internals.readNativeSuppression(memoryStorage({ [key]: 'maybe' })), true)
+  assert.equal(internals.readNativeSuppression({ getItem() { throw new Error('denied') } }), true)
+
+  const storage = memoryStorage()
+  const preference = internals.createNativeSuppressionStore(storage)
+  const seen = []
+  const unsubscribe = preference.subscribe(() => seen.push(preference.get()))
+  assert.equal(preference.get(), true)
+  preference.set(false)
+  assert.equal(storage.getItem(key), 'false')
+  assert.equal(preference.get(), false)
+  preference.set(false)
+  assert.deepEqual(seen, [false], 'an unchanged value publishes nothing')
+  // Another tab writing the key is the same intent as this tab writing it.
+  storage.setItem(key, 'true')
+  preference.reload()
+  assert.equal(preference.get(), true)
+  assert.deepEqual(seen, [false, true])
+  unsubscribe()
+  preference.set(false)
+  assert.deepEqual(seen, [false, true], 'unsubscribed listeners stay quiet')
+
+  // A denied write keeps the in-memory value instead of throwing.
+  const denied = internals.createNativeSuppressionStore({ getItem: () => null, setItem() { throw new Error('denied') } })
+  denied.set(false)
+  assert.equal(denied.get(), false)
+})
+
+test('resolves the native nav row by slot position and refuses every uncertain shape', () => {
+  const { internals } = pluginDefinition()
+  const ids = ['general', 'models', 'archived-sessions', 'archived-chats']
+  const buttons = ['通用', '模型', '已归档会话', '归档管理'].map(label => ({ textContent: label }))
+  assert.equal(internals.resolveNativeArchiveNavButton(buttons, ids), buttons[2])
+  // Another installation's menu may hold more sections, in a different order, with
+  // other labels or another language: the join is position, so it still lands on
+  // the native entry — and this manager's own row is never a target.
+  const foreignIds = ['general', 'third-party-a', 'models', 'archived-sessions', 'archived-chats', 'third-party-b']
+  const foreignButtons = ['通用设置', '第三方菜单', '模型', '已归档会话', '归档管理', 'Third-party omega']
+    .map(label => ({ textContent: label }))
+  assert.equal(internals.resolveNativeArchiveNavButton(foreignButtons, foreignIds), foreignButtons[3])
+  const englishIds = ['general', 'archived-sessions', 'archived-chats']
+  const englishButtons = ['General', 'Archived sessions', 'Archive manager'].map(label => ({ textContent: label }))
+  assert.equal(internals.resolveNativeArchiveNavButton(englishButtons, englishIds), englishButtons[1])
+  // Fail closed on every shape the patch cannot prove: an extra section control (a
+  // future shell affordance), a shorter list, no native entry at all, an empty
+  // label that is not a projected section row, and this manager's own row.
+  assert.equal(internals.resolveNativeArchiveNavButton([...buttons, { textContent: '额外' }], ids), undefined)
+  assert.equal(internals.resolveNativeArchiveNavButton(buttons.slice(0, 3), ids), undefined)
+  assert.equal(internals.resolveNativeArchiveNavButton(buttons, ids.slice(0, 3)), undefined)
+  assert.equal(internals.resolveNativeArchiveNavButton(buttons, ['general', 'models', 'archived-chats']), undefined)
+  assert.equal(internals.resolveNativeArchiveNavButton([...buttons.slice(0, 2), { textContent: '  ' }, buttons[3]], ids), undefined)
+  assert.equal(internals.resolveNativeArchiveNavButton([...buttons.slice(0, 2), { textContent: '归档管理' }, buttons[3]], ids), undefined)
+  assert.equal(internals.resolveNativeArchiveNavButton(null, ids), undefined)
+  assert.equal(internals.resolveNativeArchiveNavButton(buttons, null), undefined)
+})
+
+test('reads the section list out of the nav and ignores a replaced title seat', () => {
+  const { internals } = pluginDefinition()
+  const ids = ['general', 'models', 'archived-sessions', 'archived-chats']
+  const plain = settingsDom(['通用设置', '模型', '已归档会话', '归档管理'])
+  assert.deepEqual(internals.settingsNavListButtons(plain.nav).map(button => button.textContent),
+    ['通用设置', '模型', '已归档会话', '归档管理'])
+  // A third-party plugin may replace `settings.header` with its own button: that
+  // button sits in the title seat (the nav's first child), so the section list —
+  // and the position join — must stay intact.
+  const replaced = settingsDom(['通用设置', '模型', '已归档会话', '归档管理'], { titleButton: { textContent: '标题按钮' } })
+  assert.deepEqual(internals.settingsNavListButtons(replaced.nav).map(button => button.textContent),
+    ['通用设置', '模型', '已归档会话', '归档管理'])
+  assert.equal(internals.resolveNativeArchiveNavButton(internals.settingsNavListButtons(replaced.nav), ids),
+    replaced.buttons[2])
+  assert.equal(replaced.titleButtons[0].dataset[internals.NATIVE_SUPPRESS_DATASET_KEY], undefined)
+  // Unreadable structures yield nothing, which keeps the patch disabled.
+  assert.deepEqual(internals.settingsNavListButtons(null), [])
+  assert.deepEqual(internals.settingsNavListButtons({ children: [] }), [])
+  assert.deepEqual(internals.settingsNavListButtons({ children: [{ querySelectorAll: () => [] }] }), [])
+})
+
+test('reports a switch that could not locate the native row instead of claiming success', () => {
+  const { internals } = pluginDefinition()
+  const dom = settingsDom(['通用设置', '模型', '归档管理'])
+  const view = observerWindow()
+  const preference = internals.createNativeSuppressionStore(memoryStorage())
+  const cleanups = []
+  internals.installNativeArchiveSuppression({
+    slots: { entries: () => ['general', 'models', 'archived-chats'].map(id => ({ options: { id } })) },
+    effect(factory) {
+      const cleanup = factory()
+      if (typeof cleanup === 'function') cleanups.push(cleanup)
+    }
+  }, { document: dom.document, window: view, preference })
+
+  // The switch is on, but this DSH has no native archive section: the row must
+  // say the suppression did not happen rather than looking enabled and doing nothing.
+  assert.equal(preference.get(), true)
+  assert.equal(preference.getApplied(), false)
+  assert.equal(dom.buttons.some(button => button.dataset[internals.NATIVE_SUPPRESS_DATASET_KEY] !== undefined), false)
+  for (const cleanup of cleanups) cleanup()
+  assert.equal(preference.getApplied(), false, 'unloading keeps the last report')
+
+  // Turning the switch off clears the report: there is nothing to be unavailable.
+  const second = suppressionHarness(internals)
+  assert.equal(second.preference.getApplied(), true)
+  second.preference.set(false)
+  assert.equal(second.preference.getApplied(), null)
+  second.unload()
+})
+
+test('hides only the native nav row and restores it when the switch turns off or the plugin unloads', () => {
+  const { internals } = pluginDefinition()
+  const harness = suppressionHarness(internals)
+
+  assert.equal(harness.buttons[2].dataset[harness.key], '', 'the native row is hidden by default')
+  assert.equal(harness.buttons[0].dataset[harness.key], undefined)
+  assert.equal(harness.buttons[1].dataset[harness.key], undefined)
+  assert.equal(harness.buttons[3].dataset[harness.key], undefined, 'the archive manager row stays visible')
+  assert.equal(harness.view.observers.length, 1)
+  assert.deepEqual(harness.view.observers[0].options, { childList: true, subtree: true })
+
+  // The General switch off restores the shell's row; on hides it again.
+  harness.preference.set(false)
+  assert.equal(harness.buttons[2].dataset[harness.key], undefined)
+  harness.preference.set(true)
+  assert.equal(harness.buttons[2].dataset[harness.key], '')
+
+  // A later Settings open re-renders the nav with fresh nodes: the observer
+  // re-applies the mark to the new button and releases the replaced one.
+  const reRendered = { textContent: '已归档会话', dataset: {} }
+  const replaced = harness.buttons[2]
+  harness.buttons[2] = reRendered
+  harness.view.observers[0].fire()
+  assert.equal(reRendered.dataset[harness.key], '')
+  assert.equal(replaced.dataset[harness.key], undefined)
+
+  // Another tab turning the preference off lands through the storage event.
+  harness.storage.setItem(internals.NATIVE_SUPPRESS_STORAGE_KEY, 'false')
+  harness.view.listeners.get('storage')({ key: internals.NATIVE_SUPPRESS_STORAGE_KEY })
+  assert.equal(harness.buttons[2].dataset[harness.key], undefined)
+  harness.view.listeners.get('storage')({ key: 'unrelated' })
+  assert.equal(harness.buttons[2].dataset[harness.key], undefined)
+
+  harness.unload()
+  assert.equal(harness.buttons[2].dataset[harness.key], undefined)
+  assert.equal(harness.view.observers[0].disconnected, true)
+  assert.equal(harness.view.listeners.size, 0)
+})
+
+test('keeps the mark while another live bundle generation still suppresses it', () => {
+  const { internals } = pluginDefinition()
+  const dom = settingsDom(['通用', '已归档会话', '归档管理'])
+  const view = observerWindow()
+  const sections = ['general', 'archived-sessions', 'archived-chats'].map(id => ({ options: { id } }))
+  const instances = [
+    internals.createNativeSuppressionStore(memoryStorage()),
+    internals.createNativeSuppressionStore(memoryStorage())
+  ]
+  const unloads = []
+  for (const preference of instances) {
+    const cleanups = []
+    internals.installNativeArchiveSuppression({
+      slots: { entries: () => sections },
+      effect(factory) {
+        const cleanup = factory()
+        if (typeof cleanup === 'function') cleanups.push(cleanup)
+      }
+    }, { document: dom.document, window: view, preference })
+    unloads.push(() => {
+      for (const cleanup of cleanups.reverse()) cleanup()
+    })
+  }
+
+  const key = internals.NATIVE_SUPPRESS_DATASET_KEY
+  assert.equal(dom.buttons[1].dataset[`${key}References`], '2')
+  assert.equal(dom.buttons[1].dataset[key], '')
+  unloads[0]()
+  assert.equal(dom.buttons[1].dataset[key], '', 'one unload must not restore a row the other still hides')
+  unloads[1]()
+  assert.equal(dom.buttons[1].dataset[key], undefined)
+  assert.equal(dom.buttons[1].dataset[`${key}References`], undefined)
 })

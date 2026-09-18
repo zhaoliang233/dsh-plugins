@@ -23,6 +23,7 @@ function createMiniReact() {
   let notify = () => {}
   let tree = null
   let renderComponent = null
+  let renderProps = null
 
   const React = {
     Fragment: Symbol('Fragment'),
@@ -77,14 +78,15 @@ function createMiniReact() {
     React,
     get tree() { return tree },
     /** Render until no state update is left, running queued effects each pass. */
-    async mount(component) {
+    async mount(component, props) {
       renderComponent = component
+      renderProps = props === undefined ? { close() {} } : props
       notify = () => {}
       for (let pass = 0; pass < 20; pass += 1) {
         if (!dirty && tree !== null) break
         dirty = false
         cursor = 0
-        tree = renderComponent({ close() {} })
+        tree = renderComponent(renderProps)
         while (pendingEffects.length > 0) pendingEffects.shift()()
         await new Promise(resolve => setImmediate(resolve))
       }
@@ -96,7 +98,7 @@ function createMiniReact() {
         if (!dirty && pendingEffects.length === 0) return tree
         dirty = false
         cursor = 0
-        tree = renderComponent({ close() {} })
+        tree = renderComponent(renderProps)
         while (pendingEffects.length > 0) pendingEffects.shift()()
       }
       throw new Error('mini React did not settle')
@@ -284,7 +286,16 @@ function installPrimitives(mini) {
     IconTriangleRightFill14: stub,
     Modal: props => React.createElement('div', { className: 'dac-modal' },
       props.children === undefined || props.children === null ? null : props.children,
-      props.footer === undefined ? null : props.footer)
+      props.footer === undefined ? null : props.footer),
+    Switch: props => React.createElement('button', {
+      type: 'switch',
+      className: 'dac-switch',
+      checked: props.checked,
+      label: props.label,
+      onClick: () => {
+        props.onChange(props.checked !== true)
+      }
+    })
   }
 }
 
@@ -683,5 +694,244 @@ test('permanently deletes a reviewed batch, requires an explicit acknowledgment,
       && texts(element).includes('撤销本次归档')), false)
   } finally {
     await flow.close()
+  }
+})
+
+// ---------------------------------------------------------------------------
+// General-settings switch for the native archived-sessions page
+// ---------------------------------------------------------------------------
+
+/**
+ * Settings DOM double: one `role=dialog` nav whose buttons mirror the section
+ * entries, plus the head the bundle injects its stylesheet into. The nav keeps
+ * the shell's own two children — title seat first, section list last.
+ */
+function createSettingsDocument(labels, options = {}) {
+  const buttons = labels.map(label => ({ textContent: label, dataset: {} }))
+  const titleButtons = options.titleButton === undefined ? [] : [{ dataset: {}, ...options.titleButton }]
+  const styles = []
+  const head = {
+    appendChild(style) {
+      style.parentNode = head
+      styles.push(style)
+    },
+    removeChild(style) {
+      const index = styles.indexOf(style)
+      if (index !== -1) styles.splice(index, 1)
+      style.parentNode = null
+    }
+  }
+  const list = {
+    querySelectorAll(selector) {
+      return selector === 'button' ? buttons : []
+    }
+  }
+  const title = {
+    querySelectorAll(selector) {
+      return selector === 'button' ? titleButtons : []
+    }
+  }
+  const nav = {
+    children: [title, list],
+    querySelectorAll(selector) {
+      return selector === 'button' ? [...titleButtons, ...buttons] : []
+    }
+  }
+  return {
+    buttons,
+    titleButtons,
+    styles,
+    document: {
+      body: {},
+      head,
+      querySelector(selector) {
+        return selector === '[role="dialog"][aria-modal="true"] nav' ? nav : null
+      },
+      getElementById() { return null },
+      createElement() {
+        return { id: '', dataset: {}, textContent: '', parentNode: null }
+      }
+    }
+  }
+}
+
+/** Replace `globalThis.localStorage` for one test and hand back the restore. */
+function installStorage(values = new Map()) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const stub = {
+    getItem: key => (values.has(key) ? values.get(key) : null),
+    setItem: (key, value) => {
+      values.set(key, value)
+    },
+    removeItem: key => {
+      values.delete(key)
+    }
+  }
+  Object.defineProperty(globalThis, 'localStorage', { value: stub, configurable: true, writable: true })
+  return {
+    stub,
+    values,
+    restore() {
+      if (previous === undefined) delete globalThis.localStorage
+      else Object.defineProperty(globalThis, 'localStorage', previous)
+    }
+  }
+}
+
+test('hides the native archived-sessions row through the General switch and restores it on unload', async () => {
+  const fixtures = createFixtures(Date.now())
+  const mini = createMiniReact()
+  const primitives = installPrimitives(mini)
+  const plugin = definition.factory(id => {
+    if (id === 'react') return mini.React
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
+    throw new Error(`unexpected require: ${id}`)
+  })
+  const registrations = []
+  const harness = context(fixtures.workspaces, fixtures.sessions, registrations)
+  const sectionIds = ['general', 'models', 'archived-sessions', 'archived-chats']
+  harness.ctx.slots.entries = name =>
+    (name === 'settings.section' ? sectionIds.map(id => ({ options: { id } })) : [])
+  const dom = createSettingsDocument(['通用', '模型', '已归档会话', '归档管理'])
+  const observers = []
+  const previousDocument = globalThis.document
+  const previousFetch = globalThis.fetch
+  const previousObserver = globalThis.window.MutationObserver
+  const previousAddListener = globalThis.window.addEventListener
+  const previousRemoveListener = globalThis.window.removeEventListener
+  globalThis.document = dom.document
+  globalThis.window.MutationObserver = class {
+    constructor(callback) {
+      this.callback = callback
+      observers.push(this)
+    }
+    observe() {}
+    disconnect() { this.disconnected = true }
+  }
+  globalThis.window.addEventListener = () => {}
+  globalThis.window.removeEventListener = () => {}
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        ok: true,
+        workspaceProjection: false,
+        deletionSupported: true,
+        restorationSupported: true
+      }
+    }
+  })
+  const storage = installStorage(new Map())
+  const internals = plugin.__internals
+
+  try {
+    plugin.apply(harness.ctx)
+    await new Promise(resolve => setImmediate(resolve))
+    const key = internals.NATIVE_SUPPRESS_DATASET_KEY
+    // Default on: the Settings nav keeps one archive entry, the manager's own.
+    assert.equal(dom.buttons[2].dataset[key], '')
+    assert.equal(dom.buttons[3].dataset[key], undefined)
+    assert.equal(observers.length, 1)
+
+    const registration = registrations.find(entry => entry.options.name === 'settings.general.item')
+    assert.notEqual(registration, undefined, 'the General row must be registered')
+    assert.equal(registration.options.id, 'dsh-chat-archive-manager.native-archived-sessions')
+    const props = registration.options.inject()
+    let tree = await mini.mount(registration.component, props)
+    let control = elements(tree).find(element => element.props?.type === 'switch')
+    assert.notEqual(control, undefined, 'the shell Switch must render')
+    assert.equal(control.props.checked, true)
+    assert.equal(texts(tree).includes('屏蔽自带归档页'), true)
+    assert.equal(texts(tree).includes('隐藏 DSH 自带的「已归档会话」设置页'), true)
+
+    // Switching off restores the native row and persists the preference.
+    control.props.onClick()
+    tree = await mini.settle()
+    control = elements(tree).find(element => element.props?.type === 'switch')
+    assert.equal(control.props.checked, false)
+    assert.equal(dom.buttons[2].dataset[key], undefined, 'the native row comes back')
+    assert.equal(storage.values.get(internals.NATIVE_SUPPRESS_STORAGE_KEY), 'false')
+
+    // Switching back on hides it again.
+    control.props.onClick()
+    tree = await mini.settle()
+    assert.equal(elements(tree).find(element => element.props?.type === 'switch').props.checked, true)
+    assert.equal(dom.buttons[2].dataset[key], '')
+
+    harness.cleanup()
+    assert.equal(dom.buttons[2].dataset[key], undefined, 'unload restores the shell row')
+    assert.equal(observers[0].disconnected, true)
+  } finally {
+    harness.cleanup()
+    storage.restore()
+    globalThis.fetch = previousFetch
+    if (previousDocument === undefined) delete globalThis.document
+    else globalThis.document = previousDocument
+    if (previousObserver === undefined) delete globalThis.window.MutationObserver
+    else globalThis.window.MutationObserver = previousObserver
+    if (previousAddListener === undefined) delete globalThis.window.addEventListener
+    else globalThis.window.addEventListener = previousAddListener
+    if (previousRemoveListener === undefined) delete globalThis.window.removeEventListener
+    else globalThis.window.removeEventListener = previousRemoveListener
+  }
+})
+
+test('says so when this menu layout has no native archived-sessions row to hide', async () => {
+  const fixtures = createFixtures(Date.now())
+  const mini = createMiniReact()
+  const primitives = installPrimitives(mini)
+  const plugin = definition.factory(id => {
+    if (id === 'react') return mini.React
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
+    throw new Error(`unexpected require: ${id}`)
+  })
+  const registrations = []
+  const harness = context(fixtures.workspaces, fixtures.sessions, registrations)
+  // A DSH (or a future layout) without the native archive section: the position
+  // join finds no target, so the switch must report that instead of pretending.
+  harness.ctx.slots.entries = name =>
+    (name === 'settings.section' ? ['general', 'models', 'archived-chats'].map(id => ({ options: { id } })) : [])
+  const dom = createSettingsDocument(['通用设置', '模型', '归档管理'])
+  const previousDocument = globalThis.document
+  const previousFetch = globalThis.fetch
+  const previousObserver = globalThis.window.MutationObserver
+  globalThis.document = dom.document
+  globalThis.window.MutationObserver = class {
+    observe() {}
+    disconnect() {}
+  }
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        ok: true,
+        workspaceProjection: false,
+        deletionSupported: true,
+        restorationSupported: true
+      }
+    }
+  })
+  const storage = installStorage(new Map())
+  const internals = plugin.__internals
+
+  try {
+    plugin.apply(harness.ctx)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(dom.buttons.some(button => button.dataset[internals.NATIVE_SUPPRESS_DATASET_KEY] !== undefined), false)
+
+    const registration = registrations.find(entry => entry.options.name === 'settings.general.item')
+    const tree = await mini.mount(registration.component, registration.options.inject())
+    assert.equal(texts(tree).includes('未能定位 DSH 自带的「已归档会话」菜单项，原生页保持显示。'), true)
+    assert.equal(elements(tree).find(element => element.props?.type === 'switch').props.checked, true,
+      'the preference itself stays on and untouched')
+    assert.equal(storage.values.get(internals.NATIVE_SUPPRESS_STORAGE_KEY) ?? null, null)
+  } finally {
+    harness.cleanup()
+    storage.restore()
+    globalThis.fetch = previousFetch
+    if (previousDocument === undefined) delete globalThis.document
+    else globalThis.document = previousDocument
+    if (previousObserver === undefined) delete globalThis.window.MutationObserver
+    else globalThis.window.MutationObserver = previousObserver
   }
 })
