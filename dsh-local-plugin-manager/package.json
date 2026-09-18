@@ -1,6 +1,6 @@
 {
   "name": "dsh-local-plugin-manager",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
@@ -33,7 +33,7 @@
     "package": "@deepseek-ai/dsh",
     "range": ">=0.1.6-alpha.1 <0.1.7",
     "verifiedVersions": [
-      "0.1.6-alpha.1"
+      "0.1.6-alpha.2"
     ],
     "futureVersionsRequireCapabilityChecks": true
   },
@@ -46,7 +46,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check client.js && bash -n install.sh && bash -n uninstall.sh",
+    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check lib/patch-writer.js && node --check lib/errors.js && node --check client.js && bash -n install.sh && bash -n uninstall.sh",
     "test": "node --test test/*.test.js",
     "verify": "npm run check && npm test",
     "prepublishOnly": "npm run verify"
@@ -56,7 +56,8 @@
     "dsh": ">=0.1.6-alpha.1 <0.1.7"
   },
   "dependencies": {
-    "js-yaml": "4.3.2"
+    "@deepseek-ai/dsh-atomic-write": "~0.1.6-alpha.1",
+    "yaml": "^2.9.0"
   },
   "publishConfig": {
     "access": "public"

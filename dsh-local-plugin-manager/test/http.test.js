@@ -3,7 +3,7 @@ import { Readable } from 'node:stream'
 import test from 'node:test'
 
 import { LocalPluginManagerError } from '../lib/profile-manager.js'
-import { clientRequestRejection, readJsonBody, sameOriginRequest, setLoaderEntryDisabled } from '../lib/index.js'
+import { clientRequestRejection, observeLoaderEntryState, readJsonBody, sameOriginRequest } from '../lib/index.js'
 
 function request(headers = {}, remoteAddress = '127.0.0.1') {
   return { headers, socket: { remoteAddress } }
@@ -44,25 +44,19 @@ test('requires the DSH browser-auth boundary before custom request checks', () =
   assert.equal(clientRequestRejection(request({ ...trustedHeaders, 'x-dsh-local-plugin-manager-client': undefined }), authenticated), 403)
 })
 
-test('retries a forced Loader update until fiber state matches', async () => {
+test('observes the Loader row without writing to it', async () => {
+  let visible = true
   const entry = {
     id: 'include:dsh-demo-local',
     options: { id: 'dsh-demo-local', name: 'different-module-name' },
-    fiber: {},
-    calls: 0,
-    async update(options, write, force) {
-      this.calls += 1
-      assert.deepEqual(options, { disabled: true })
-      assert.equal(write, false)
-      assert.equal(force, true)
-      if (this.calls === 2) this.fiber = undefined
-    }
+    get fiber() { return visible ? {} : undefined },
+    async update() { throw new Error('observation must never update the Loader entry') }
   }
   const unrelated = {
     id: 'include:plugin-subtree:dsh-demo-local',
     options: { id: 'dsh-demo-local', name: 'dsh-demo-local' },
     fiber: {},
-    async update() { throw new Error('unrelated same-name row must not be updated') }
+    async update() { throw new Error('unrelated same-name row must not be touched') }
   }
   const ctx = {
     get(name) {
@@ -70,12 +64,23 @@ test('retries a forced Loader update until fiber state matches', async () => {
       return { entries: () => [entry, unrelated] }
     }
   }
-  const result = await setLoaderEntryDisabled(ctx, {
-    name: 'dsh-demo-local',
-    rowIds: ['dsh-demo-local']
-  }, true)
-  assert.deepEqual(result, { applied: true, matched: 1 })
-  assert.equal(entry.calls, 2)
+  const target = { name: 'dsh-demo-local', rowIds: ['dsh-demo-local'] }
+
+  // 行已经停用：立刻得到肯定结论，且没有碰 Loader。
+  visible = false
+  assert.deepEqual(await observeLoaderEntryState(ctx, target, true), { applied: true, matched: 1, observable: true })
+
+  // 行仍在运行：观察超时后报告「尚未生效」，由调用方提示需要重启。
+  visible = true
+  const pending = await observeLoaderEntryState(ctx, target, true, { timeoutMs: 30, pollMs: 10 })
+  assert.deepEqual(pending, { applied: false, matched: 1, observable: true })
+
+  // 没有 loader 服务时明确报告「不可观察」，而不是假装已生效。
+  assert.deepEqual(await observeLoaderEntryState({ get: () => undefined }, target, true), {
+    applied: false,
+    matched: 0,
+    observable: false
+  })
 })
 
 test('reads only bounded JSON objects', async () => {

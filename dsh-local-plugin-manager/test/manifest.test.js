@@ -14,12 +14,17 @@ const installScript = await readFile(new URL('../install.sh', import.meta.url), 
 
 test('declares one compatible-release-line dual Host and Settings-tab bundle', () => {
   assert.equal(manifest.name, PLUGIN_NAME)
-  assert.equal(manifest.version, '0.1.5')
+  assert.equal(manifest.version, '0.1.6')
   // 本包已由「仅本地 link 使用」改为可公开发布，护栏随之反转：
   // 断言必须显式声明 public，防止将来被误设为 private 或不声明 access。
   assert.equal(manifest.publishConfig.access, 'public')
   assert.equal(manifest.engines.node, '>=20')
-  assert.equal(manifest.dependencies['js-yaml'], '4.3.2')
+  // 运行时依赖固定为官方同一套实现：profile 写锁与原子提交用 dsh-atomic-write，
+  // patch 编辑用官方也在用的 yaml（只有 Document API 能保注释地就地改覆盖项）。
+  assert.deepEqual(manifest.dependencies, {
+    '@deepseek-ai/dsh-atomic-write': '~0.1.6-alpha.1',
+    yaml: '^2.9.0'
+  })
   assert.equal(manifest.files.includes('CHANGELOG.md'), true)
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.deepEqual(manifest.dsh.client, {

@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
     function controlReason(plugin, enable) {
       if (plugin.self) return '当前管理器由命令行维护'
       if (!plugin.manageable) return plugin.reason || '该插件不能安全管理'
-      if (enable && !plugin.canEnable) return '其他用户 patch 仍在禁用该插件'
+      if (enable && !plugin.canEnable) return 'home 级用户 patch 强制禁用了该插件'
       if (!enable && !plugin.canDisable) return 'home 级用户 patch 强制启用了该插件'
       return enable ? '启用插件' : '禁用插件'
     }

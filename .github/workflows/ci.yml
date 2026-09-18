@@ -41,7 +41,8 @@ jobs:
           node-version: ${{ matrix.node }}
 
       # 依赖安装：多数插件零依赖，但已引入运行时依赖的插件必须在测试前装好。
-      # 现例：dsh-local-plugin-manager 依赖 js-yaml，其 3 个测试文件都会 require 它；
+      # 现例：dsh-local-plugin-manager 依赖 yaml 与 @deepseek-ai/dsh-atomic-write，
+      # 其测试文件会直接 import 它们；
       # 缺少安装步骤时只有该插件失败，其余零依赖插件仍会通过，症状容易被误读。
       # 有 lockfile 时用 npm ci 保证依赖树可复现，否则回退 npm install。
       - name: 安装依赖

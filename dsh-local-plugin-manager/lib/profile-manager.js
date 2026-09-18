@@ -1,29 +1,38 @@
 import { spawn } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import {
-  chmod,
-  mkdir,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  stat,
-  writeFile
-} from 'node:fs/promises'
+import { readFile, realpath, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { JSON_SCHEMA, Type, load } from 'js-yaml'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { parse } from 'yaml'
+
+import { LocalPluginManagerError, errorMessage } from './errors.js'
+import {
+  DEFAULT_LOCK_WAIT_MS,
+  MANAGED_BEGIN,
+  MANAGED_END,
+  PATCH_CUSTOM_TAGS,
+  migrateManagedBlock,
+  nextPatchText,
+  pruneRowOverrides,
+  readPatchText,
+  withProfileWriteLock,
+  writePatchText
+} from './patch-writer.js'
+
+export { LocalPluginManagerError } from './errors.js'
+export { MANAGED_BEGIN, MANAGED_END } from './patch-writer.js'
 
 export const PLUGIN_NAME = 'dsh-local-plugin-manager'
 export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
-export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.1.6-alpha.1'])
+export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.1.6-alpha.2'])
 export const DEFAULT_PROFILE = 'web'
-export const MANAGED_BEGIN = '# >>> dsh-local-plugin-manager (managed)'
-export const MANAGED_END = '# <<< dsh-local-plugin-manager (managed)'
 
-const STATE_VERSION = 1
+// state.json v1 记录 `disabled` 包名列表并把它投影成受管区块；v2 起禁用状态的真源是
+// profile patch 的覆盖项本身，state.json 只保留卸载墓碑。
+const STATE_VERSION = 2
+const LEGACY_STATE_VERSION = 1
 export const MAX_DESCRIPTION_LENGTH = 200
 const MAX_COMMAND_OUTPUT = 32 * 1024
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
@@ -32,23 +41,12 @@ const DEFAULT_PROCESS_MARKER = `${process.pid}:${performance.timeOrigin}`
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/u
 const ROW_ID_RE = /^[A-Za-z0-9@/_.:-]+$/u
 
-const JsExpr = new Type('tag:yaml.org,2002:js', {
-  kind: 'scalar',
-  resolve: (value) => typeof value === 'string',
-  construct: (value) => ({ __jsExpr: String(value) })
-})
-const ENTRY_SCHEMA = JSON_SCHEMA.extend(JsExpr)
-
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function uniqueStrings(values) {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right))
-}
-
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error)
 }
 
 // package.json#description is the single source for the list copy, but the plugin author
@@ -75,16 +73,6 @@ export function classifyDshVersion(version) {
   const [, channel, sequenceText] = prerelease
   const supported = channel !== 'alpha' || Number(sequenceText) >= 1
   return { supported, verified: supported && verified, normalized }
-}
-
-export class LocalPluginManagerError extends Error {
-  constructor(code, message, status = 400, details = undefined) {
-    super(message)
-    this.name = 'LocalPluginManagerError'
-    this.code = code
-    this.status = status
-    this.details = details
-  }
 }
 
 export function resolveDshHome(env = process.env, home = homedir()) {
@@ -127,7 +115,7 @@ async function readOptionalText(path) {
 function parseEntryList(text, label, allowCommentOnly = false) {
   let value
   try {
-    value = load(text, { schema: ENTRY_SCHEMA })
+    value = parse(text, { customTags: PATCH_CUSTOM_TAGS })
   } catch (error) {
     throw new LocalPluginManagerError('invalid-patch', `${label}不是有效的 Cordis patch：${errorMessage(error)}`, 409)
   }
@@ -141,100 +129,6 @@ function parseEntryList(text, label, allowCommentOnly = false) {
     }
   }
   return value
-}
-
-function markerMatches(text, marker) {
-  const matches = []
-  let offset = 0
-  while (offset <= text.length) {
-    const index = text.indexOf(marker, offset)
-    if (index < 0) break
-    const atLineStart = index === 0 || text[index - 1] === '\n'
-    const after = index + marker.length
-    const atLineEnd = after === text.length || text[after] === '\n' || (text[after] === '\r' && text[after + 1] === '\n')
-    if (atLineStart && atLineEnd) matches.push(index)
-    offset = after
-  }
-  return matches
-}
-
-export function splitManagedPatch(text) {
-  const begins = markerMatches(text, MANAGED_BEGIN)
-  const ends = markerMatches(text, MANAGED_END)
-  if (begins.length === 0 && ends.length === 0) return { base: text, managed: '' }
-  if (begins.length !== 1 || ends.length !== 1 || ends[0] <= begins[0]) {
-    throw new LocalPluginManagerError(
-      'managed-block-corrupt',
-      '本地插件管理器在 cordis.patch.yml 中的受管区块标记不完整；请先修复标记，管理器不会自动改写该文件。',
-      409
-    )
-  }
-  let blockEnd = ends[0] + MANAGED_END.length
-  if (text.slice(blockEnd, blockEnd + 2) === '\r\n') blockEnd += 2
-  else if (text[blockEnd] === '\n') blockEnd += 1
-  return {
-    base: text.slice(0, begins[0]) + text.slice(blockEnd),
-    managed: text.slice(begins[0], blockEnd)
-  }
-}
-
-function removeStandaloneEmptySequence(text) {
-  const lines = text.split(/(?<=\n)/u)
-  let removed = false
-  const next = lines.filter((line) => {
-    if (removed || !/^\s*\[\]\s*(?:#.*)?(?:\r?\n)?$/u.test(line)) return true
-    removed = true
-    return false
-  })
-  return { text: next.join(''), removed }
-}
-
-function ensureTrailingNewline(text) {
-  return text === '' || text.endsWith('\n') ? text : `${text}\n`
-}
-
-function renderManagedBlock(disabledRows) {
-  if (disabledRows.length === 0) return ''
-  const lines = [
-    MANAGED_BEGIN,
-    '# Generated from .dsh-local-plugin-manager/state.json. Use the Settings UI to change it.'
-  ]
-  for (const group of disabledRows) {
-    lines.push(`# package: ${group.name}`)
-    for (const rowId of group.rowIds) {
-      lines.push(`- id: ${JSON.stringify(rowId)}`)
-      lines.push('  disabled: true')
-    }
-  }
-  lines.push(MANAGED_END)
-  return lines.join('\n')
-}
-
-export function rewriteManagedPatch(currentText, disabledRows, label = 'profile cordis.patch.yml') {
-  const { base } = splitManagedPatch(currentText)
-  const parsedBase = parseEntryList(base, label, true)
-  const block = renderManagedBlock(disabledRows)
-  let nextBase = base
-
-  if (block !== '' && parsedBase.length === 0) {
-    nextBase = removeStandaloneEmptySequence(nextBase).text
-  }
-
-  let next
-  if (block !== '') {
-    nextBase = ensureTrailingNewline(nextBase)
-    next = `${nextBase}${block}\n`
-  } else if (parsedBase.length === 0 && nextBase.trim() === '') {
-    next = '[]\n'
-  } else if (parsedBase.length === 0 && load(nextBase, { schema: ENTRY_SCHEMA }) == null) {
-    nextBase = ensureTrailingNewline(nextBase)
-    next = `${nextBase}[]\n`
-  } else {
-    next = ensureTrailingNewline(nextBase)
-  }
-
-  parseEntryList(next, label)
-  return next
 }
 
 function patchDisabledValues(rows) {
@@ -277,8 +171,10 @@ function collectInsertedPackageReferences(rows) {
   return references
 }
 
+// 每个 bundle patch 声明行都保留 `{ id, name }`：写覆盖项时要按官方语义同时核对
+// loader 行 id 与该行声明的模块名，避免命中同名 id 的无关条目。
 function analyzeBundlePatch(rows) {
-  const rowIds = []
+  const declared = new Map()
   const problems = []
   for (const patch of rows) {
     const keys = Object.keys(patch)
@@ -295,13 +191,19 @@ function analyzeBundlePatch(rows) {
         continue
       }
       if (entry.disabled === true) problems.push(`插入条目 ${entry.id} 默认处于禁用状态`)
-      rowIds.push(entry.id)
+      if (!declared.has(entry.id)) {
+        declared.set(entry.id, {
+          id: entry.id,
+          name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : undefined
+        })
+      }
     }
   }
-  const uniqueRowIds = uniqueStrings(rowIds)
-  if (uniqueRowIds.length === 0) problems.push('bundle patch 没有可管理的插入条目')
+  const records = [...declared.values()].sort((left, right) => left.id.localeCompare(right.id))
+  if (records.length === 0) problems.push('bundle patch 没有可管理的插入条目')
   return {
-    rowIds: uniqueRowIds,
+    rows: records,
+    rowIds: records.map((record) => record.id),
     manageable: problems.length === 0,
     reason: problems.length === 0 ? undefined : uniqueStrings(problems).join('；')
   }
@@ -327,6 +229,7 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
       description: undefined,
       hasClient: false,
       rowIds: [],
+      rows: [],
       manageable: false,
       reason: `本地链接目标不可用：${errorMessage(error)}`,
       inBundleStack: profileBundles.has(name)
@@ -345,6 +248,7 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
       description: undefined,
       hasClient: false,
       rowIds: [],
+      rows: [],
       manageable: false,
       reason: errorMessage(error),
       inBundleStack: profileBundles.has(name)
@@ -364,6 +268,7 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
       description,
       hasClient,
       rowIds: [],
+      rows: [],
       manageable: false,
       reason: `依赖名与本地 package.json#name 不一致（${String(manifest.name)}）`,
       inBundleStack: profileBundles.has(name)
@@ -381,6 +286,7 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
       description,
       hasClient,
       rowIds: [],
+      rows: [],
       manageable: false,
       reason: 'dsh.bundle.patch 指向插件目录之外，管理器拒绝读取',
       inBundleStack: profileBundles.has(name)
@@ -396,7 +302,7 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
     const patchText = await readFile(canonicalPatchPath, 'utf8')
     analysis = analyzeBundlePatch(parseEntryList(patchText, `${name} 的 bundle patch`))
   } catch (error) {
-    analysis = { rowIds: [], manageable: false, reason: errorMessage(error) }
+    analysis = { rowIds: [], rows: [], manageable: false, reason: errorMessage(error) }
   }
   if (!profileBundles.has(name)) {
     analysis = {
@@ -414,6 +320,7 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
     description,
     hasClient,
     rowIds: analysis.rowIds,
+    rows: analysis.rows,
     manageable: analysis.manageable,
     reason: analysis.reason,
     inBundleStack: profileBundles.has(name)
@@ -421,16 +328,26 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
 }
 
 function defaultState() {
-  return { version: STATE_VERSION, disabled: [], pendingRemovals: [] }
+  return { version: STATE_VERSION, legacyDisabled: [], pendingRemovals: [] }
 }
 
+// v1 的 `disabled` 包名列表不再参与状态推导：禁用状态现在就存在 profile patch 的覆盖项里。
+// 读到的旧列表只作为一次性迁移输入返回（见 LocalPluginProfile#migrateState）。
 function validateState(value, label) {
-  if (!isRecord(value) || value.version !== STATE_VERSION || !Array.isArray(value.disabled) || !Array.isArray(value.pendingRemovals)) {
+  if (!isRecord(value) || !Array.isArray(value.pendingRemovals)) {
     throw new LocalPluginManagerError('invalid-state', `${label}格式不受支持，管理器不会自动覆盖。`, 409)
   }
-  const disabled = uniqueStrings(value.disabled.filter((name) => typeof name === 'string' && PACKAGE_NAME_RE.test(name)))
-  if (disabled.length !== value.disabled.length) {
-    throw new LocalPluginManagerError('invalid-state', `${label}包含无效的 disabled 包名。`, 409)
+  let legacyDisabled = []
+  if (value.version === LEGACY_STATE_VERSION) {
+    if (!Array.isArray(value.disabled)) {
+      throw new LocalPluginManagerError('invalid-state', `${label}格式不受支持，管理器不会自动覆盖。`, 409)
+    }
+    legacyDisabled = uniqueStrings(value.disabled.filter((name) => typeof name === 'string' && PACKAGE_NAME_RE.test(name)))
+    if (legacyDisabled.length !== value.disabled.length) {
+      throw new LocalPluginManagerError('invalid-state', `${label}包含无效的 disabled 包名。`, 409)
+    }
+  } else if (value.version !== STATE_VERSION) {
+    throw new LocalPluginManagerError('invalid-state', `${label}格式不受支持，管理器不会自动覆盖。`, 409)
   }
   const pendingRemovals = []
   for (const item of value.pendingRemovals) {
@@ -451,13 +368,13 @@ function validateState(value, label) {
     }
     pendingRemovals.push({ name: item.name, rowIds, processMarker: item.processMarker })
   }
-  return { version: STATE_VERSION, disabled, pendingRemovals }
+  return { version: STATE_VERSION, legacyDisabled, pendingRemovals }
 }
 
 function cloneState(state) {
   return {
     version: STATE_VERSION,
-    disabled: [...state.disabled],
+    legacyDisabled: [],
     pendingRemovals: state.pendingRemovals.map((item) => ({
       name: item.name,
       rowIds: [...item.rowIds],
@@ -469,7 +386,6 @@ function cloneState(state) {
 function stateText(state) {
   return `${JSON.stringify({
     version: STATE_VERSION,
-    disabled: uniqueStrings(state.disabled),
     pendingRemovals: [...state.pendingRemovals]
       .map((item) => ({
         name: item.name,
@@ -480,57 +396,22 @@ function stateText(state) {
   }, null, 2)}\n`
 }
 
+// 提交统一走官方的 writeFileAtomic（随机后缀兄弟文件 + `wx` 独占创建 + rename），
+// 已存在的文件保留它当前的权限位。
 async function atomicWriteText(path, text, defaultMode = 0o600) {
-  await mkdir(dirname(path), { recursive: true })
   let mode = defaultMode
   try {
     mode = (await stat(path)).mode & 0o777
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
   }
-  const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`
-  try {
-    await writeFile(temporary, text, { encoding: 'utf8', mode })
-    await chmod(temporary, mode)
-    await rename(temporary, path)
-  } finally {
-    await rm(temporary, { force: true }).catch(() => undefined)
-  }
+  await writeFileAtomic(path, text, { mode })
 }
 
-async function restoreOptionalText(path, text, mode) {
-  if (text === undefined) {
-    await rm(path, { force: true })
-    return
-  }
-  await atomicWriteText(path, text, mode)
-}
-
-function groupsForState(state, plugins) {
-  const byName = new Map(plugins.map((plugin) => [plugin.name, plugin]))
-  const groups = []
-  for (const name of state.disabled) {
-    const plugin = byName.get(name)
-    if (plugin !== undefined && plugin.manageable && plugin.rowIds.length > 0) {
-      groups.push({ name, rowIds: plugin.rowIds })
-    }
-  }
-  for (const pending of state.pendingRemovals) {
-    if (pending.rowIds.length > 0) groups.push({ name: pending.name, rowIds: pending.rowIds })
-  }
-  const merged = new Map()
-  for (const group of groups) {
-    merged.set(group.name, uniqueStrings([...(merged.get(group.name) ?? []), ...group.rowIds]))
-  }
-  return [...merged.entries()]
-    .map(([name, rowIds]) => ({ name, rowIds }))
-    .sort((left, right) => left.name.localeCompare(right.name))
-}
-
-function boolForRows(rowIds, profileValues, managerDisabled, homeValues) {
+// 禁用状态完全由 profile patch 的覆盖项决定（home 级 patch 优先），不再有第二份记账。
+function boolForRows(rowIds, profileValues, homeValues) {
   const values = rowIds.map((rowId) => {
     if (homeValues.has(rowId)) return homeValues.get(rowId)
-    if (managerDisabled) return true
     return profileValues.get(rowId) ?? false
   })
   const disabledCount = values.filter(Boolean).length
@@ -540,13 +421,11 @@ function boolForRows(rowIds, profileValues, managerDisabled, homeValues) {
 }
 
 function publicPlugin(plugin, snapshot) {
-  const managerDisabled = snapshot.state.disabled.includes(plugin.name)
-  const status = boolForRows(plugin.rowIds, snapshot.profileDisabled, managerDisabled, snapshot.homeDisabled)
+  const status = boolForRows(plugin.rowIds, snapshot.profileDisabled, snapshot.homeDisabled)
+  // home 级 patch 的优先级高于 profile patch，因此只有它会挡住写入口：
+  // profile patch 里的覆盖项（无论由本管理器、官方插件页还是用户手写）都可以就地改写。
+  const homeKeepsDisabled = plugin.rowIds.some((rowId) => snapshot.homeDisabled.get(rowId) === true)
   const homeForcesEnabled = plugin.rowIds.some((rowId) => snapshot.homeDisabled.get(rowId) === false)
-  const externalKeepsDisabled = plugin.rowIds.some((rowId) => {
-    if (snapshot.homeDisabled.has(rowId)) return snapshot.homeDisabled.get(rowId) === true
-    return snapshot.profileDisabled.get(rowId) === true
-  })
   return {
     name: plugin.name,
     version: plugin.version,
@@ -558,10 +437,9 @@ function publicPlugin(plugin, snapshot) {
     manageable: plugin.manageable,
     reason: plugin.reason,
     self: plugin.name === PLUGIN_NAME,
-    managerDisabled,
-    externalControl: externalKeepsDisabled || homeForcesEnabled,
+    externalControl: homeKeepsDisabled || homeForcesEnabled,
     rowIds: plugin.rowIds,
-    canEnable: plugin.manageable && plugin.name !== PLUGIN_NAME && !externalKeepsDisabled,
+    canEnable: plugin.manageable && plugin.name !== PLUGIN_NAME && !homeKeepsDisabled,
     canDisable: plugin.manageable && plugin.name !== PLUGIN_NAME && !homeForcesEnabled,
     canUninstall: plugin.manageable && plugin.name !== PLUGIN_NAME && (snapshot.patchReferences.get(plugin.name)?.length ?? 0) === 0,
     uninstallBlockedBy: snapshot.patchReferences.get(plugin.name) ?? []
@@ -656,6 +534,8 @@ export class LocalPluginProfile {
     this.commandRunner = options.commandRunner ?? runDshPluginRemove
     this.onLiveState = options.onLiveState ?? (async () => ({ applied: false }))
     this.processMarker = options.processMarker ?? DEFAULT_PROCESS_MARKER
+    // 与官方 plugin-manager 的 `lockWaitMs` 对齐：等待 profile 写锁的最长毫秒数。
+    this.lockWaitMs = Number.isSafeInteger(options.lockWaitMs) && options.lockWaitMs >= 0 ? options.lockWaitMs : DEFAULT_LOCK_WAIT_MS
     this.busy = false
   }
 
@@ -688,9 +568,8 @@ export class LocalPluginProfile {
     }
     plugins.sort((left, right) => left.name.localeCompare(right.name))
 
-    const patchText = (await readOptionalText(this.patchPath)) ?? '[]\n'
-    const split = splitManagedPatch(patchText)
-    const profileRows = parseEntryList(split.base, this.patchPath, true)
+    const patchText = await readPatchText(this.profileDir, this.patchPath)
+    const profileRows = parseEntryList(patchText, this.patchPath, true)
     const homePatchText = await readOptionalText(this.homePatchPath)
     const homeRows = homePatchText === undefined ? [] : parseEntryList(homePatchText, this.homePatchPath)
     const stateFile = await this.readState()
@@ -703,7 +582,6 @@ export class LocalPluginProfile {
       profileBundles,
       plugins,
       patchText,
-      managedText: split.managed,
       profileRows,
       homeRows,
       homePatchText,
@@ -715,61 +593,94 @@ export class LocalPluginProfile {
     }
   }
 
-  async persistState(nextState, snapshot) {
-    const normalized = validateState(nextState, '待写入的本地插件管理状态')
-    const nextPatchText = rewriteManagedPatch(snapshot.patchText, groupsForState(normalized, snapshot.plugins), this.patchPath)
+  /** 只写 state.json（卸载墓碑）。禁用状态不在这里，它由 profile patch 的覆盖项表达。 */
+  async writeState(nextState) {
+    const normalized = validateState({ version: STATE_VERSION, pendingRemovals: nextState.pendingRemovals }, '待写入的本地插件管理状态')
     const nextStateText = stateText(normalized)
-    const patchChanged = nextPatchText !== snapshot.patchText
-    const stateChanged = nextStateText !== snapshot.stateText
-    if (!patchChanged && !stateChanged) return
-
-    const currentPatchText = (await readOptionalText(this.patchPath)) ?? '[]\n'
-    const currentStateText = await readOptionalText(this.statePath)
-    if (currentPatchText !== snapshot.patchText || currentStateText !== snapshot.stateText) {
-      throw new LocalPluginManagerError(
-        'concurrent-profile-change',
-        'profile patch 或管理状态在操作期间被其他进程修改；未写入本次变更，请刷新后重试。',
-        409
-      )
-    }
-
+    const previousText = await readOptionalText(this.statePath)
+    if (nextStateText === previousText) return { changed: false, previousText }
     try {
-      if (patchChanged) await atomicWriteText(this.patchPath, nextPatchText, 0o644)
-      if (stateChanged) await atomicWriteText(this.statePath, nextStateText, 0o600)
+      await atomicWriteText(this.statePath, nextStateText, 0o600)
     } catch (error) {
-      await Promise.allSettled([
-        patchChanged ? restoreOptionalText(this.patchPath, snapshot.patchText, 0o644) : Promise.resolve(),
-        stateChanged ? restoreOptionalText(this.statePath, snapshot.stateText, 0o600) : Promise.resolve()
-      ])
-      throw new LocalPluginManagerError('write-failed', `写入本地插件状态失败，已尝试回滚：${errorMessage(error)}`, 500)
+      throw new LocalPluginManagerError('write-failed', `写入本地插件管理状态失败：${errorMessage(error)}`, 500)
     }
+    return { changed: true, previousText }
+  }
+
+  /**
+   * 在 profile 写锁内把一组 loader 行的启停写进 profile patch。
+   * 锁锚点与行覆盖语义都与官方 plugin-manager 一致，见 lib/patch-writer.js。
+   */
+  async applyRows(rows, enabled) {
+    return withProfileWriteLock(this.profileDir, async () => {
+      const current = await readPatchText(this.profileDir, this.patchPath)
+      const migrated = migrateManagedBlock(current)
+      const next = nextPatchText(migrated.text, rows, enabled, this.patchPath)
+      if (!next.changed && !migrated.migrated) return { changed: false }
+      await writePatchText(this.profileDir, next.text)
+      return { changed: true, text: next.text }
+    }, { waitMs: this.lockWaitMs })
+  }
+
+  /** 删除已卸载插件遗留的行覆盖项（只在下一个进程确认卸载完成后调用）。 */
+  async pruneRows(rowIds) {
+    if (rowIds.length === 0) return { changed: false }
+    return withProfileWriteLock(this.profileDir, async () => {
+      const current = await readPatchText(this.profileDir, this.patchPath)
+      const next = pruneRowOverrides(current, rowIds, this.patchPath)
+      if (!next.changed) return { changed: false }
+      await writePatchText(this.profileDir, next.text)
+      return { changed: true }
+    }, { waitMs: this.lockWaitMs })
+  }
+
+  /** 把 patch 恢复成给定文本（卸载失败回滚）。 */
+  async restorePatch(text) {
+    return withProfileWriteLock(this.profileDir, async () => {
+      const current = await readPatchText(this.profileDir, this.patchPath)
+      if (current === text) return { changed: false }
+      await writePatchText(this.profileDir, text)
+      return { changed: true }
+    }, { waitMs: this.lockWaitMs })
   }
 
   async initialize() {
     const snapshot = await this.snapshot()
     const installed = new Map(snapshot.plugins.map((plugin) => [plugin.name, plugin]))
-    const next = cloneState(snapshot.state)
-    next.disabled = next.disabled.filter((name) => name !== PLUGIN_NAME && installed.get(name)?.manageable === true)
+
+    // 一次性迁移：删掉旧版受管区块的标记行，区块内的条目原地成为普通覆盖项。
+    // v1 state 记录的禁用项此时已经在这些条目里；只有被手工删掉时才需要补写。
+    const disableRows = []
+    for (const name of snapshot.state.legacyDisabled) {
+      if (name === PLUGIN_NAME) continue
+      const plugin = installed.get(name)
+      if (plugin?.manageable === true) disableRows.push(...plugin.rows)
+    }
+
     const pending = []
-    for (const item of next.pendingRemovals) {
+    const pruneRowIds = []
+    for (const item of snapshot.state.pendingRemovals) {
       const plugin = installed.get(item.name)
-      if (plugin === undefined) {
-        if (item.processMarker === this.processMarker) pending.push(item)
+      if (plugin !== undefined) {
+        // 卸载未完成，或插件已被重新安装：保持禁用，并保留墓碑交给下一次启动判断。
+        pending.push(item)
+        if (plugin.manageable) disableRows.push(...plugin.rows)
         continue
       }
-      if (plugin.manageable) next.disabled.push(item.name)
-      else pending.push(item)
+      if (item.processMarker === this.processMarker) {
+        // 同一进程：bundle 层在启动时已冻结，这些行仍在 loader 树里，覆盖项要继续保留。
+        pending.push(item)
+        disableRows.push(...item.rowIds.map((id) => ({ id })))
+        continue
+      }
+      // 新进程确认包已不在 manifest：清掉陈旧覆盖项，避免将来重装时被继续禁用。
+      pruneRowIds.push(...item.rowIds)
     }
-    next.disabled = uniqueStrings(next.disabled)
-    next.pendingRemovals = pending
-    await this.persistState(next, snapshot)
 
-    const refreshed = await this.snapshot()
-    for (const name of refreshed.state.disabled) {
-      const plugin = refreshed.plugins.find((item) => item.name === name)
-      if (plugin === undefined) continue
-      await this.onLiveState(plugin, true).catch(() => undefined)
-    }
+    const needsMigration = snapshot.patchText.includes(MANAGED_BEGIN) || snapshot.patchText.includes(MANAGED_END)
+    if (needsMigration || disableRows.length > 0) await this.applyRows(disableRows, false)
+    if (pruneRowIds.length > 0) await this.pruneRows(uniqueStrings(pruneRowIds))
+    await this.writeState({ pendingRemovals: pending })
   }
 
   async list() {
@@ -802,18 +713,20 @@ export class LocalPluginProfile {
       if (current.self) throw new LocalPluginManagerError('self-protected', '管理器不能从自己的页面停用；请使用命令行卸载。', 403)
       if (!plugin.manageable) throw new LocalPluginManagerError('not-manageable', plugin.reason || '该插件不能安全启停。', 409)
       if (enabled && !current.canEnable) {
-        throw new LocalPluginManagerError('externally-disabled', '其他用户 patch 仍在禁用该插件；管理器不会覆盖该配置。', 409)
+        throw new LocalPluginManagerError('externally-disabled', 'home 级用户 patch 强制禁用了该插件；管理器不会写入一个无效开关。', 409)
       }
       if (!enabled && !current.canDisable) {
         throw new LocalPluginManagerError('externally-enabled', 'home 级用户 patch 强制启用了该插件；管理器不会写入一个无效开关。', 409)
       }
 
-      const next = cloneState(snapshot.state)
-      next.pendingRemovals = next.pendingRemovals.filter((item) => item.name !== name)
-      next.disabled = enabled
-        ? next.disabled.filter((item) => item !== name)
-        : uniqueStrings([...next.disabled, name])
-      await this.persistState(next, snapshot)
+      if (enabled) {
+        const pending = snapshot.state.pendingRemovals.filter((item) => item.name !== name)
+        if (pending.length !== snapshot.state.pendingRemovals.length) {
+          await this.writeState({ pendingRemovals: pending })
+        }
+      }
+      // 只写行覆盖项：官方插件页与设置页读的是同一批顶层覆盖项，因此两边永远一致。
+      await this.applyRows(plugin.rows, enabled)
 
       let live = { applied: false }
       let liveError
@@ -835,14 +748,16 @@ export class LocalPluginProfile {
   }
 
   async repairRemovedBundle(name) {
-    const path = join(this.profileDir, 'package.json')
-    const { value: manifest } = await readJsonFile(path, 'profile package.json')
-    const dependencies = isRecord(manifest.dependencies) ? manifest.dependencies : {}
-    const bundles = manifest.dsh?.profile?.bundles
-    if (dependencies[name] !== undefined || !Array.isArray(bundles) || !bundles.includes(name)) return false
-    manifest.dsh.profile.bundles = bundles.filter((bundle) => bundle !== name)
-    await atomicWriteText(path, `${JSON.stringify(manifest, null, 2)}\n`, 0o644)
-    return true
+    return withProfileWriteLock(this.profileDir, async () => {
+      const path = join(this.profileDir, 'package.json')
+      const { value: manifest } = await readJsonFile(path, 'profile package.json')
+      const dependencies = isRecord(manifest.dependencies) ? manifest.dependencies : {}
+      const bundles = manifest.dsh?.profile?.bundles
+      if (dependencies[name] !== undefined || !Array.isArray(bundles) || !bundles.includes(name)) return false
+      manifest.dsh.profile.bundles = bundles.filter((bundle) => bundle !== name)
+      await atomicWriteText(path, `${JSON.stringify(manifest, null, 2)}\n`, 0o644)
+      return true
+    }, { waitMs: this.lockWaitMs })
   }
 
   async uninstall(name) {
@@ -861,19 +776,17 @@ export class LocalPluginProfile {
         )
       }
 
-      const staged = cloneState(before.state)
-      staged.disabled = uniqueStrings([...staged.disabled, name])
-      staged.pendingRemovals = staged.pendingRemovals.filter((item) => item.name !== name)
-      await this.persistState(staged, before)
+      // 先写行覆盖项（卸载期间保持停用）并请求热停；失败时把 patch 恢复成操作前的文本。
+      const previousPatchText = before.patchText
+      await this.applyRows(plugin.rows, false)
       await this.onLiveState(plugin, true).catch(() => undefined)
 
       let command
       try {
         command = await this.commandRunner(this.runtime, this.profile, name, { cwd: this.profileDir })
       } catch (error) {
-        const afterFailure = await this.snapshot()
-        await this.persistState(before.state, afterFailure).catch(() => undefined)
-        await this.onLiveState(plugin, before.state.disabled.includes(name)).catch(() => undefined)
+        await this.restorePatch(previousPatchText).catch(() => undefined)
+        await this.onLiveState(plugin, !current.enabled).catch(() => undefined)
         throw new LocalPluginManagerError('uninstall-failed', `无法启动卸载命令：${errorMessage(error)}`, 502)
       }
       let afterCommand = await this.snapshot()
@@ -886,8 +799,8 @@ export class LocalPluginProfile {
       }
 
       if (!removed) {
-        await this.persistState(before.state, afterCommand).catch(() => undefined)
-        await this.onLiveState(plugin, before.state.disabled.includes(name)).catch(() => undefined)
+        await this.restorePatch(previousPatchText).catch(() => undefined)
+        await this.onLiveState(plugin, !current.enabled).catch(() => undefined)
         const detail = command.timedOut
           ? '卸载命令超时。'
           : (command.stderr.trim() || command.error || `卸载命令退出码 ${String(command.exitCode)}`)
@@ -897,13 +810,13 @@ export class LocalPluginProfile {
         })
       }
 
+      // 墓碑：当前进程要继续保留覆盖项（bundle 层在启动时已冻结），下一个进程再清理。
       const finalized = cloneState(afterCommand.state)
-      finalized.disabled = finalized.disabled.filter((item) => item !== name)
       finalized.pendingRemovals = [
         ...finalized.pendingRemovals.filter((item) => item.name !== name),
         { name, rowIds: plugin.rowIds, processMarker: this.processMarker }
       ]
-      await this.persistState(finalized, afterCommand)
+      await this.writeState(finalized)
 
       return {
         ok: true,

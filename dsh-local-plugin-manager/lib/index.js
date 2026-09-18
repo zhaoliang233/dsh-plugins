@@ -84,26 +84,32 @@ export async function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
   }
 }
 
-export async function setLoaderEntryDisabled(ctx, plugin, disabled) {
+/**
+ * 观察 loader 是否已经把目标行切到预期状态。
+ *
+ * 启停本身由 profile patch 的覆盖项驱动：写入后由 profile 配置重载（`patchReload: live`
+ * 或 dsh-hmr）重组 loader 树。这里因此只读观察，不再直接调用 Loader 的私有更新接口，
+ * 避免与官方 plugin-manager 和 HMR 的重组并发写同一批行。
+ */
+export async function observeLoaderEntryState(ctx, plugin, disabled, options = {}) {
   const loader = ctx.get('loader')
-  if (loader === undefined || typeof loader.entries !== 'function') return { applied: false, matched: 0 }
+  if (loader === undefined || typeof loader.entries !== 'function') {
+    return { applied: false, matched: 0, observable: false }
+  }
   const entryIds = new Set(plugin.rowIds.map((rowId) => `include:${rowId}`))
-  const matched = []
-  for (const entry of loader.entries()) {
-    if (!entryIds.has(entry.id)) continue
-    if (typeof entry.update !== 'function') continue
-    matched.push(entry)
-  }
-  for (const entry of matched) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await entry.update({ disabled: disabled ? true : null }, false, true)
-      const stateMatches = disabled ? entry.fiber === undefined : entry.fiber !== undefined
-      if (stateMatches) break
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 200))
+  const timeoutMs = Number.isSafeInteger(options.timeoutMs) && options.timeoutMs >= 0 ? options.timeoutMs : 1500
+  const pollMs = Number.isSafeInteger(options.pollMs) && options.pollMs > 0 ? options.pollMs : 150
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const matched = []
+    for (const entry of loader.entries()) {
+      if (entryIds.has(entry.id)) matched.push(entry)
     }
+    const settled = matched.length > 0 && matched.every((entry) => disabled ? entry.fiber === undefined : entry.fiber !== undefined)
+    if (settled) return { applied: true, matched: matched.length, observable: true }
+    if (Date.now() >= deadline) return { applied: false, matched: matched.length, observable: true }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, pollMs))
   }
-  const stateMatches = matched.length > 0 && matched.every((entry) => disabled ? entry.fiber === undefined : entry.fiber !== undefined)
-  return { applied: stateMatches, matched: matched.length }
 }
 
 function errorPayload(error) {
@@ -252,7 +258,7 @@ export async function apply(ctx, config = {}) {
       profile,
       dshHome: resolveDshHome(),
       runtime: state.runtime,
-      onLiveState: (plugin, disabled) => setLoaderEntryDisabled(ctx, plugin, disabled)
+      onLiveState: (plugin, disabled) => observeLoaderEntryState(ctx, plugin, disabled)
     })
     try {
       await state.manager.initialize()

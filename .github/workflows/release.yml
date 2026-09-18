@@ -6,7 +6,7 @@
 # 2. 发布前断言 tag 与 package.json 的 version 完全一致，杜绝发错版本号。
 # 3. 复用各插件已有的 prepublishOnly → publish:check 门禁（check/test/pack:check），
 #    校验不通过时 npm 自身拒绝发布，工作流无需重复实现门禁逻辑。
-# 4. private: true 的包（当前为 dsh-local-plugin-manager）显式拒绝发布。
+# 4. private: true 的包显式拒绝发布。
 # 5. --provenance 由 GitHub OIDC 身份签名，产出“该版本确由本仓库此 commit 发布”
 #    的可验证证明。
 #
@@ -113,7 +113,8 @@ jobs:
 
       # 依赖安装：多数插件零依赖，但已引入运行时依赖的插件必须先装好，否则
       # 下面的 prepublishOnly 门禁会以 ERR_MODULE_NOT_FOUND 失败（现例：
-      # dsh-local-plugin-manager 依赖 js-yaml，其 3 个测试文件都会 require 它；
+      # dsh-local-plugin-manager 依赖 yaml 与 @deepseek-ai/dsh-atomic-write，
+      # 其测试文件会直接 import 它们；
       # 缺这一步时只有该插件发布失败，其余零依赖插件仍会通过，症状容易被误读为
       # 认证问题）。逻辑与 ci.yml 一致：有 lockfile 用 npm ci 保证依赖树可复现，
       # 否则回退 npm install。

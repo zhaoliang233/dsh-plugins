@@ -4,22 +4,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { MANAGED_BEGIN, MANAGED_END, migrateManagedBlock, nextPatchText, pruneRowOverrides } from '../lib/patch-writer.js'
 import {
   DSH_COMPATIBILITY_RANGE,
-  MANAGED_BEGIN,
-  MANAGED_END,
   MAX_DESCRIPTION_LENGTH,
   LocalPluginManagerError,
   LocalPluginProfile,
   classifyDshVersion,
   resolveCurrentDshRuntime,
-  rewriteManagedPatch,
-  runDshPluginRemove,
-  splitManagedPatch
+  runDshPluginRemove
 } from '../lib/profile-manager.js'
 
-const TEST_DSH_VERSION = '0.1.6-alpha.1'
+const TEST_DSH_VERSION = '0.1.6-alpha.2'
 const FIGMA_PATCH = `# Your patch layer\n# >>> Figma Desktop MCP\n- insert:\n    - id: mcp-figma-desktop\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: figma\n# <<< Figma Desktop MCP\n`
+const ROW = { id: 'dsh-demo-local', name: 'dsh-demo-local' }
 
 async function writeJson(path, value) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`)
@@ -90,6 +88,8 @@ async function createFixture(options = {}) {
     profileDir,
     profile,
     liveCalls,
+    patchPath: join(profileDir, 'cordis.patch.yml'),
+    async readPatch() { return readFile(join(profileDir, 'cordis.patch.yml'), 'utf8') },
     async cleanup() { await rm(root, { recursive: true, force: true }) }
   }
 }
@@ -98,33 +98,80 @@ function pluginByName(snapshot, name = 'dsh-demo-local') {
   return snapshot.plugins.find((plugin) => plugin.name === name)
 }
 
-test('rewrites only the manager-owned patch block and preserves user rows', () => {
-  const disabled = [{ name: 'dsh-demo-local', rowIds: ['dsh-demo-local'] }]
-  const next = rewriteManagedPatch(FIGMA_PATCH, disabled)
-  assert.equal(next.includes(FIGMA_PATCH.trim()), true)
-  assert.equal(next.includes(MANAGED_BEGIN), true)
-  assert.equal(next.includes('- id: "dsh-demo-local"\n  disabled: true'), true)
-  assert.equal(splitManagedPatch(next).base, FIGMA_PATCH)
+function overrideCount(text, id) {
+  return text.split('\n').filter((line) => line === `- id: ${id}`).length
+}
 
-  const enabled = rewriteManagedPatch(next, [])
-  assert.equal(enabled, FIGMA_PATCH)
+test('appends a top-level override and treats an already-matching row as no change', () => {
+  const next = nextPatchText(FIGMA_PATCH, [ROW], false)
+  assert.equal(next.changed, true)
+  // 既有字节原样保留：注释、引号与缩进都不被重排。
+  assert.equal(next.text.includes('# Your patch layer'), true)
+  assert.equal(next.text.includes('# >>> Figma Desktop MCP'), true)
+  assert.equal(next.text.includes("name: '@deepseek-ai/dsh-mcp-client'"), true)
+  assert.equal(next.text.includes('- id: dsh-demo-local\n  disabled: true'), true)
+  assert.equal(overrideCount(next.text, 'dsh-demo-local'), 1)
+
+  // 官方语义：值已经正确时返回「无变化」，调用方因此不会白白重写文件。
+  assert.deepEqual(nextPatchText(next.text, [ROW], false), { text: next.text, changed: false })
+
+  // 启用写显式 `disabled: false` 而不是删除条目，这样官方也读得到同一个值。
+  const enabled = nextPatchText(next.text, [ROW], true)
+  assert.equal(enabled.text.includes('- id: dsh-demo-local\n  disabled: false'), true)
+  assert.equal(overrideCount(enabled.text, 'dsh-demo-local'), 1)
 })
 
-test('replaces an empty-sequence placeholder without creating invalid YAML', () => {
-  const next = rewriteManagedPatch('# user patch\n[]\n', [
-    { name: 'dsh-demo-local', rowIds: ['dsh-demo-local'] }
-  ])
-  assert.equal(next.includes('\n[]\n'), false)
-  assert.equal(next.includes('disabled: true'), true)
-  const restored = rewriteManagedPatch(next, [])
-  assert.equal(restored.includes('[]'), true)
+test('never writes through an override that declares another module name', () => {
+  const foreign = `${FIGMA_PATCH}- id: dsh-demo-local\n  name: someone-else\n  disabled: true\n`
+  const next = nextPatchText(foreign, [ROW], true)
+  assert.equal(overrideCount(next.text, 'dsh-demo-local'), 2, 'must append its own row instead of editing a different module')
+  assert.equal(next.text.includes('name: someone-else\n  disabled: true'), true)
 })
 
-test('refuses a corrupted managed marker pair', () => {
+test('keeps comments and !!js expressions intact while editing a row', () => {
+  const patch = `# keep me\n- insert:\n    - id: mcp-jira\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        headers:\n          Authorization: !!js '\`Basic \${process.env.JIRA}\`'\n`
+  const next = nextPatchText(patch, [ROW], false)
+  assert.equal(next.text.includes('# keep me'), true)
+  assert.equal(next.text.includes('!!js'), true)
+  assert.equal(next.text.includes('Basic ${process.env.JIRA}'), true)
+})
+
+test('creates a sequence in a comment-only patch instead of failing', () => {
+  const next = nextPatchText('# user patch\n', [ROW], false)
+  assert.equal(next.text.includes('- id: dsh-demo-local\n  disabled: true'), true)
+})
+
+test('refuses a patch that is not a top-level sequence', () => {
   assert.throws(
-    () => rewriteManagedPatch(`${FIGMA_PATCH}${MANAGED_BEGIN}\n- id: broken\n  disabled: true\n`, []),
-    (error) => error instanceof LocalPluginManagerError && error.code === 'managed-block-corrupt'
+    () => nextPatchText('id: not-a-sequence\n', [ROW], false),
+    (error) => error instanceof LocalPluginManagerError && error.code === 'invalid-patch'
   )
+})
+
+test('migrates the legacy managed block into plain top-level overrides', () => {
+  const legacy = `${FIGMA_PATCH}${MANAGED_BEGIN}\n# Generated from .dsh-local-plugin-manager/state.json. Use the Settings UI to change it.\n# package: dsh-demo-local\n- id: "dsh-demo-local"\n  disabled: true\n${MANAGED_END}\n`
+  const migrated = migrateManagedBlock(legacy)
+  assert.equal(migrated.migrated, true)
+  assert.equal(migrated.text.includes(MANAGED_BEGIN), false)
+  assert.equal(migrated.text.includes(MANAGED_END), false)
+  assert.equal(migrated.text.includes('# Generated from'), false)
+  // 区块内的条目原地保留为普通覆盖项，禁用状态因此不会丢失。
+  assert.equal(migrated.text.includes('- id: "dsh-demo-local"\n  disabled: true'), true)
+  assert.equal(migrated.text.includes('mcp-figma-desktop'), true)
+
+  assert.deepEqual(migrateManagedBlock(FIGMA_PATCH), { text: FIGMA_PATCH, migrated: false })
+})
+
+test('prunes a stale override, keeping any other configuration on that entry', () => {
+  const both = pruneRowOverrides('- id: dsh-demo-local\n  disabled: true\n', ['dsh-demo-local'])
+  assert.equal(both.changed, true)
+  assert.equal(both.text.includes('dsh-demo-local'), false)
+
+  const configured = pruneRowOverrides('- id: dsh-demo-local\n  disabled: true\n  name: dsh-demo-local\n', ['dsh-demo-local'])
+  assert.equal(configured.text.includes('disabled'), false)
+  assert.equal(configured.text.includes('name: dsh-demo-local'), true)
+
+  assert.deepEqual(pruneRowOverrides(FIGMA_PATCH, ['dsh-demo-local']), { text: FIGMA_PATCH, changed: false })
 })
 
 test('lists link bundles and protects source paths as server-owned facts', async (t) => {
@@ -232,27 +279,56 @@ test('refuses corrupt state without changing the profile patch', async (t) => {
     fixture.profile.initialize(),
     (error) => error instanceof LocalPluginManagerError && error.code === 'invalid-state'
   )
-  assert.equal(await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8'), FIGMA_PATCH)
+  assert.equal(await fixture.readPatch(), FIGMA_PATCH)
 })
 
-test('refuses to overwrite a concurrently edited profile patch', async (t) => {
+test('carries a v1 disabled list into explicit overrides and rewrites the state as v2', async (t) => {
   const fixture = await createFixture()
   t.after(() => fixture.cleanup())
-  const snapshot = await fixture.profile.snapshot()
-  const concurrentText = `${FIGMA_PATCH}# concurrent user edit\n`
-  await writeFile(join(fixture.profileDir, 'cordis.patch.yml'), concurrentText)
-  await assert.rejects(
-    fixture.profile.persistState({
-      version: 1,
-      disabled: ['dsh-demo-local'],
-      pendingRemovals: []
-    }, snapshot),
-    (error) => error instanceof LocalPluginManagerError && error.code === 'concurrent-profile-change'
-  )
-  assert.equal(await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8'), concurrentText)
+  const stateDir = join(fixture.profileDir, '.dsh-local-plugin-manager')
+  await mkdir(stateDir, { recursive: true })
+  // v1 会同时写出受管区块；这里模拟区块已被手工删除，只剩 state 记录了禁用意图。
+  await writeFile(join(stateDir, 'state.json'), `${JSON.stringify({ version: 1, disabled: ['dsh-demo-local'], pendingRemovals: [] }, null, 2)}\n`)
+
+  await fixture.profile.initialize()
+  assert.equal(pluginByName(await fixture.profile.list()).enabled, false)
+  const patch = await fixture.readPatch()
+  assert.equal(patch.includes('- id: dsh-demo-local\n  disabled: true'), true)
+  assert.equal(patch.includes('mcp-figma-desktop'), true)
+
+  const state = JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8'))
+  assert.equal(state.version, 2)
+  assert.equal('disabled' in state, false)
 })
 
-test('disables and enables through durable state without changing user patch content', async (t) => {
+test('migrates a legacy managed block on startup without losing the disabled row', async (t) => {
+  const legacy = `${FIGMA_PATCH}${MANAGED_BEGIN}\n# package: dsh-demo-local\n- id: "dsh-demo-local"\n  disabled: true\n${MANAGED_END}\n`
+  const fixture = await createFixture({ profilePatch: legacy })
+  t.after(() => fixture.cleanup())
+  await fixture.profile.initialize()
+  const patch = await fixture.readPatch()
+  assert.equal(patch.includes(MANAGED_BEGIN), false)
+  assert.equal(patch.includes(MANAGED_END), false)
+  assert.equal(patch.includes('mcp-figma-desktop'), true)
+  assert.equal(pluginByName(await fixture.profile.list()).enabled, false)
+})
+
+test('merges with a concurrent profile patch edit instead of overwriting it', async (t) => {
+  const fixture = await createFixture()
+  t.after(() => fixture.cleanup())
+  await fixture.profile.initialize()
+  const concurrentText = `${FIGMA_PATCH}# concurrent user edit\n`
+  await writeFile(fixture.patchPath, concurrentText)
+
+  const result = await fixture.profile.setEnabled('dsh-demo-local', false)
+  assert.equal(result.enabled, false)
+  const patch = await fixture.readPatch()
+  assert.equal(patch.includes('# concurrent user edit'), true)
+  assert.equal(patch.includes('mcp-figma-desktop'), true)
+  assert.equal(patch.includes('- id: dsh-demo-local\n  disabled: true'), true)
+})
+
+test('writes and clears one shared override across disable and enable', async (t) => {
   const fixture = await createFixture()
   t.after(() => fixture.cleanup())
   await fixture.profile.initialize()
@@ -261,31 +337,66 @@ test('disables and enables through durable state without changing user patch con
   assert.equal(result.enabled, false)
   assert.equal(result.refresh, true)
   assert.equal(pluginByName(result.snapshot).enabled, false)
-  let patch = await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8')
-  assert.equal(splitManagedPatch(patch).base, FIGMA_PATCH)
-  assert.equal(patch.includes(MANAGED_BEGIN), true)
+  let patch = await fixture.readPatch()
+  assert.equal(patch.includes('- id: dsh-demo-local\n  disabled: true'), true)
+  assert.equal(overrideCount(patch, 'dsh-demo-local'), 1)
   assert.deepEqual(fixture.liveCalls.at(-1), { name: 'dsh-demo-local', disabled: true })
 
   result = await fixture.profile.setEnabled('dsh-demo-local', true)
   assert.equal(result.enabled, true)
   assert.equal(pluginByName(result.snapshot).enabled, true)
-  patch = await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8')
+  patch = await fixture.readPatch()
   assert.equal(patch.includes('mcp-figma-desktop'), true)
-  assert.equal(patch.includes(MANAGED_BEGIN), false)
+  assert.equal(patch.includes('- id: dsh-demo-local\n  disabled: false'), true)
+  assert.equal(overrideCount(patch, 'dsh-demo-local'), 1)
   assert.deepEqual(fixture.liveCalls.at(-1), { name: 'dsh-demo-local', disabled: false })
 })
 
-test('does not override an external patch that keeps a plugin disabled', async (t) => {
+test('takes over the override written by the official plugin manager, in place', async (t) => {
+  // 官方侧边栏插件页写的是顶层 `- id / disabled: true`，追加在文件末尾。
   const profilePatch = `${FIGMA_PATCH}- id: dsh-demo-local\n  disabled: true\n`
   const fixture = await createFixture({ profilePatch })
   t.after(() => fixture.cleanup())
   await fixture.profile.initialize()
-  const plugin = pluginByName(await fixture.profile.list())
-  assert.equal(plugin.enabled, false)
-  assert.equal(plugin.canEnable, false)
+
+  const before = pluginByName(await fixture.profile.list())
+  assert.equal(before.enabled, false)
+  assert.equal(before.canEnable, true, '管理器必须能接管 profile 级覆盖项，否则两边会互相回滚')
+  assert.equal(before.externalControl, false)
+
+  const result = await fixture.profile.setEnabled('dsh-demo-local', true)
+  assert.equal(result.enabled, true)
+  const patch = await fixture.readPatch()
+  assert.equal(overrideCount(patch, 'dsh-demo-local'), 1, '必须就地改写官方那条，而不是再追加一条')
+  assert.equal(patch.includes('- id: dsh-demo-local\n  disabled: false'), true)
+  assert.equal(patch.includes('mcp-figma-desktop'), true)
+
+  // 反向：官方把行改成 disabled 后，管理器读到的就是禁用。
+  await writeFile(fixture.patchPath, `${FIGMA_PATCH}- id: dsh-demo-local\n  disabled: true\n`)
+  assert.equal(pluginByName(await fixture.profile.list()).enabled, false)
+})
+
+test('refuses a switch that a home-level patch overrides', async (t) => {
+  const homeKeepsDisabled = await createFixture({ homePatch: '- id: dsh-demo-local\n  disabled: true\n' })
+  t.after(() => homeKeepsDisabled.cleanup())
+  await homeKeepsDisabled.profile.initialize()
+  const disabled = pluginByName(await homeKeepsDisabled.profile.list())
+  assert.equal(disabled.canEnable, false)
+  assert.equal(disabled.externalControl, true)
   await assert.rejects(
-    fixture.profile.setEnabled('dsh-demo-local', true),
+    homeKeepsDisabled.profile.setEnabled('dsh-demo-local', true),
     (error) => error instanceof LocalPluginManagerError && error.code === 'externally-disabled'
+  )
+
+  const homeForcesEnabled = await createFixture({ homePatch: '- id: dsh-demo-local\n  disabled: false\n' })
+  t.after(() => homeForcesEnabled.cleanup())
+  await homeForcesEnabled.profile.initialize()
+  const enabled = pluginByName(await homeForcesEnabled.profile.list())
+  assert.equal(enabled.canDisable, false)
+  assert.equal(enabled.enabled, true)
+  await assert.rejects(
+    homeForcesEnabled.profile.setEnabled('dsh-demo-local', false),
+    (error) => error instanceof LocalPluginManagerError && error.code === 'externally-enabled'
   )
 })
 
@@ -302,7 +413,7 @@ test('refuses uninstall while a user patch still inserts the package', async (t)
   )
 })
 
-test('uninstalls through the command runner and cleans its tombstone next boot', async (t) => {
+test('uninstalls through the command runner, keeps the row disabled, then prunes it next boot', async (t) => {
   let fixture
   fixture = await createFixture({
     commandRunner: async (_runtime, _profile, name) => {
@@ -321,8 +432,8 @@ test('uninstalls through the command runner and cleans its tombstone next boot',
   assert.equal(result.ok, true)
   assert.equal(result.restart, true)
   assert.equal(result.snapshot.plugins.length, 0)
-  let patch = await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8')
-  assert.equal(patch.includes(MANAGED_BEGIN), true)
+  // 当前进程里 bundle 层已冻结，覆盖项必须留到重启。
+  assert.equal((await fixture.readPatch()).includes('- id: dsh-demo-local\n  disabled: true'), true)
 
   const sameProcessReload = new LocalPluginProfile({
     dshHome: fixture.dshHome,
@@ -331,8 +442,7 @@ test('uninstalls through the command runner and cleans its tombstone next boot',
     processMarker: 'process-a'
   })
   await sameProcessReload.initialize()
-  patch = await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8')
-  assert.equal(patch.includes(MANAGED_BEGIN), true)
+  assert.equal((await fixture.readPatch()).includes('- id: dsh-demo-local\n  disabled: true'), true)
 
   const restarted = new LocalPluginProfile({
     dshHome: fixture.dshHome,
@@ -341,8 +451,8 @@ test('uninstalls through the command runner and cleans its tombstone next boot',
     processMarker: 'process-b'
   })
   await restarted.initialize()
-  patch = await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8')
-  assert.equal(patch.includes(MANAGED_BEGIN), false)
+  const patch = await fixture.readPatch()
+  assert.equal(patch.includes('dsh-demo-local'), false, '陈旧覆盖项必须清掉，否则重装后会被继续禁用')
   assert.equal(patch.includes('mcp-figma-desktop'), true)
 })
 
@@ -359,8 +469,7 @@ test('rolls back a failed uninstall when the profile remains installed', async (
   )
   const plugin = pluginByName(await fixture.profile.list())
   assert.equal(plugin.enabled, true)
-  const patch = await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8')
-  assert.equal(patch.includes(MANAGED_BEGIN), false)
+  assert.equal(await fixture.readPatch(), FIGMA_PATCH)
 })
 
 test('rolls back when the uninstall command cannot start', async (t) => {
@@ -375,8 +484,7 @@ test('rolls back when the uninstall command cannot start', async (t) => {
     (error) => error instanceof LocalPluginManagerError && error.code === 'uninstall-failed'
   )
   assert.equal(pluginByName(await fixture.profile.list()).enabled, true)
-  const patch = await readFile(join(fixture.profileDir, 'cordis.patch.yml'), 'utf8')
-  assert.equal(patch.includes(MANAGED_BEGIN), false)
+  assert.equal(await fixture.readPatch(), FIGMA_PATCH)
 })
 
 test('force-kills a hung uninstall command after its timeout', async (t) => {
@@ -395,12 +503,18 @@ test('force-kills a hung uninstall command after its timeout', async (t) => {
 })
 
 test('accepts the compatible DSH release line and rejects adjacent lines', () => {
-  assert.deepEqual(classifyDshVersion('0.1.6-alpha.1+build.1'), {
+  assert.deepEqual(classifyDshVersion('0.1.6-alpha.2+build.1'), {
     supported: true,
     verified: true,
+    normalized: '0.1.6-alpha.2'
+  })
+  // 本包改成与官方 plugin-manager 对齐的写入之后，只在 alpha.2 上做过真机验证；
+  // 同线内的其它版本仍允许启动，但不再是逐版本验证版本。
+  assert.deepEqual(classifyDshVersion('0.1.6-alpha.1'), {
+    supported: true,
+    verified: false,
     normalized: '0.1.6-alpha.1'
   })
-  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, true)
   assert.equal(classifyDshVersion('0.1.6-beta.1').supported, true)
   assert.equal(classifyDshVersion('0.1.6-rc.1').supported, true)
   assert.equal(classifyDshVersion('0.1.6').supported, true)
