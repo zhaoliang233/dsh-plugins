@@ -32,7 +32,9 @@
 宿主插件不声明 `@deepseek-ai/*` 依赖（工作区惯例），实测**裸 import 会 `ERR_MODULE_NOT_FOUND`**：插件目录向上找不到 DSH 的 `node_modules`。因此 `loadSchemastery(dshRoot)`：
 
 1. `readDshPackage(process.argv[1])` 从 CLI 入口 realpath 后向上 ≤4 层找到 `@deepseek-ai/dsh` 包根（与工作区其他插件同款探测）；
-2. `createRequire(join(root,'package.json')).resolve('@deepseek-ai/schemastery')` → 绝对路径动态 import。
+2. `createRequire(join(root,'package.json')).resolve('@deepseek-ai/schemastery')` → **`pathToFileURL()` 转成 file:// URL 后**动态 import。
+
+**第 2 步的 `pathToFileURL` 是 Windows 上必需的（真实缺陷，用户实测反馈）**：`require.resolve` 返回的是**文件系统路径**，而 ESM 装载器只接受带协议的说明符；Windows 下 `import('C:\\…\\schemastery\\lib\\index.cjs')` 把 `C:` 当成协议，抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Node 24 实测；解析到的是 `.cjs`，与扩展名无关）。这个异常被 `applyCompatibleRuntime` 里的 try/catch 吞掉 → `schema = null` → `ctx.inject(['settings'])` 里 fail closed 直接 return → **settings 命名空间静默不注册** → 状态接口 `writable: false` → 设置页「+ 添加规则」与总开关按钮被 `disabled: busy || !writable` **永久禁用**（只有这两个动作按钮会因它禁用：`textarea`/勾选框刻意恒 `disabled:false`）。POSIX 上裸绝对路径能 import，所以这个缺陷只在 Windows 暴露——**改这条链路时别再退回 `import(resolved)`**。
 
 若 DSH 把 schemastery 移出 `node_modules`，这里 fail closed（只告警：settings 命名空间不注册，section 仍按组合层值生效）。
 
@@ -130,22 +132,26 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 ## 验证现状
 
 ```bash
-npm run check       # node --check ×4 + bash -n ×2
-npm test            # 67 项：版本门/定位/规范化/渲染/预算/装配/客户端组件、样式、
+npm run check       # node --check ×4 + bash -n ×2（bash 不在 PATH 时本机跑不通，CI 用 ubuntu）
+npm test            # 68 项：版本门/定位/规范化/渲染/预算/装配/客户端组件、样式、
                     #        写入时机与重试、预览口径、状态路由鉴权、字段级合并、
-                    #        错误边界、图标对齐与字数口径、导航图标补丁、样式表注入与引用计数
-npm run pack:check  # 发布物 = 8 个文件
+                    #        错误边界、图标对齐与字数口径、导航图标补丁、样式表注入与引用计数、
+                    #        Windows 装载路径（file URL）
+npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象而非数组，本机跑不通，见下）
 ```
 
 - `test/host.test.js`：用伪 Cordis ctx 验证版本门、DSH 定位、规范化/渲染/预算、settings 注册与热更新、组合层与用户层优先级、删除语义。
 - `test/client.test.js`：以 stub `__ModuleLoader__` + stub React/primitives 加载 bundle，验证 `apply` 的命名空间绑定（`namespace` + `decode` 契约）、slot 注册、组件渲染成元素树、样式表打标、失焦写入、写入失败与重试、预览口径。
+- **Windows 装载路径的两条护栏**（真实缺陷：`import(绝对路径)` 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，见实现事实 1）：①`test/host.test.js` 里"装载 schemastery 必须经 file URL"用**假 DSH 根 + 桩 schemastery** 走 `applyCompatibleRuntime`，装载失败时 `state.registers` 为 0 → 必红（已在 Windows 上注入缺陷验证过）；②`test/manifest.test.js` 断言宿主源码必须写成 `await import(pathToFileURL(resolved).href)`。另外 `REAL_DSH_MANIFEST` 的探测已补 Windows 分支（原先只跑 POSIX 的 `command -v dsh`，于是依赖它的"真实 schemastery 全链路"用例在 Windows 上被整体 skip —— 这正是缺陷溜到用户机器上的原因）；伪造 DSH 根的目录软链在 Windows 用 `junction`（`symlink(..., 'dir')` 需要开发者模式，EPERM）。
 - **已在真实部署验证**：`GET /dsh-extra-context/status`、设置页分区、设置写盘、预览与消耗提示，以及“新建会话自动带上最新上下文”（用真实子代理逐字核对过 system prompt 内容）。
 - **导航图标补丁在真实浏览器里量过**（固定场景已固化进工作区工具）：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context` 用壳层原样抽取的导航 CSS + 真实 bundle（极简 React 垫片挂到真 DOM，保证 ref/`outerHTML`/`getComputedStyle` 都是真的）搭出与设置面板同构的 `nav button` 结构，并自动探测本插件的补丁契约（`data-dec-nav-icon` / `var(--dec-nav-icon-mask)` / 用 `display:none` 隐藏原 svg），契约与代码不同源时直接报错。量测结果：补丁行与壳层原生行的 `labelOffsetLeft/Top` 相同（36/9），原 svg `display:none`、`::before` 为 16×16 且 `mask-image` 是 data URI，壳层其他行保持齿轮且无任何 dataset 痕迹。**这不是实机设置页**，实机观感仍需用户刷新页面目视确认。
 - 仍未实机验证：客户端 bundle 的裸单包路径 `/plugins/<id>/client.js` 取不到（`dsh-client-modules` 只广告/应答 combo URL `/plugins/??<id>/client.js&rev=<rev>`），所以“客户端是否加载”只能靠页面现象判断，不能用 curl 断言。
+- **本机（Windows）跑不全闸门的两个已知原因**，与插件代码无关：①`npm run check` 的 `bash -n install.sh/uninstall.sh` 依赖 PATH 里有 bash（这台机器的 Git bash 只剩 `bin\bash.exe` 壳、`usr\bin\bash.exe` 缺失）；②`npm run pack:check` 读 `npm pack --dry-run --json`，npm 12 起该输出是**以包名为键的对象**、而脚本按数组解构（`const [pack] = JSON.parse(output)`）→ `object is not iterable`。CI/发布跑 ubuntu，不受影响；要在本机跑全闸门得先修这两处。
 
 ## 排查顺序
 
 1. 页面提示 "Failed to load plugins" → 看 Host 日志里的 `dsh-extra-context:` 前缀告警；常见原因是 schemastery 定位失败或版本门拒绝。
 2. 设置页分区不出现 → 确认 profile 的 bundle 列表已包含 `dsh-extra-context`（需重启），且 `@deepseek-ai/dsh-client-ui-settings` 已进 boot graph。
-3. 文本没进提示词 → 检查是否 `enabled=false`、分段是否启用且非空、是否有 preset 注册了同名 section。
-4. 改了设置但当前会话没变 → **预期行为**（见「已知边界」）。若新开的对话也没变，再查预览里是不是你想要的内容、是否有 preset 注册了同名 section。
+3. **分区在、但「+ 添加规则」和总开关灰掉点不动（其余控件可点）** → 客户端只按 `disabled: busy || !writable` 禁这两个动作按钮，所以必然是"宿主没给可写"或"busy 卡住"。查状态接口：`GET /dsh-extra-context/status`（带 `x-dsh-extra-context-client: 1`，浏览器同源请求才过鉴权；命令行 curl 会拿到 401）看 `writable`，`?debug=1` 看 `scopePresent` 与 `providerNamespaces` 里有没有 `extra-context`。`scopePresent:false` = settings 命名空间没注册成功——Windows 上最常见的原因是 schemastery 装载失败（见实现事实 1），也可能是 `settings` 服务缺失/`register()` 抛错（Host 日志有 `dsh-extra-context:` 前缀告警）。
+4. 文本没进提示词 → 检查是否 `enabled=false`、分段是否启用且非空、是否有 preset 注册了同名 section。
+5. 改了设置但当前会话没变 → **预期行为**（见「已知边界」）。若新开的对话也没变，再查预览里是不是你想要的内容、是否有 preset 注册了同名 section。

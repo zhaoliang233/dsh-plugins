@@ -2,6 +2,21 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.1.3] - 2026-09-19
+
+### 修复
+
+- Windows 上设置页的「+ 添加规则」与「已开启/已关闭」按钮永久灰掉、点不动：`require.resolve` 拿到的 schemastery 绝对路径被直接交给 `import()`，Windows 会把 `C:` 当成 URL 协议并抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`；异常被兜底吞掉后 schema 变成 null，settings 命名空间静默不注册，状态接口回报 `writable: false`，而客户端只用 `busy || !writable` 禁用这两个动作按钮（输入框与勾选框刻意不禁用，所以看起来"只有这两个按钮坏了"）。改为经 `pathToFileURL()` 转成 file URL 后再动态 import；macOS/Linux 上两种写法解析到同一个文件，行为不变。
+
+### 测试
+
+- 新增护栏：以伪 DSH 根 + 桩 schemastery 走完整 `applyCompatibleRuntime`，装载失败时 settings 命名空间不会注册；manifest 用例断言宿主必须写成 `await import(pathToFileURL(resolved).href)`。
+- 修掉 Windows 上失效或假失败的用例：DSH 安装探测补 `where` 分支（原先只跑 POSIX 的 `command -v dsh`，导致"真实 schemastery 全链路"用例在 Windows 上被整体跳过，这个缺陷因此漏网）、伪造 DSH 根的目录软链改用 `junction`（`symlink(..., 'dir')` 需要开发者模式）、入口定位断言改为比较 realpath 之后的根、`cordis.patch.yml` 比较前归一化 CRLF。
+
+### 文档
+
+- `AGENTS.md` 记录 schemastery 装载的 file URL 契约、Windows 独有的失败面，以及"设置页分区在、但动作按钮灰掉"的排查顺序。
+
 ## [0.1.2] - 2026-09-17
 
 ### 移除

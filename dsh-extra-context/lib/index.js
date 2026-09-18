@@ -18,7 +18,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
   DEFAULT_SETTINGS,
@@ -124,6 +124,14 @@ async function realpathSafe(path) {
  * 而 settings 命名空间的 schema 必须是真正的 schemastery 对象
  * （describe() 会调 schema.toJSON()，客户端用同一方言 rehydrate），
  * 所以按 DSH 安装内的绝对路径动态 import。
+ *
+ * **必须经 `pathToFileURL` 转成 file:// URL 再 import（Windows 上的真实缺陷）**：
+ * `require.resolve` 返回的是**文件系统路径**，而 ESM 装载器只接受带协议的说明符。
+ * Windows 下 `import('C:\\…\\schemastery\\lib\\index.cjs')` 会把 `C:` 当成协议，
+ * 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Node 24 实测）。异常被下面的 try/catch 吞掉后
+ * schema 变 null，`ctx.inject(['settings'])` 里 fail closed 直接 return，
+ * 于是 settings 命名空间静默不注册：状态接口 `writable:false`，设置页的
+ * 「+ 添加规则」与总开关按钮被 `disabled: busy || !writable` 永久禁用（用户实测反馈）。
  * @param {string} dshRoot
  * @returns {Promise<any>}
  */
@@ -131,7 +139,7 @@ async function loadSchemastery(dshRoot) {
   const anchor = join(dshRoot, 'package.json')
   const require = createRequire(anchor)
   const resolved = require.resolve('@deepseek-ai/schemastery')
-  const imported = await import(resolved)
+  const imported = await import(pathToFileURL(resolved).href)
   return imported.default ?? imported
 }
 

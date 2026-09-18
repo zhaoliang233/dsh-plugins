@@ -5,7 +5,9 @@ import test from 'node:test'
 import { CLIENT_HEADER, PLUGIN_NAME, STATUS_PATH } from '../lib/index.js'
 
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-const cordisPatch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+// Windows 检出/npm pack 可能给出 CRLF；YAML 语义与行尾无关，比较前归一化即可
+// （不归一化时这条断言会在 Windows 上假失败，发布门禁也就在本机跑不起来）。
+const cordisPatch = (await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')).replace(/\r\n/gu, '\n')
 const installScript = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
 const uninstallScript = await readFile(new URL('../uninstall.sh', import.meta.url), 'utf8')
@@ -38,6 +40,11 @@ test('插件身份与发布面', () => {
   assert.equal(manifest.scripts.check.includes('node --check lib/rules.js'), true)
   assert.equal(manifest.files.includes('lib'), true)
   assert.equal(manifest.files.includes('client.js'), true)
+  // Windows 回归护栏：require.resolve 给的是文件系统路径，ESM 装载器只接受带协议的
+  // 说明符。直接 `import(resolved)` 在 Windows 上抛 ERR_UNSUPPORTED_ESM_URL_SCHEME，
+  // schema 静默变 null → settings 命名空间不注册 → 设置页动作按钮永久禁用。
+  // 这条断言在 POSIX 上也会失败（那边裸绝对路径能 import，缺陷更隐蔽），故必须留。
+  assert.equal(hostSource.includes('await import(pathToFileURL(resolved).href)'), true, 'schemastery 必须经 file URL 动态 import')
 })
 
 test('安装脚本与运行时的"已验证版本清单"必须同源', () => {

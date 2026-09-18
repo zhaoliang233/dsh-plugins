@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -27,15 +27,74 @@ import { DEFAULT_MAX_BYTES, byteLength, createSegmentId, estimateTokens } from '
 /**
  * 真实 DSH 安装的 package.json 绝对路径。
  * 从 PATH 里的 dsh 可执行文件解析（与运行时同源），而不是硬编码某台机器的路径。
+ *
+ * **必须跨平台**：原先只跑 POSIX 的 `command -v dsh`，Windows 上拿不到值 → 依赖它的
+ * 「真实 schemastery 全链路」用例被整体 skip，于是 Windows 专属的装载缺陷
+ * （`import(绝对路径)` → `ERR_UNSUPPORTED_ESM_URL_SCHEME`）一路溜到用户机器上，
+ * 表现为设置页动作按钮永久禁用。这条探测本身也要有 Windows 分支，否则护栏形同虚设。
  */
 const REAL_DSH_MANIFEST = (() => {
-  try {
-    const binary = execFileSync('command', ['-v', 'dsh'], { encoding: 'utf8', shell: '/bin/sh' }).trim()
-    return join(dirname(realpathSync(binary)), '..', 'package.json')
-  } catch {
-    return undefined
+  const binaries = []
+  const push = (value) => {
+    const path = String(value ?? '').trim()
+    if (path !== '') binaries.push(path)
   }
+  try {
+    push(realpathSync(execFileSync('command', ['-v', 'dsh'], { encoding: 'utf8', shell: '/bin/sh' }).trim()))
+  } catch {
+    // 没有 POSIX shell：继续尝试 Windows 的 where
+  }
+  try {
+    for (const line of execFileSync('where', ['dsh'], { encoding: 'utf8' }).split(/\r?\n/u)) push(line)
+  } catch {
+    // 没有 where：保持 undefined（用例自行 skip）
+  }
+
+  const isDshManifest = (path) => {
+    try {
+      return JSON.parse(readFileSync(path, 'utf8')).name === '@deepseek-ai/dsh'
+    } catch {
+      return false
+    }
+  }
+
+  for (const binary of binaries) {
+    // POSIX 全局安装：入口是 <包根>/lib/bin.js，向上两级即包根
+    const sibling = join(dirname(binary), '..', 'package.json')
+    if (isDshManifest(sibling)) return sibling
+    // Windows（nvm-windows 等）：可执行文件是 <前缀>/dsh.ps1，包在其 node_modules 下
+    let directory = dirname(binary)
+    for (let depth = 0; depth < 6; depth += 1) {
+      const manifest = join(directory, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
+      if (isDshManifest(manifest)) return manifest
+      const parent = dirname(directory)
+      if (parent === directory) break
+      directory = parent
+    }
+  }
+  return undefined
 })()
+
+/**
+ * 极简 schemastery 替身源码（写进假 DSH 根的 node_modules）。
+ * `createSettingsSchema` 只用到 object/array/string/boolean/number + default，
+ * 所以链式构造器全部返回自身即可；`toJSON` 用来断言注册的确实是 schema 对象。
+ */
+const STUB_SCHEMASTERY_SOURCE = [
+  'function make() {',
+  '  const schema = (value) => value',
+  '  schema.default = () => make()',
+  '  schema.object = () => make()',
+  '  schema.array = () => make()',
+  '  schema.string = () => make()',
+  '  schema.boolean = () => make()',
+  '  schema.number = () => make()',
+  '  schema.toJSON = () => ({ uid: 1 })',
+  '  return schema',
+  '}',
+  'module.exports = make()',
+  ''
+].join('\n')
 
 test('版本门只放行已核对的 0.1.6 兼容线', () => {
   assert.deepEqual(classifyDshVersion('0.1.6-alpha.1'), { supported: true, verified: true, normalized: '0.1.6-alpha.1' })
@@ -63,7 +122,11 @@ test('从 CLI 入口向上定位 DSH 安装目录', async () => {
     await writeFile(entry, '')
     const located = await readDshPackage(entry)
     assert.equal(located.version, '0.1.6-alpha.1')
-    assert.equal(located.root.endsWith(root.replace('/var/', '/private/var/')) || located.root.endsWith(root), true)
+    // 比较 realpath 之后的真实根，而不是 tmpdir() 的原始字符串：
+    // Windows 的 tmpdir 可能是 8.3 短路径（C:\Users\ADMINI~1\…），而实现在定位入口时
+    // 做了 realpath（展开成长路径），直接 endsWith 会假失败；macOS 的 /private/var 同理。
+    const expectedRoot = dirname(await realpath(join(root, 'package.json')))
+    assert.equal(located.root.toLowerCase(), expectedRoot.toLowerCase())
     await assert.rejects(() => readDshPackage(''), /cannot locate the DSH CLI entry path/u)
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -326,6 +389,8 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
     // 伪造一个与全局安装同形的 DSH 包根：package.json 用真实结构，
     // node_modules 直接软链真实安装目录，这样 schemastery 及其依赖
     // （cosmokit 等）都能解析，测的是真实 schema 方言而不是手写假对象。
+    // Windows 下目录符号链接需要开发者模式/管理员（EPERM），junction 不需要任何特权。
+    const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir'
     await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.6-alpha.1' }))
     const entryDirectory = join(root, 'lib', 'bin')
     await mkdir(entryDirectory, { recursive: true })
@@ -334,10 +399,10 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
     const realModules = join(dirname(REAL_DSH_MANIFEST), 'node_modules')
     const fixtureModules = join(root, 'node_modules')
     await mkdir(fixtureModules, { recursive: true })
-    await symlink(join(realModules, '@deepseek-ai'), join(fixtureModules, '@deepseek-ai'), 'dir')
+    await symlink(join(realModules, '@deepseek-ai'), join(fixtureModules, '@deepseek-ai'), LINK_TYPE)
     for (const name of await readdir(realModules)) {
       if (name === '@deepseek-ai' || name.startsWith('.')) continue
-      await symlink(join(realModules, name), join(fixtureModules, name), 'dir')
+      await symlink(join(realModules, name), join(fixtureModules, name), LINK_TYPE)
     }
 
     const { applyCompatibleRuntime } = await import('../lib/index.js')
@@ -359,6 +424,43 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
     state.watcher?.({ segments: [{ id: 'a', enabled: true, order: 1, text: '设置层文本' }], maxBytes: 1024, enabled: true }, {})
     assert.equal(sectionText(state).includes('设置层文本'), true)
     assert.equal(sectionText(state).includes('组合层基线'), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+/**
+ * Windows 装载路径回归护栏。
+ *
+ * 真实缺陷：`loadSchemastery` 曾把 `require.resolve` 的返回值（文件系统路径）直接交给
+ * `import()`。Windows 上 `C:` 会被当成 URL 协议，抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，
+ * 异常被捕获后 schema 变 null → settings 命名空间静默不注册 → 状态接口 `writable:false`
+ * → 设置页「+ 添加规则」与总开关被永久禁用（用户实测反馈）。修法是 `pathToFileURL`。
+ *
+ * 这里的假 DSH 根**不需要真 schemastery**：只要 node_modules 里有一个真实的包，
+ * `require.resolve` 就会返回绝对文件路径，正好复现那条装载路径——装载失败时
+ * `state.registers` 为 0，本用例即失败（Windows 上改回 `import(resolved)` 会立刻变红）。
+ */
+test('装载 schemastery 必须经 file URL：绝对路径直接 import 会让 settings 命名空间静默丢失', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-extra-context-import-'))
+  try {
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.6-alpha.1' }))
+    const entryDirectory = join(root, 'lib', 'bin')
+    await mkdir(entryDirectory, { recursive: true })
+    const entry = join(entryDirectory, 'bin.js')
+    await writeFile(entry, '')
+    const stubRoot = join(root, 'node_modules', '@deepseek-ai', 'schemastery')
+    await mkdir(join(stubRoot, 'lib'), { recursive: true })
+    await writeFile(join(stubRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/schemastery', version: '0.0.0-stub', main: 'lib/index.cjs' }))
+    await writeFile(join(stubRoot, 'lib', 'index.cjs'), STUB_SCHEMASTERY_SOURCE)
+
+    const { applyCompatibleRuntime } = await import('../lib/index.js')
+    const { ctx, state } = createFakeCtx()
+    await applyCompatibleRuntime(ctx, {}, { entryPath: entry })
+
+    assert.equal(state.registers.length, 1, 'schemastery 装载成功后 settings 命名空间必须注册（装载失败这里会是 0）')
+    assert.equal(state.registers[0].ns, SETTINGS_NAMESPACE)
+    assert.equal(state.registers[0].options.applies, 'live')
+    assert.equal(typeof state.registers[0].schema.toJSON, 'function')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

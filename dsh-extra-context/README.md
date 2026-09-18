@@ -41,7 +41,7 @@ system prompt 在**会话启动时组装并固化**，之后的改动不会追�
 
 ```bash
 dsh plugin --profile web add dsh-extra-context        # 安装
-dsh plugin --profile web add dsh-extra-context@0.1.2  # 升级到指定版本
+dsh plugin --profile web add dsh-extra-context@0.1.3  # 升级到指定版本
 dsh plugin --profile web remove dsh-extra-context     # 卸载
 ```
 
