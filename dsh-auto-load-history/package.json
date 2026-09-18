@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-load-history",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
@@ -22,7 +22,7 @@
     "package": "@deepseek-ai/dsh",
     "range": ">=0.1.6-alpha.1 <0.1.7",
     "verifiedVersions": [
-      "0.1.6-alpha.1"
+      "0.1.6-alpha.2"
     ],
     "futureVersionsRequireCapabilityChecks": true
   },
@@ -35,6 +35,7 @@
       "inject": [
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-settings-general"
       ]
     }

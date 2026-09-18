@@ -12,8 +12,8 @@ npm publish --dry-run      # 跑 prepublishOnly 并构造包，不上传
 ## 打 tag
 
 ```bash
-git tag dsh-auto-load-history-v0.1.2
-git push origin dsh-auto-load-history-v0.1.2
+git tag dsh-auto-load-history-v0.1.3
+git push origin dsh-auto-load-history-v0.1.3
 ```
 
 ## 安装路线

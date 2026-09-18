@@ -2,6 +2,19 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.1.3] - 2026-09-18
+
+### 修复
+
+- **打开长会话时不滑动就不补齐**：让位判定原先只看视口是否在底部，而打开会话时的视口位置由 DSH 自己决定、补齐期间 DSH 又一直在做滚动补偿，于是这种"暂时不在底部"被误当成"读者正在阅读"，分页停在半路，直到读者碰巧滚回底部。现在只有**读者自己驱动过视口**（`wheel`/`touchstart`/`touchmove`/`pointerdown`/`keydown`，document 捕获阶段识别；新会话重新判定）**且**离开底部时才让位；其余情况一律继续补齐。"读者滚动后让位、滚回底部恢复"的行为不变。
+- **DSH `0.1.6-alpha.2` 下自动补齐完全失效**：该版本从会话列表快照中移除了 `current`（`sessions.open()/clear()` 也被 `retain()/using()` 引用模型取代，导航改由视图所有者持有），而插件原先靠 `sessions.list.getSnapshot().current` 定位「当前查看的会话」，于是永远拿不到身份、静默不动——表现是打开长会话后顶部「加载更早」常驻、历史始终只有一页。现在改为在会话作用域 list slot `conversation.session.header.actions` 放置一个渲染 `null` 的驱动组件，由 Conversation 通过 slot props 交出 `sessionId`（`SessionStandardProps`），再用 `ctx.sessions.binding(id)` 取会话面分页。该 slot 声明与 `binding(id)` 在 `0.1.6-alpha.1` / `alpha.2` 一致，兼容范围不变。
+
+### 变更
+
+- 视图先画、Controller 尚未 retain 该会话时，按帧重试绑定（`MAX_BINDING_RETRIES = 30`），超时即停止，不做轮询；身份切换用带 id 的 `detach`，被替换视图的卸载不会解绑新会话。
+- `package.json#dsh.client.inject` 增加 `@deepseek-ai/dsh-client-ui-conversation`（插件在该包声明的 slot 上注册）。
+- 逐版本验证版本更新为 `0.1.6-alpha.2`（兼容范围仍为 `>=0.1.6-alpha.1 <0.1.7`）。
+
 ## [0.1.2] - 2026-09-17
 
 ### 文档

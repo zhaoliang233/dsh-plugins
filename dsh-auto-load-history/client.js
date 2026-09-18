@@ -6,6 +6,11 @@
 // hand or never sees the compact view. This plugin automates that paging through
 // the public client Session face and adds one Settings → General preference row
 // that turns the behavior off.
+//
+// Which Session is being viewed is a view-owned fact: the client Controller
+// stopped publishing a `current` selection in its list snapshot (0.1.6-alpha.2),
+// so the identity arrives here through a Session-scoped slot instead — the same
+// hand-over every Session-scoped UI contribution receives.
 window.__ModuleLoader__.load({
   id: 'dsh-auto-load-history',
   factory: (require) => {
@@ -29,15 +34,36 @@ window.__ModuleLoader__.load({
     // font-size 11, transcript-view 12, composer-enter 20. This belongs beside
     // the transcript-display row it exists to serve.
     const ROW_ORDER = 13
+    /**
+     * Session-scoped list slot this plugin occupies to learn which Session the
+     * Conversation is showing. It is declared by `dsh-client-ui-conversation` and
+     * renders for every view (Chat, Trajectory), in the resident Session header.
+     */
+    const DRIVER_SLOT = 'conversation.session.header.actions'
+    /** Invisible driver entry inside that list slot; renders nothing. */
+    const DRIVER_ID = `${PLUGIN_ID}/driver`
     const STYLE_TAG_ID = `${PLUGIN_ID}/AutoLoadHistoryRow.css`
     /** Scrollport marker owned by the Conversation shell (`[data-conversation-scroll]`). */
     const SCROLL_SELECTOR = '[data-conversation-scroll]'
     /** Distance from the flow bottom still treated as "reading at the bottom". */
     const BOTTOM_SLACK_PX = 64
+    /**
+     * Input events that put the viewport under the reader's own control. The
+     * Conversation positions the viewport itself when a Session opens (and DSH
+     * keeps compensating while pages are prepended), so a viewport that merely
+     * is not at the bottom yet must not be mistaken for a reader who scrolled
+     * away — paging would stall until the reader happened to scroll back.
+     */
+    const USER_INTENT_EVENTS = ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown']
     /** Yield one frame between pages so opening a Session can paint first. */
     const PAGE_DELAY_MS = 16
     /** Completed pages without a moved window head before the run gives up. */
     const MAX_STALLED_PAGES = 3
+    /**
+     * Attempts to resolve a Session binding when the view paints ahead of the
+     * Controller's retention (one frame apart, so roughly half a second).
+     */
+    const MAX_BINDING_RETRIES = 30
     const ROW_OPTIONS = [
       { id: 'on', labelKey: 'row.option.automatic' },
       { id: 'off', labelKey: 'row.option.manual' }
@@ -120,7 +146,12 @@ window.__ModuleLoader__.load({
      * Decide the auto-loader's next move for one Session snapshot.
      * `wait` and `defer` stay attached for a later signal; `done` and `idle` stop
      * the run until the preference or the Session changes.
-     * @param input - snapshot facts plus the run's stall budget.
+     *
+     * Yielding is reserved for a reader who drives the viewport: a viewport that is
+     * merely not at the bottom yet — the Conversation placing it on open, or DSH
+     * compensating while pages land — must keep paging, otherwise the run stalls
+     * until the reader happens to scroll back down.
+     * @param input - snapshot facts, scroll position, reader intent, and stall budget.
      * @returns 'idle' | 'wait' | 'done' | 'defer' | 'page'.
      */
     function nextAutoLoadAction(input) {
@@ -129,7 +160,7 @@ window.__ModuleLoader__.load({
       if (input.removed === true) return 'idle'
       if (input.hasMore !== true) return 'done'
       if (input.loadingOlder === true) return 'wait'
-      if (input.atBottom !== true) return 'defer'
+      if (input.atBottom !== true && input.readerScrolled === true) return 'defer'
       if (input.stalled >= input.maxStalled) return 'idle'
       return 'page'
     }
@@ -237,7 +268,7 @@ window.__ModuleLoader__.load({
      * reader defers until they return to the bottom, so prepended content never
      * moves what is being read.
      * @param options - sessions service, preference store, and injectable environment.
-     * @returns start/drive/dispose handles bound to the current plugin fiber.
+     * @returns start/attach/detach/drive/dispose handles bound to the plugin fiber.
      */
     function createAutoLoader(options) {
       const sessions = options.sessions
@@ -247,42 +278,41 @@ window.__ModuleLoader__.load({
       const clearTimeoutFn = options.clearTimeout ?? (typeof clearTimeout === 'function' ? clearTimeout : null)
       let disposed = false
       let timer = null
-      let unsubscribeList = null
       let unsubscribePreference = null
       let unsubscribeSession = null
       let unsubscribeScroll = null
+      let unsubscribeIntent = null
+      let boundSessionId = null
       let boundSession = null
+      let bindingRetries = 0
       let pendingHead = null
       let stalled = 0
+      let readerScrolled = false
 
       /**
-       * Resolve the viewed Session's public client face.
-       * @returns the face plus its event source, or null when unavailable.
+       * Classify the Session this loader was attached to.
+       * A missing binding means the view painted before the Controller retained
+       * the Session (retry briefly); a face without `loadOlder` means the release
+       * moved the capability, and the plugin stays inert for that Session.
+       * @param sessionId - identity handed over by the Session-scoped view.
+       * @returns `ready` with the face and event source, else `pending`/`unsupported`.
        */
-      function currentFace() {
-        if (sessions === null || sessions === undefined || typeof sessions.binding !== 'function') return null
-        const list = sessions.list
-        if (list === null || list === undefined || typeof list.getSnapshot !== 'function') return null
-        let current
-        try {
-          current = list.getSnapshot()?.current
-        } catch {
-          return null
-        }
-        if (current === null || current === undefined) return null
+      function resolveFace(sessionId) {
+        if (typeof sessionId !== 'string' || sessionId === '') return { state: 'pending' }
+        if (sessions === null || sessions === undefined || typeof sessions.binding !== 'function') return { state: 'pending' }
         let binding
         try {
-          binding = sessions.binding(current)
+          binding = sessions.binding(sessionId)
         } catch {
-          return null
+          return { state: 'pending' }
         }
-        if (binding === null || binding === undefined) return null
+        if (binding === null || binding === undefined) return { state: 'pending' }
         const session = binding.session
-        if (session === null || session === undefined) return null
-        if (typeof session.getSnapshot !== 'function' || typeof session.subscribe !== 'function') return null
+        if (session === null || session === undefined) return { state: 'pending' }
+        if (typeof session.getSnapshot !== 'function' || typeof session.subscribe !== 'function') return { state: 'pending' }
         // The one audited capability: without it the plugin stays inert.
-        if (typeof session.loadOlder !== 'function') return null
-        return { sessionId: current, session, events: binding.eventSource }
+        if (typeof session.loadOlder !== 'function') return { state: 'unsupported' }
+        return { state: 'ready', session, events: binding.eventSource }
       }
 
       /**
@@ -306,16 +336,52 @@ window.__ModuleLoader__.load({
         }
       }
 
-      function detachSession() {
-        if (unsubscribeSession !== null) {
-          try {
-            unsubscribeSession()
-          } catch (error) {
-            console.error(`[${PLUGIN_ID}] session unsubscribe failed:`, error)
-          }
-          unsubscribeSession = null
+      /** Drop the Session-subscription half only; the attach target stays. */
+      function unbindSession() {
+        if (unsubscribeSession === null) return
+        const unsubscribe = unsubscribeSession
+        unsubscribeSession = null
+        try {
+          unsubscribe()
+        } catch (error) {
+          console.error(`[${PLUGIN_ID}] session unsubscribe failed:`, error)
         }
         boundSession = null
+      }
+
+      /**
+       * Attach the loader to the Session the view is showing. A fresh Session
+       * starts with no reader intent: its viewport placement is the Conversation's
+       * own until the reader touches the viewport.
+       * @param sessionId - identity handed over by the Session-scoped slot.
+       */
+      function attach(sessionId) {
+        if (disposed) return
+        if (typeof sessionId !== 'string' || sessionId === '') {
+          detach()
+          return
+        }
+        if (sessionId === boundSessionId) {
+          drive()
+          return
+        }
+        detach()
+        boundSessionId = sessionId
+        readerScrolled = false
+        drive()
+      }
+
+      /**
+       * Stop driving. A Session identity detaches only its own binding, so the
+       * unmount of a replaced view cannot unbind the Session that replaced it.
+       * @param sessionId - identity the caller attached; omitted forces a detach.
+       */
+      function detach(sessionId) {
+        if (sessionId !== undefined && sessionId !== null && sessionId !== boundSessionId) return
+        cancel()
+        unbindSession()
+        boundSessionId = null
+        bindingRetries = 0
         pendingHead = null
         stalled = 0
       }
@@ -365,6 +431,36 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function unwatchUserIntent() {
+        if (unsubscribeIntent === null) return
+        const unsubscribe = unsubscribeIntent
+        unsubscribeIntent = null
+        try {
+          unsubscribe()
+        } catch (error) {
+          console.error(`[${PLUGIN_ID}] intent unsubscribe failed:`, error)
+        }
+      }
+
+      /**
+       * Learn whether the reader is driving the viewport at all. Until one of
+       * these inputs happens, a viewport away from the bottom belongs to the
+       * Conversation's own placement, and paging must continue through it.
+       */
+      function watchUserIntent() {
+        if (disposed || unsubscribeIntent !== null) return
+        const doc = documentRef()
+        if (doc === null || doc === undefined || typeof doc.addEventListener !== 'function') return
+        const listener = () => {
+          readerScrolled = true
+          schedule(0)
+        }
+        for (const type of USER_INTENT_EVENTS) doc.addEventListener(type, listener, { capture: true, passive: true })
+        unsubscribeIntent = () => {
+          for (const type of USER_INTENT_EVENTS) doc.removeEventListener(type, listener, { capture: true })
+        }
+      }
+
       /**
        * Evaluate the current Session once and take at most one step. Listener
        * failures must never escape into the Session notifier that published them.
@@ -379,16 +475,24 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * One evaluation: (re)bind the viewed Session, score the last page, and act.
+       * One evaluation: (re)bind the attached Session, score the last page, and act.
        */
       function step() {
-        const face = currentFace()
-        if (face === null) {
-          detachSession()
+        if (boundSessionId === null) return
+        const resolved = resolveFace(boundSessionId)
+        if (resolved.state === 'unsupported') return
+        if (resolved.state === 'pending') {
+          // The view painted before the Controller retained this Session: retry on
+          // a short frame budget instead of polling for the whole page lifetime.
+          if (bindingRetries >= MAX_BINDING_RETRIES) return
+          bindingRetries += 1
+          schedule(PAGE_DELAY_MS)
           return
         }
+        bindingRetries = 0
+        const face = resolved
         if (face.session !== boundSession) {
-          detachSession()
+          unbindSession()
           boundSession = face.session
           const unsubscribe = face.session.subscribe(() => {
             drive()
@@ -414,6 +518,7 @@ window.__ModuleLoader__.load({
           hasMore: snapshot.hasMore === true,
           loadingOlder,
           atBottom: readerAtBottom(metrics()),
+          readerScrolled,
           stalled,
           maxStalled: MAX_STALLED_PAGES
         })
@@ -444,7 +549,11 @@ window.__ModuleLoader__.load({
         if (action === 'done') stalled = 0
       }
 
-      /** Attach every input this feature reacts to. */
+      /**
+       * Attach the preference subscription and the reader-intent watch. The Session
+       * identity arrives through `attach()` — only the view showing a Session knows
+       * which one it is.
+       */
       function start() {
         if (disposed) return
         if (typeof preference.subscribe === 'function') {
@@ -460,13 +569,7 @@ window.__ModuleLoader__.load({
           })
           unsubscribePreference = typeof unsubscribe === 'function' ? unsubscribe : null
         }
-        const list = sessions === null || sessions === undefined ? undefined : sessions.list
-        if (list !== null && list !== undefined && typeof list.subscribe === 'function') {
-          const unsubscribe = list.subscribe(() => {
-            drive()
-          })
-          unsubscribeList = typeof unsubscribe === 'function' ? unsubscribe : null
-        }
+        watchUserIntent()
         drive()
       }
 
@@ -474,22 +577,21 @@ window.__ModuleLoader__.load({
       function dispose() {
         if (disposed) return
         disposed = true
-        cancel()
+        detach()
         unwatchScroll()
-        detachSession()
-        for (const unsubscribe of [unsubscribeList, unsubscribePreference]) {
-          if (unsubscribe === null) continue
+        unwatchUserIntent()
+        if (unsubscribePreference !== null) {
+          const unsubscribe = unsubscribePreference
+          unsubscribePreference = null
           try {
             unsubscribe()
           } catch (error) {
             console.error(`[${PLUGIN_ID}] unsubscribe failed:`, error)
           }
         }
-        unsubscribeList = null
-        unsubscribePreference = null
       }
 
-      return { start, drive, dispose }
+      return { start, attach, detach, drive, dispose }
     }
 
     // ------------------------------------------------------------------ settings row
@@ -535,6 +637,25 @@ window.__ModuleLoader__.load({
         portal: true,
         anchor
       }))
+    }
+
+    // ------------------------------------------------------------------ driver seat
+
+    /**
+     * Invisible Session-scoped driver. The Conversation hands over the identity of
+     * the Session it is showing — the view-owned replacement for the selection the
+     * Client Controller stopped publishing — and the loader follows it.
+     * @param props - composed slot props: Session identity plus loader handles.
+     * @returns nothing to render.
+     */
+    function AutoLoadDriver({ sessionId, attach, detach }) {
+      React.useEffect(() => {
+        attach(sessionId)
+        return () => {
+          detach(sessionId)
+        }
+      }, [sessionId, attach, detach])
+      return null
     }
 
     /**
@@ -604,6 +725,15 @@ window.__ModuleLoader__.load({
         }
       }, `${PLUGIN_ID}: preference sync`)
       loader.start()
+      slots.inject(DRIVER_SLOT, () => slots.register({
+        name: DRIVER_SLOT,
+        id: DRIVER_ID,
+        order: 0,
+        inject: () => ({
+          attach: loader.attach,
+          detach: loader.detach
+        })
+      }, AutoLoadDriver))
       slots.inject('settings.general.item', () => slots.register({
         name: 'settings.general.item',
         id: ROW_ID,
@@ -623,6 +753,9 @@ window.__ModuleLoader__.load({
     exports.__test = {
       BOTTOM_SLACK_PX,
       DEFAULT_ENABLED,
+      DRIVER_ID,
+      DRIVER_SLOT,
+      MAX_BINDING_RETRIES,
       MAX_STALLED_PAGES,
       PAGE_DELAY_MS,
       PLUGIN_ID,

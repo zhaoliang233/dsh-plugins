@@ -22,6 +22,9 @@ const PRIMITIVES = {
   }
 }
 
+/** Effects the React stub recorded, so the driver component can be exercised. */
+const reactEffects = []
+
 /**
  * Build the bundle's exports with a minimal module resolver.
  * @returns the client half's exported surface.
@@ -30,7 +33,11 @@ function loadBundle() {
   const react = {
     createElement: (type, props, ...children) => ({ type, props, children }),
     useState: (initial) => [initial, () => {}],
-    useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot()
+    useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
+    useEffect: (callback, deps) => {
+      const cleanup = callback()
+      reactEffects.push({ cleanup: typeof cleanup === 'function' ? cleanup : null, deps })
+    }
   }
   const require = (id) => {
     if (id === 'react') return react
@@ -42,6 +49,9 @@ function loadBundle() {
 
 const bundle = loadBundle()
 const {
+  DRIVER_ID,
+  DRIVER_SLOT,
+  MAX_BINDING_RETRIES,
   SCROLL_SELECTOR,
   STORAGE_KEY,
   advanceStall,
@@ -98,21 +108,26 @@ function createStorage(initial = null) {
  */
 function createFakeDocument(metrics = { scrollHeight: 1000, scrollTop: 0, clientHeight: 500 }) {
   const element = { ...metrics }
-  const listeners = new Set()
+  const listeners = new Map()
   const document = {
     element,
     head: { appendChild: () => {} },
     createElement: () => ({ dataset: {}, textContent: '' }),
     querySelector: (selector) => (selector === SCROLL_SELECTOR ? element : null),
     addEventListener: (type, listener) => {
-      if (type === 'scroll') listeners.add(listener)
+      if (!listeners.has(type)) listeners.set(type, new Set())
+      listeners.get(type).add(listener)
     },
     removeEventListener: (type, listener) => {
-      listeners.delete(listener)
+      const bucket = listeners.get(type)
+      if (bucket !== undefined) bucket.delete(listener)
     },
-    listenerCount: () => listeners.size,
+    listenerCount: (type = 'scroll') => listeners.get(type)?.size ?? 0,
+    dispatch: (type) => {
+      for (const listener of [...(listeners.get(type) ?? [])]) listener()
+    },
     scroll: () => {
-      for (const listener of [...listeners]) listener()
+      for (const listener of [...(listeners.get('scroll') ?? [])]) listener()
     }
   }
   return { element, document }
@@ -125,6 +140,7 @@ function createFakeDocument(metrics = { scrollHeight: 1000, scrollTop: 0, client
  */
 function createHarness(options = {}) {
   const pageSize = options.pageSize ?? 10
+  const resolvableId = options.current ?? 'session-1'
   const state = {
     head: options.startHead ?? 40,
     hasMore: (options.startHead ?? 40) > 0,
@@ -132,8 +148,7 @@ function createHarness(options = {}) {
     pages: 0,
     revision: 0,
     openState: options.openState ?? 'open',
-    sessionUnsubscribes: 0,
-    listUnsubscribes: 0
+    sessionUnsubscribes: 0
   }
   const listeners = new Set()
   const publish = () => {
@@ -165,26 +180,31 @@ function createHarness(options = {}) {
       state.pages += 1
       state.loadingOlder = true
       publish()
-      return Promise.resolve().then(() => {
-        if (options.advance !== false && typeof state.head === 'number') {
-          state.head = Math.max(0, state.head - pageSize)
-          state.revision += 1
-          if (state.head <= 0) state.hasMore = false
-        }
-        state.loadingOlder = false
-        publish()
+      // One page per macrotask, like the real fetch round trip: a run must stay
+      // interruptible between pages (a microtask chain would finish it all at once).
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          if (options.advance !== false && typeof state.head === 'number') {
+            state.head = Math.max(0, state.head - pageSize)
+            state.revision += 1
+            if (state.head <= 0) state.hasMore = false
+          }
+          state.loadingOlder = false
+          publish()
+          resolve()
+        }, 0)
       })
     }
   }
   const harness = { current: { session, eventSource: events } }
   const sessions = {
-    list: {
-      getSnapshot: () => ({ current: options.current ?? 'session-1' }),
-      subscribe: () => () => {
-        state.listUnsubscribes += 1
-      }
-    },
-    binding: () => (options.missingCapability === true ? { session: {} } : harness.current)
+    // The view hands over the identity; the Controller resolves it only while the
+    // Session is retained, so an unknown id is an unretained Session.
+    binding: (id) => {
+      if (options.missingBinding === true) return undefined
+      if (id !== resolvableId) return undefined
+      return options.missingCapability === true ? { session: {} } : harness.current
+    }
   }
   return { sessions, session, state, harness }
 }
@@ -229,6 +249,7 @@ test('decides the next auto-load action from the Session snapshot', () => {
     hasMore: true,
     loadingOlder: false,
     atBottom: true,
+    readerScrolled: false,
     stalled: 0,
     maxStalled: 3
   }
@@ -240,7 +261,11 @@ test('decides the next auto-load action from the Session snapshot', () => {
   assert.equal(nextAutoLoadAction({ ...base, removed: true }), 'idle')
   assert.equal(nextAutoLoadAction({ ...base, hasMore: false }), 'done')
   assert.equal(nextAutoLoadAction({ ...base, loadingOlder: true }), 'wait')
-  assert.equal(nextAutoLoadAction({ ...base, atBottom: false }), 'defer')
+  // Away from the bottom only defers once the reader drives the viewport...
+  assert.equal(nextAutoLoadAction({ ...base, atBottom: false }), 'page')
+  assert.equal(nextAutoLoadAction({ ...base, atBottom: false, readerScrolled: true }), 'defer')
+  // ...and a reader at the bottom keeps paging regardless.
+  assert.equal(nextAutoLoadAction({ ...base, readerScrolled: true }), 'page')
   assert.equal(nextAutoLoadAction({ ...base, stalled: 3 }), 'idle')
   assert.equal(nextAutoLoadAction({ ...base, stalled: 2 }), 'page')
 })
@@ -322,6 +347,7 @@ test('pages the whole history in for the viewed Session', async () => {
     documentRef: () => null
   })
   loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => state.hasMore === false), true)
   assert.equal(state.pages, 4)
   assert.equal(state.sessionUnsubscribes, 0)
@@ -331,7 +357,6 @@ test('pages the whole history in for the viewed Session', async () => {
   assert.equal(state.pages, 4)
   loader.dispose()
   assert.equal(state.sessionUnsubscribes, 1)
-  assert.equal(state.listUnsubscribes, 1)
 })
 
 test('stays idle while the preference is off and resumes when it turns on', async () => {
@@ -340,6 +365,7 @@ test('stays idle while the preference is off and resumes when it turns on', asyn
   const preference = createPreferenceStore(storage)
   const loader = createAutoLoader({ sessions, preference, documentRef: () => null })
   loader.start()
+  loader.attach('session-1')
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
@@ -355,6 +381,7 @@ test('stops paging when the preference turns off mid-run', async () => {
   const preference = createPreferenceStore(createStorage())
   const loader = createAutoLoader({ sessions, preference, documentRef: () => null })
   loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => state.pages >= 1), true)
   preference.set(false)
   await new Promise((resolve) => {
@@ -368,25 +395,80 @@ test('stops paging when the preference turns off mid-run', async () => {
   loader.dispose()
 })
 
-test('defers while the reader is away from the bottom and resumes on return', async () => {
-  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10 })
-  const { element, document } = createFakeDocument()
+test('defers once the reader drives the viewport away and resumes on return', async () => {
+  const { sessions, state } = createHarness({ startHead: 200, pageSize: 10 })
+  const { element, document } = createFakeDocument({ scrollHeight: 1000, scrollTop: 500, clientHeight: 500 })
   const loader = createAutoLoader({
     sessions,
     preference: createPreferenceStore(createStorage()),
     documentRef: () => document
   })
   loader.start()
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.pages >= 2), true)
+  // The reader drives the viewport away from the bottom: paging yields.
+  element.scrollTop = 0
+  document.dispatch('wheel')
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
-  assert.equal(state.pages, 0)
-  assert.equal(document.listenerCount(), 1)
+  const paused = state.pages
+  await new Promise((resolve) => {
+    setTimeout(resolve, 10)
+  })
+  assert.equal(state.pages, paused)
+  assert.equal(document.listenerCount('scroll'), 1)
+  // Returning to the bottom resumes.
   element.scrollTop = 500
   document.scroll()
+  assert.equal(await waitFor(() => state.pages > paused), true)
+  assert.equal(document.listenerCount('scroll'), 0)
+  loader.dispose()
+})
+
+test('keeps paging while the viewport is away from the bottom but the reader never scrolled', async () => {
+  // The Conversation places the viewport itself when a Session opens, and DSH keeps
+  // compensating while pages land; neither is a reason to stop before the window
+  // covers the whole history (the reader should not have to scroll to trigger it).
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10 })
+  const { document } = createFakeDocument({ scrollHeight: 1000, scrollTop: 0, clientHeight: 500 })
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => document
+  })
+  loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => state.hasMore === false), true)
   assert.equal(state.pages, 2)
-  assert.equal(document.listenerCount(), 0)
+  assert.equal(document.listenerCount('scroll'), 0)
+  loader.dispose()
+})
+
+test('a fresh attach starts without inherited reader intent', async () => {
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10 })
+  const { element, document } = createFakeDocument({ scrollHeight: 1000, scrollTop: 500, clientHeight: 500 })
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => document
+  })
+  loader.start()
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  // The reader drives the viewport away from the bottom in this Session...
+  element.scrollTop = 0
+  document.dispatch('wheel')
+  await new Promise((resolve) => {
+    setTimeout(resolve, 10)
+  })
+  // ...and the next view (same id, new generation) starts with a clean slate: its
+  // viewport placement is the Conversation's again, so paging continues.
+  state.hasMore = true
+  state.head = 40
+  loader.detach('session-1')
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.hasMore === false), true)
   loader.dispose()
 })
 
@@ -398,6 +480,7 @@ test('gives up after pages that never extend the window', async () => {
     documentRef: () => null
   })
   loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => state.pages >= 3), true)
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
@@ -414,6 +497,7 @@ test('waits for an open Session before paging', async () => {
     documentRef: () => null
   })
   loader.start()
+  loader.attach('session-1')
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
@@ -433,10 +517,53 @@ test('stays inert when the Session face lacks the audited capability', async () 
     documentRef: () => null
   })
   assert.doesNotThrow(() => loader.start())
+  assert.doesNotThrow(() => loader.attach('session-1'))
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
   assert.equal(state.pages, 0)
+  loader.dispose()
+})
+
+test('retries a Session binding the view painted ahead of, then gives up', async () => {
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10, missingBinding: true })
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => null
+  })
+  loader.start()
+  loader.attach('session-1')
+  await new Promise((resolve) => {
+    setTimeout(resolve, 10)
+  })
+  assert.equal(state.pages, 0)
+  assert.equal(await waitFor(() => state.pages === 0, 50), true)
+  loader.dispose()
+  assert.equal(MAX_BINDING_RETRIES > 0, true)
+})
+
+test('follows the identity the view hands over, not a stored selection', async () => {
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10, current: 'session-2' })
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => null
+  })
+  loader.start()
+  // The unretained identity resolves to nothing, so nothing is paged.
+  loader.attach('session-1')
+  await new Promise((resolve) => {
+    setTimeout(resolve, 10)
+  })
+  assert.equal(state.pages, 0)
+  // Switching the view to the retained Session starts the run.
+  loader.attach('session-2')
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  assert.equal(state.pages, 2)
+  // The unmount of the replaced view must not unbind the Session that replaced it.
+  loader.detach('session-1')
+  assert.equal((await waitFor(() => state.pages === 2, 20)), true)
   loader.dispose()
 })
 
@@ -465,8 +592,9 @@ test('survives a rejected page and a throwing loadOlder', async () => {
     }
   }
   const sessions = {
-    list: { getSnapshot: () => ({ current: 'session-1' }), subscribe: () => () => {} },
-    binding: () => ({ session, eventSource: { getSnapshot: () => ({ entries: [{ event: { seq: 40 } }] }) } })
+    binding: (id) => (id === 'session-1'
+      ? { session, eventSource: { getSnapshot: () => ({ entries: [{ event: { seq: 40 } }] }) } }
+      : undefined)
   }
   const loader = createAutoLoader({
     sessions,
@@ -474,6 +602,7 @@ test('survives a rejected page and a throwing loadOlder', async () => {
     documentRef: () => null
   })
   loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => pages >= 3), true)
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
@@ -490,6 +619,7 @@ test('rebinds when the Session face behind the current id is replaced', async ()
     documentRef: () => null
   })
   loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => state.hasMore === false), true)
   assert.equal(state.pages, 2)
 
@@ -528,6 +658,7 @@ test('a fresh enable gives the run its stall budget back', async () => {
   const preference = createPreferenceStore(createStorage())
   const loader = createAutoLoader({ sessions, preference, documentRef: () => null })
   loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => state.pages >= 3), true)
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
@@ -547,6 +678,7 @@ test('stops reacting once disposed', async () => {
     documentRef: () => null
   })
   loader.start()
+  loader.attach('session-1')
   assert.equal(await waitFor(() => state.pages >= 1), true)
   loader.dispose()
   const settled = state.pages
@@ -566,8 +698,10 @@ test('stops reacting once disposed', async () => {
 function mountBundle() {
   const created = []
   const effects = []
+  const disposers = []
   const registrations = []
   const dictionaryCalls = []
+  const injectedSlots = []
   const previousDocument = globalThis.document
   globalThis.document = {
     head: { appendChild: (tag) => created.push(tag) },
@@ -577,7 +711,7 @@ function mountBundle() {
   const ctx = {
     slots: {
       inject: (key, callback) => {
-        assert.equal(key, 'settings.general.item')
+        injectedSlots.push(key)
         callback()
         return () => {}
       },
@@ -587,7 +721,6 @@ function mountBundle() {
       }
     },
     sessions: {
-      list: { getSnapshot: () => ({ current: undefined }), subscribe: () => () => {} },
       binding: () => undefined
     },
     locale: {
@@ -599,7 +732,9 @@ function mountBundle() {
     effect: (callback, label) => {
       effects.push(label)
       const disposer = callback()
-      return typeof disposer === 'function' ? disposer : () => {}
+      const finalDisposer = typeof disposer === 'function' ? disposer : () => {}
+      disposers.push(finalDisposer)
+      return finalDisposer
     }
   }
   try {
@@ -608,7 +743,7 @@ function mountBundle() {
     if (previousDocument === undefined) delete globalThis.document
     else globalThis.document = previousDocument
   }
-  return { created, effects, registrations, dictionaryCalls }
+  return { created, effects, disposers, registrations, dictionaryCalls, injectedSlots }
 }
 
 test('exports a client plugin that mounts the loader and the preference row', () => {
@@ -616,7 +751,7 @@ test('exports a client plugin that mounts the loader and the preference row', ()
   assert.equal(typeof bundle.apply, 'function')
   assert.equal(definition.id, 'dsh-auto-load-history')
 
-  const { created, effects, registrations, dictionaryCalls } = mountBundle()
+  const { created, effects, disposers, registrations, dictionaryCalls, injectedSlots } = mountBundle()
   assert.equal(created.length, 1)
   assert.equal(created[0].dataset.plugin, 'dsh-auto-load-history')
   assert.match(created[0].dataset.pluginCss, /^dsh-auto-load-history\//u)
@@ -631,20 +766,41 @@ test('exports a client plugin that mounts the loader and the preference row', ()
     'dsh-auto-load-history: history loader',
     'dsh-auto-load-history: preference sync'
   ])
-  assert.equal(registrations.length, 1)
-  assert.equal(registrations[0].options.name, 'settings.general.item')
-  assert.equal(registrations[0].options.id, 'dsh-auto-load-history')
-  assert.equal(registrations[0].options.order, 13)
-  assert.equal(registrations[0].options.locale, 'dsh-auto-load-history')
-  const injected = registrations[0].options.inject()
+  assert.deepEqual(injectedSlots, [DRIVER_SLOT, 'settings.general.item'])
+  assert.equal(registrations.length, 2)
+  const driver = registrations.find((registration) => registration.options.name === DRIVER_SLOT)
+  assert.equal(driver.options.id, DRIVER_ID)
+  assert.equal(driver.options.order, 0)
+  const row = registrations.find((registration) => registration.options.name === 'settings.general.item')
+  assert.equal(row.options.id, 'dsh-auto-load-history')
+  assert.equal(row.options.order, 13)
+  assert.equal(row.options.locale, 'dsh-auto-load-history')
+  const injected = row.options.inject()
   assert.equal(injected.getEnabled(), true)
   assert.equal(typeof injected.subscribeEnabled, 'function')
   assert.equal(typeof injected.setEnabled, 'function')
+  for (const disposer of disposers) disposer()
+})
+
+test('drives paging from the Session identity the view hands over', () => {
+  const { registrations, disposers } = mountBundle()
+  const driver = registrations.find((registration) => registration.options.name === DRIVER_SLOT)
+  const handles = driver.options.inject()
+  assert.equal(typeof handles.attach, 'function')
+  assert.equal(typeof handles.detach, 'function')
+  reactEffects.length = 0
+  assert.equal(driver.component({ sessionId: 'session-9', ...handles }), null)
+  assert.equal(reactEffects.length, 1)
+  assert.deepEqual(reactEffects[0].deps, ['session-9', handles.attach, handles.detach])
+  assert.doesNotThrow(() => reactEffects[0].cleanup())
+  reactEffects.length = 0
+  for (const disposer of disposers) disposer()
 })
 
 test('renders the preference row through the shipped settings chrome', () => {
-  const { registrations } = mountBundle()
-  const element = registrations[0].component({
+  const { registrations, disposers } = mountBundle()
+  const row = registrations.find((registration) => registration.options.name === 'settings.general.item')
+  const element = row.component({
     getEnabled: () => true,
     subscribeEnabled: () => () => {},
     setEnabled: () => {},
@@ -659,4 +815,5 @@ test('renders the preference row through the shipped settings chrome', () => {
     { id: 'off', label: 'row.option.manual' }
   ])
   assert.equal(element.children[1].props.anchor.props.className, 'dshalh_selector')
+  for (const disposer of disposers) disposer()
 })

@@ -4,9 +4,10 @@ import test from 'node:test'
 import plugin, { PLUGIN_NAME, applyForVersion, classifyDshVersion, inject } from '../lib/index.js'
 
 test('keeps the Host half inert outside the audited release line', () => {
-  assert.equal(classifyDshVersion('0.1.6-alpha.1+local').supported, true)
-  assert.equal(classifyDshVersion('0.1.6-alpha.1+local').verified, true)
-  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, true)
+  assert.equal(classifyDshVersion('0.1.6-alpha.2+local').supported, true)
+  assert.equal(classifyDshVersion('0.1.6-alpha.2+local').verified, true)
+  assert.equal(classifyDshVersion('0.1.6-alpha.1').supported, true)
+  assert.equal(classifyDshVersion('0.1.6-alpha.1').verified, false)
   assert.equal(classifyDshVersion('0.1.6-beta.0').supported, true)
   assert.equal(classifyDshVersion('0.1.6').supported, true)
   assert.equal(classifyDshVersion('0.1.6-alpha.0').supported, false)
@@ -17,6 +18,8 @@ test('keeps the Host half inert outside the audited release line', () => {
   let warnings = 0
   applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.7')
   assert.equal(warnings, 1)
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.6-alpha.1')
+  assert.equal(warnings, 2)
   applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.6-alpha.2')
   assert.equal(warnings, 2)
 })
