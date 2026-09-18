@@ -2,6 +2,13 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.1.6] - 2026-09-18
+
+### 修复
+
+- 修复 DSH `0.1.6-alpha.2` 下「批量归档 / 批量删除」不再排除**当前打开的会话**：alpha.2 删除了 `sessions.list.current`（视图选择移出 Session Controller），同一事实改由每行的本地保留计数 `retainedBy.mainView` 表达。现在按键是否存在分代解析：alpha.1 仍用 `current`（含刻意表示"台上没有会话"的 `undefined`），alpha.2 回落 `mainView` 保留——与壳层 layout/sidebar/workspace/设置页的同源读法一致，两代行为相同。
+- 同步测试：候选筛选夹具改用 alpha.2 的 list 形状（删除 `current`、改用 `retainedBy.mainView`），永久删除用例补上"已归档且在当前会话上"的行让该排除真正被断言，并新增"当前会话默认排除、显式勾选后纳入并归档"的端到端流程用例与两代解析单测。
+
 ## [0.1.5] - 2026-09-17
 
 ### 新增

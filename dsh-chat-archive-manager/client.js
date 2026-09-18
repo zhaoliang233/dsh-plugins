@@ -271,6 +271,29 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The chat the main view currently shows — the one batch flows exclude by
+     * default. DSH 0.1.6-alpha.1 carried it as `sessions.list.current`;
+     * alpha.2 removed that field because view selection left the Session
+     * Controller, and the fact now rides each row's local `retainedBy.mainView`
+     * retention — the single source the shipped layout, sidebar, workspace
+     * browser and General settings read (`Object.values(byId).find(row =>
+     * (row.retainedBy.mainView ?? 0) > 0)`). Presence of the key decides which
+     * generation answers, not its value: alpha.1 keeps its own selection
+     * (including the deliberate "no session on stage" `undefined`), while alpha.2
+     * — where the key is gone — falls back to retention. Returning `undefined`
+     * only means no row is on stage.
+     */
+    function currentSessionId(sessionState) {
+      const state = sessionState ?? {}
+      if (Object.prototype.hasOwnProperty.call(state, 'current')) return state.current
+      const byId = state.byId ?? {}
+      for (const id of Object.keys(byId)) {
+        if ((byId[id]?.retainedBy?.mainView ?? 0) > 0) return id
+      }
+      return undefined
+    }
+
+    /**
      * One group per Workspace in its authoritative Host order plus a single
      * Ungrouped bucket — the same grouping DSH's sidebar derives. Empty groups
      * are omitted: this page is a manager, not a navigation surface.
@@ -360,7 +383,7 @@ window.__ModuleLoader__.load({
       const index = workspaceIndex(workspaceState)
       const byId = sessionState?.byId ?? {}
       const ids = Array.isArray(sessionState?.ids) ? sessionState.ids : Object.keys(byId)
-      const currentId = sessionState?.current
+      const currentId = currentSessionId(sessionState)
       const keep = {
         running: include?.running === true,
         blank: include?.blank === true,
@@ -437,7 +460,7 @@ window.__ModuleLoader__.load({
         : []
       const index = workspaceIndex(workspaceState)
       const byId = sessionState?.byId ?? {}
-      const currentId = sessionState?.current
+      const currentId = currentSessionId(sessionState)
       const keep = {
         running: include?.running === true,
         blank: include?.blank === true,
@@ -1778,6 +1801,7 @@ window.__ModuleLoader__.load({
       matchesQuery,
       parseDateInput,
       resolveCutoff,
+      currentSessionId,
       batchCandidates,
       deletionCandidates,
       runArchiveBatch,

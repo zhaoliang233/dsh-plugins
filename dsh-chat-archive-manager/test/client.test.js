@@ -303,9 +303,9 @@ test('treats 24 小时前 as a rolling window and 1 天前 as yesterday and earl
   const { internals } = pluginDefinition()
   const now = new Date(2026, 4, 10, 15, 30, 0, 0).getTime()
   const workspaceState = { items: [], archivedSessionIds: [] }
+  // DSH 0.1.6-alpha.2 list shape: no `current` field, no main-view retention.
   const sessionState = {
     ids: ['today-morning', 'yesterday-evening', 'yesterday-morning'],
-    current: undefined,
     byId: {
       'today-morning': archivedRow({
         id: 'today-morning',
@@ -345,9 +345,10 @@ test('selects batch candidates with explicit exclusions and a strict cutoff', ()
     items: [{ workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['old', 'edge'] }],
     archivedSessionIds: ['archived']
   }
+  // The open chat is expressed the alpha.2 way: local main-view retention on the
+  // row, which is exactly what the shipped sidebar and layout read.
   const sessionState = {
     ids: ['old', 'edge', 'new', 'archived', 'child', 'blank', 'running', 'current'],
-    current: 'current',
     byId: {
       old: archivedRow({ id: 'old', updatedAt: 100 }),
       edge: archivedRow({ id: 'edge', updatedAt: 500 }),
@@ -356,7 +357,7 @@ test('selects batch candidates with explicit exclusions and a strict cutoff', ()
       child: archivedRow({ id: 'child', updatedAt: 100, origin: 'subagent' }),
       blank: archivedRow({ id: 'blank', updatedAt: 100, blank: true }),
       running: archivedRow({ id: 'running', updatedAt: 100, running: true }),
-      current: archivedRow({ id: 'current', updatedAt: 100 })
+      current: archivedRow({ id: 'current', updatedAt: 100, retainedBy: { mainView: 1 } })
     }
   }
   const cutoff = 500
@@ -413,11 +414,13 @@ test('selects permanent-deletion candidates from the archived set only', () => {
       { workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['old', 'edge'] },
       { workspaceId: 'w2', path: '/two', title: 'two', sessionIds: [] }
     ],
-    archivedSessionIds: ['old', 'edge', 'new', 'blank', 'running', 'child', 'gone']
+    // `live` is archived as well, so the open-chat exclusion has something real
+    // to exclude on this page: the chat on stage must never be deleted.
+    archivedSessionIds: ['old', 'edge', 'new', 'blank', 'running', 'child', 'gone', 'live']
   }
+  // Alpha.2 shape: the open chat is the row the main view retains.
   const sessionState = {
     ids: ['old', 'edge', 'new', 'blank', 'running', 'child', 'live'],
-    current: 'live',
     byId: {
       old: archivedRow({ id: 'old', updatedAt: 100 }),
       edge: archivedRow({ id: 'edge', updatedAt: 500, cwd: '/two' }),
@@ -425,7 +428,7 @@ test('selects permanent-deletion candidates from the archived set only', () => {
       blank: archivedRow({ id: 'blank', updatedAt: 100, blank: true }),
       running: archivedRow({ id: 'running', updatedAt: 100, running: true }),
       child: archivedRow({ id: 'child', updatedAt: 100, origin: 'subagent' }),
-      live: archivedRow({ id: 'live', updatedAt: 100 })
+      live: archivedRow({ id: 'live', updatedAt: 100, retainedBy: { mainView: 1 } })
     }
   }
   const pick = (options) => internals.deletionCandidates({
@@ -437,14 +440,40 @@ test('selects permanent-deletion candidates from the archived set only', () => {
     ...options
   }).map(row => row.id)
 
-  // Only the archived set is eligible: `live` was never archived, `gone` has no
-  // readable summary, and the subagent chat never participates.
+  // Only the archived set is eligible: `gone` has no readable summary and the
+  // subagent chat never participates.
   assert.deepEqual(pick(), ['old'])
   assert.deepEqual(pick({ include: { running: true, blank: true, current: true } }),
-    ['blank', 'old', 'running'])
+    ['blank', 'live', 'old', 'running'])
   assert.deepEqual(pick({ scope: { kind: 'workspace', workspaceId: 'w1' } }), ['old'])
   assert.deepEqual(pick({ scope: { kind: 'ungrouped' }, cutoff: 700 }), ['new'])
   assert.deepEqual(pick({ cutoff: undefined }), [])
+  // The alpha.1 list shape answers through its own `current` field instead.
+  assert.deepEqual(pick({ sessionState: { ...sessionState, current: 'live' } }), ['old'])
+})
+
+test('reads the open chat from whichever generation of the list store provides it', () => {
+  const { internals } = pluginDefinition()
+  const row = (id, overrides = {}) => archivedRow({ id, ...overrides })
+
+  // Alpha.1 rode an explicit selection, including the deliberate "nothing on
+  // stage" undefined — which must not be second-guessed through retention.
+  assert.equal(internals.currentSessionId({ current: 'picked', byId: {} }), 'picked')
+  assert.equal(internals.currentSessionId({
+    current: undefined,
+    byId: { other: row('other', { retainedBy: { mainView: 1 } }) }
+  }), undefined)
+
+  // Alpha.2 removed the field; main-view retention is the same fact source the
+  // shipped layout, sidebar and settings read.
+  assert.equal(internals.currentSessionId({
+    byId: { a: row('a'), b: row('b', { retainedBy: { mainView: 1 } }) }
+  }), 'b')
+  assert.equal(internals.currentSessionId({
+    byId: { a: row('a', { retainedBy: { sidebar: 2 } }) }
+  }), undefined)
+  assert.equal(internals.currentSessionId({ byId: {} }), undefined)
+  assert.equal(internals.currentSessionId(undefined), undefined)
 })
 
 // ---------------------------------------------------------------------------
@@ -762,8 +791,13 @@ test('renders grouped archive management inside Settings and leaves core list se
     archivedSessionIds: ['archived']
   }
   const archived = archivedRow()
-  const active = archivedRow({ id: 'active', displayTitle: '当前聊天', updatedAt: 20 })
-  const sessionState = { ids: ['active', 'archived'], byId: { active, archived }, current: 'active' }
+  const active = archivedRow({
+    id: 'active',
+    displayTitle: '当前聊天',
+    updatedAt: 20,
+    retainedBy: { mainView: 1 }
+  })
+  const sessionState = { ids: ['active', 'archived'], byId: { active, archived } }
   const workspaces = {
     list: store(() => workspaceState),
     startSession() {},

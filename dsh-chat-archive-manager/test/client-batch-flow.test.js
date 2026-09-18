@@ -205,7 +205,8 @@ function createFixtures(now) {
     old: { id: 'old', displayTitle: '很久没动', updatedAt: now - 40 * DAY_MS, cwd: '/Users/me/proj-dir' },
     busy: { id: 'busy', displayTitle: '还在跑', updatedAt: now - 60 * DAY_MS, cwd: '/Users/me/proj-dir', running: true }
   }
-  const sessionState = { ids: ['fresh', 'old', 'busy'], byId: summaries, current: undefined }
+  // DSH 0.1.6-alpha.2 list shape: the snapshot has no `current` field.
+  const sessionState = { ids: ['fresh', 'old', 'busy'], byId: summaries }
   const archiveCalls = []
   const restoreCalls = []
   const deleteCalls = []
@@ -396,6 +397,42 @@ test('batch-archives the chats older than the chosen cutoff and can undo it', as
     assert.deepEqual(flow.restoreCalls, ['old'])
     assert.deepEqual(classTexts(tree, 'dac-progress'), ['已归档 1 条。', '已恢复 1 条。'])
     assert.equal(flow.fetchCalls.filter(call => call.path === '/dsh-chat-archive-manager/restore').length, 1)
+  } finally {
+    await flow.close()
+  }
+})
+
+test('keeps the chat on stage out of the default batch until it is explicitly included', async () => {
+  const flow = await mountSection()
+  try {
+    // DSH 0.1.6-alpha.2 carries the open chat as local main-view retention on the
+    // list row (`sessions.list.current` is gone); that chat must still stay out
+    // of the default batch and remain an explicit opt-in.
+    flow.summaries.old.retainedBy = { mainView: 1 }
+    flow.notify()
+    let tree = await flow.mini.settle()
+
+    button(tree, '批量归档').props.onClick()
+    tree = await flow.mini.settle()
+    assert.equal(classTexts(tree, 'dac-note').some(text =>
+      text.includes('匹配 0 条') && text.includes('另有 2 条因上述排除项未计入')), true)
+    assert.equal(button(tree, '下一步').props.disabled, true)
+
+    checkboxFor(tree, '包含当前打开的会话').props.onChange({ target: { checked: true } })
+    tree = await flow.mini.settle()
+    assert.equal(classTexts(tree, 'dac-note').some(text =>
+      text.includes('匹配 1 条') && text.includes('另有 1 条因上述排除项未计入')), true)
+    assert.equal(button(tree, '下一步').props.disabled, false)
+
+    button(tree, '下一步').props.onClick()
+    tree = await flow.mini.settle()
+    assert.deepEqual(elements(tree)
+      .filter(element => hasClassToken(element, 'dac-preview-title'))
+      .map(element => texts(element)), ['很久没动'])
+
+    button(tree, '开始归档').props.onClick()
+    await flow.mini.settle()
+    assert.deepEqual(flow.archiveCalls, ['old'])
   } finally {
     await flow.close()
   }
