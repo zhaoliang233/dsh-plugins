@@ -193,10 +193,26 @@ pre#result{margin-top:24px;padding:12px;background:#111;color:#9f9;font:12px/1.6
 <script>
 const NS = 'http://www.w3.org/2000/svg'
 const SVG_TAGS = new Set(['svg','path','circle','rect','g','mask','line','polyline','polygon','ellipse','use','defs','clipPath'])
+const PROVIDER = Symbol('context-provider')
 let hooks = null
 const React = {
   Component: class Component { constructor(p){ this.props = p || {} } },
   createElement(type, props, ...children) { return { type, props: props || {}, children } },
+  /**
+   * 上下文垫片：Provider 用标记对象表示，由 build() 负责在渲染子树时切换 current。
+   * 插件用 createContext 往下传 ctx/scope 是常见写法，缺了它整个 bundle 在 factory
+   * 阶段就抛错，固定场景就量不到任何东西。
+   */
+  createContext(defaultValue) {
+    const context = { defaultValue, current: defaultValue }
+    context.Provider = { [PROVIDER]: context }
+    context.Consumer = { [PROVIDER]: context }
+    return context
+  },
+  useContext(context) {
+    if (context === null || context === undefined) return undefined
+    return context.current !== undefined ? context.current : context.defaultValue
+  },
   useRef(initial) { const ref = { current: initial }; if (hooks !== null) hooks.refs.push(ref); return ref },
   useLayoutEffect(fn) { if (hooks !== null) hooks.layouts.push(fn) },
   useEffect() {},
@@ -215,6 +231,19 @@ function appendChildren(node, children) {
 function build(element) {
   if (element === null || typeof element !== 'object') return document.createTextNode(String(element))
   const { type, props, children } = element
+  // 上下文 Provider：渲染子树期间切换 current，渲染完还原（真实 React 的行为语义）。
+  if (type !== null && typeof type === 'object' && type[PROVIDER] !== undefined) {
+    const context = type[PROVIDER]
+    const previous = context.current
+    if (props.value !== undefined) context.current = props.value
+    const fragment = document.createDocumentFragment()
+    try {
+      appendChildren(fragment, children)
+    } finally {
+      context.current = previous
+    }
+    return fragment
+  }
   if (typeof type === 'function') {
     const previous = hooks
     const own = { refs: [], layouts: [] }
@@ -306,7 +335,16 @@ try {
   const known = {
     settingsScope: { bind: () => ({ mutate: async () => {}, getSnapshot: () => ({ value: null }), subscribe: () => () => {} }) },
     slots: { inject: (_name, callback) => callback(), register: (options, Component) => { applied.push({ options, Component }); return () => {} } },
-    timer: { timeout: () => () => {} }
+    timer: { timeout: () => () => {} },
+    // 真实 Cordis 的 ctx.effect(fn) 会**立即**执行 fn 并登记它返回的清理函数。
+    // 少了这一条，把副作用写在 effect 回调里的插件在固定场景里就什么都不做
+    // （样式注不进去、补丁挂不上），量出来的失败是场景的错、不是插件的错。
+    effect: (fn) => {
+      const disposer = fn()
+      return () => {
+        if (typeof disposer === 'function') disposer()
+      }
+    }
   }
   const ctx = new Proxy(known, { get: (target, key) => (key in target ? target[key] : everything) })
   plugin.apply(ctx, {})

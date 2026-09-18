@@ -8,6 +8,8 @@
 
 7 个插件都**已发布到公共 npm registry**，用户安装走官方命令；本地 `./install.sh`（`link:` 源码）只用于开发。分发与发布流程见「发布与分发（npm / OIDC）」一节。
 
+`dsh-mcp-manager` 是本工作区第 8 个插件，**尚未发布**（走 `./install.sh` 的 `link:` 路线开发中，发布需用户明确授权后再改版本、打 tag）。
+
 ## 插件索引
 
 | 插件 | 一句话说明 |
@@ -19,8 +21,9 @@
 | `dsh-mobile-compat/` | 为精确声明的 DSH 版本提供移动抽屉、Settings、Composer、触控与安全区兼容层 |
 | `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，使“紧凑”排版立即折叠每个回合的思考过程（设置→通用可切回手动） |
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |
+| `dsh-mcp-manager/` | 设置页管理 MCP 服务器：增删改、启停、连接与工具状态、凭据走 credentials，不改 profile 配置、不重启即生效（**未发布**） |
 
-用户安装（7 个插件同理，包名 = 目录名）：
+用户安装（包名 = 目录名）：
 
 ```bash
 dsh plugin --profile web add dsh-sticky-user-bubble        # 安装 / 升到 caret 范围内的最新版

@@ -1,0 +1,74 @@
+{
+  "name": "dsh-mcp-manager",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-mcp-manager"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-mcp-manager#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
+  "description": "在设置页管理 MCP 服务器：增删改、启停、连接与工具状态，凭证走 credentials，无需手改 profile 配置或重启。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "dshCompatibility": {
+    "policy": "compatible-release-line",
+    "package": "@deepseek-ai/dsh",
+    "range": ">=0.1.6-alpha.1 <0.1.7",
+    "verifiedVersions": [
+      "0.1.6-alpha.1",
+      "0.1.6-alpha.2"
+    ],
+    "futureVersionsRequireCapabilityChecks": true
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/dsh.js && node --check lib/store.js && node --check lib/plan.js && node --check lib/targets.js && node --check lib/mount-manager.js && node --check client.js && node --check scripts/check-pack.js && node --check scripts/gui-flow.mjs && node --check scripts/fixture-mcp-server.mjs && bash -n install.sh && bash -n uninstall.sh",
+    "test": "node --test test/*.test.js",
+    "verify": "npm run check && npm test",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run verify && npm run pack:check",
+    "prepublishOnly": "npm run publish:check",
+    "gui:check": "node scripts/gui-flow.mjs"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.6-alpha.1 <0.1.7"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "mcp",
+    "model-context-protocol"
+  ]
+}
