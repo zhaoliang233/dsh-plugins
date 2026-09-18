@@ -49,6 +49,7 @@ function loadBundle() {
 
 const bundle = loadBundle()
 const {
+  BATCH_EVENTS,
   DRIVER_ID,
   DRIVER_SLOT,
   MAX_BINDING_RETRIES,
@@ -134,6 +135,33 @@ function createFakeDocument(metrics = { scrollHeight: 1000, scrollTop: 0, client
 }
 
 /**
+ * Fake document with one anchor row whose viewport offset can be moved, so a
+ * prepend (content growing above the viewport) can be simulated.
+ * @returns the scrollport element, the document, and the mutable row.
+ */
+function createAnchorDocument() {
+  const element = { scrollHeight: 1000, scrollTop: 400, clientHeight: 500 }
+  const row = {
+    dataset: { chatAnchorKey: 'row-1' },
+    rect: { top: 100, bottom: 160 },
+    getBoundingClientRect: () => row.rect
+  }
+  const document = {
+    element,
+    head: { appendChild: () => {} },
+    createElement: () => ({ dataset: {}, textContent: '' }),
+    querySelector: (selector) => (selector === SCROLL_SELECTOR ? element : null),
+    querySelectorAll: (selector) => (selector === '[data-chat-anchor-key]' ? [row] : []),
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    listenerCount: () => 0,
+    dispatch: () => {},
+    scroll: () => {}
+  }
+  return { element, document, row }
+}
+
+/**
  * Session/sessions stub that pages a fixed-size window backwards.
  * @param options - window size, head position, and whether pages advance.
  * @returns the sessions stub, the session stub, and observable run state.
@@ -146,6 +174,8 @@ function createHarness(options = {}) {
     hasMore: (options.startHead ?? 40) > 0,
     loadingOlder: false,
     pages: 0,
+    runs: 0,
+    runTargets: [],
     revision: 0,
     openState: options.openState ?? 'open',
     sessionUnsubscribes: 0
@@ -180,8 +210,7 @@ function createHarness(options = {}) {
       state.pages += 1
       state.loadingOlder = true
       publish()
-      // One page per macrotask, like the real fetch round trip: a run must stay
-      // interruptible between pages (a microtask chain would finish it all at once).
+      // One page per macrotask, like the real fetch round trip.
       return new Promise((resolve) => {
         setTimeout(() => {
           if (options.advance !== false && typeof state.head === 'number') {
@@ -193,6 +222,38 @@ function createHarness(options = {}) {
           publish()
           resolve()
         }, 0)
+      })
+    },
+    /**
+     * The Controller's jump loader: one request served as a continuous sequence of
+     * prepends, one page per macrotask, until the window covers the target seq.
+     */
+    loadThrough: (seq) => {
+      state.runs += 1
+      state.runTargets.push(seq)
+      state.loadingOlder = true
+      publish()
+      return new Promise((resolve) => {
+        const page = () => {
+          const before = state.head
+          state.pages += 1
+          if (options.advance !== false && typeof state.head === 'number') {
+            state.head = Math.max(0, state.head - pageSize)
+            state.revision += 1
+            if (state.head <= 0) state.hasMore = false
+          }
+          publish()
+          const advanced = state.head !== before
+          const covered = typeof seq === 'number' && state.head <= seq
+          if (state.hasMore === true && advanced && !covered) {
+            setTimeout(page, 0)
+            return
+          }
+          state.loadingOlder = false
+          publish()
+          resolve()
+        }
+        setTimeout(page, 0)
       })
     }
   }
@@ -339,7 +400,7 @@ test('reloads an externally changed preference', () => {
 
 // ---------------------------------------------------------------- history loader
 
-test('pages the whole history in for the viewed Session', async () => {
+test('asks once for the whole earlier history and loads it in', async () => {
   const { sessions, state } = createHarness({ startHead: 40, pageSize: 10 })
   const loader = createAutoLoader({
     sessions,
@@ -349,6 +410,9 @@ test('pages the whole history in for the viewed Session', async () => {
   loader.start()
   loader.attach('session-1')
   assert.equal(await waitFor(() => state.hasMore === false), true)
+  // One run through the jump loader covers the whole window (4 pages of 10).
+  assert.equal(state.runs, 1)
+  assert.deepEqual(state.runTargets, [0])
   assert.equal(state.pages, 4)
   assert.equal(state.sessionUnsubscribes, 0)
   await new Promise((resolve) => {
@@ -357,6 +421,41 @@ test('pages the whole history in for the viewed Session', async () => {
   assert.equal(state.pages, 4)
   loader.dispose()
   assert.equal(state.sessionUnsubscribes, 1)
+})
+
+test('pulls a huge history in batches, keeping a gap between them', async () => {
+  // One run swallowing the whole history commits too much at once: the main thread
+  // stalls and the reader's scroll stops responding exactly when the load lands.
+  const { sessions, state } = createHarness({ startHead: 2000, pageSize: 10 })
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => null,
+    batchGapMs: 0
+  })
+  loader.start()
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.hasMore === false, 500), true)
+  assert.equal(state.runs > 1, true)
+  assert.equal(state.runTargets[0], 2000 - BATCH_EVENTS)
+  assert.equal(state.pages, 200)
+  loader.dispose()
+})
+
+test('falls back to paging one page at a time without a jump loader', async () => {
+  const { sessions, state, harness } = createHarness({ startHead: 30, pageSize: 10 })
+  delete harness.current.session.loadThrough
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => null
+  })
+  loader.start()
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  assert.equal(state.runs, 0)
+  assert.equal(state.pages, 3)
+  loader.dispose()
 })
 
 test('stays idle while the preference is off and resumes when it turns on', async () => {
@@ -369,34 +468,36 @@ test('stays idle while the preference is off and resumes when it turns on', asyn
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
-  assert.equal(state.pages, 0)
+  assert.equal(state.runs, 0)
   preference.set(true)
   assert.equal(await waitFor(() => state.hasMore === false), true)
-  assert.equal(state.pages, 2)
+  assert.equal(state.runs, 1)
   loader.dispose()
 })
 
-test('stops paging when the preference turns off mid-run', async () => {
-  const { sessions, state } = createHarness({ startHead: 4000, pageSize: 10 })
+test('a run in flight is not interrupted, but no new run starts once the preference is off', async () => {
+  const { sessions, state } = createHarness({ startHead: 200, pageSize: 10 })
   const preference = createPreferenceStore(createStorage())
   const loader = createAutoLoader({ sessions, preference, documentRef: () => null })
   loader.start()
   loader.attach('session-1')
-  assert.equal(await waitFor(() => state.pages >= 1), true)
+  assert.equal(await waitFor(() => state.runs >= 1), true)
   preference.set(false)
+  // The run the Controller is already serving plays out...
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  const runs = state.runs
+  // ...and more history becoming available does not start another one.
+  state.hasMore = true
+  state.head = 200
   await new Promise((resolve) => {
-    setTimeout(resolve, 10)
+    setTimeout(resolve, 20)
   })
-  const settled = state.pages
-  await new Promise((resolve) => {
-    setTimeout(resolve, 10)
-  })
-  assert.equal(state.pages, settled)
+  assert.equal(state.runs, runs)
   loader.dispose()
 })
 
 test('defers once the reader drives the viewport away and resumes on return', async () => {
-  const { sessions, state } = createHarness({ startHead: 200, pageSize: 10 })
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10 })
   const { element, document } = createFakeDocument({ scrollHeight: 1000, scrollTop: 500, clientHeight: 500 })
   const loader = createAutoLoader({
     sessions,
@@ -405,24 +506,80 @@ test('defers once the reader drives the viewport away and resumes on return', as
   })
   loader.start()
   loader.attach('session-1')
-  assert.equal(await waitFor(() => state.pages >= 2), true)
-  // The reader drives the viewport away from the bottom: paging yields.
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  // More history shows up while the reader is mid-flow: the next run waits.
+  state.hasMore = true
+  state.head = 20
   element.scrollTop = 0
   document.dispatch('wheel')
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
-  const paused = state.pages
+  const runs = state.runs
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
-  assert.equal(state.pages, paused)
+  assert.equal(state.runs, runs)
   assert.equal(document.listenerCount('scroll'), 1)
   // Returning to the bottom resumes.
   element.scrollTop = 500
   document.scroll()
-  assert.equal(await waitFor(() => state.pages > paused), true)
+  assert.equal(await waitFor(() => state.runs > runs), true)
   assert.equal(document.listenerCount('scroll'), 0)
+  loader.dispose()
+})
+
+test('resumes by itself once the reader settles', async () => {
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10 })
+  const { element, document } = createFakeDocument({ scrollHeight: 1000, scrollTop: 500, clientHeight: 500 })
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => document,
+    readerIdleMs: 40
+  })
+  loader.start()
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  // More history shows up while the reader is driving the viewport away from the
+  // bottom: the next run waits for them to settle.
+  state.hasMore = true
+  state.head = 20
+  element.scrollTop = 0
+  document.dispatch('wheel')
+  await new Promise((resolve) => {
+    setTimeout(resolve, 10)
+  })
+  const runs = state.runs
+  await new Promise((resolve) => {
+    setTimeout(resolve, 10)
+  })
+  assert.equal(state.runs, runs)
+  // A settled reader must not be left with half a history — the run resumes.
+  assert.equal(await waitFor(() => state.runs > runs, 300), true)
+  loader.dispose()
+})
+
+test('holds the reader anchor across a prepend', async () => {
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10 })
+  const { element, document, row } = createAnchorDocument()
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => document,
+    requestAnimationFrame: (callback) => {
+      callback()
+      return 0
+    }
+  })
+  loader.start()
+  loader.attach('session-1')
+  // A prepend lands: the flow grows above the viewport and the anchored row slides
+  // down. DSH corrects this for its own paging button; automatic paging must too.
+  row.rect = { top: 400, bottom: 460 }
+  element.scrollHeight = 1300
+  assert.equal(await waitFor(() => element.scrollTop === 700, 300), true)
+  assert.equal(state.runs > 0, true)
   loader.dispose()
 })
 
@@ -472,7 +629,7 @@ test('a fresh attach starts without inherited reader intent', async () => {
   loader.dispose()
 })
 
-test('gives up after pages that never extend the window', async () => {
+test('gives up after runs that never extend the window', async () => {
   const { sessions, state } = createHarness({ startHead: 40, advance: false })
   const loader = createAutoLoader({
     sessions,
@@ -481,11 +638,11 @@ test('gives up after pages that never extend the window', async () => {
   })
   loader.start()
   loader.attach('session-1')
-  assert.equal(await waitFor(() => state.pages >= 3), true)
+  assert.equal(await waitFor(() => state.runs >= 3), true)
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
-  assert.equal(state.pages, 3)
+  assert.equal(state.runs, 3)
   loader.dispose()
 })
 
@@ -567,12 +724,12 @@ test('follows the identity the view hands over, not a stored selection', async (
   loader.dispose()
 })
 
-test('survives a rejected page and a throwing loadOlder', async () => {
+test('survives a rejected run and a throwing load loader', async () => {
   const listeners = new Set()
   const publish = () => {
     for (const listener of [...listeners]) listener()
   }
-  let pages = 0
+  let runs = 0
   const session = {
     getSnapshot: () => ({
       sessionId: 'session-1',
@@ -585,9 +742,9 @@ test('survives a rejected page and a throwing loadOlder', async () => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    loadOlder: () => {
-      pages += 1
-      if (pages === 1) return Promise.reject(new Error('transport'))
+    loadThrough: () => {
+      runs += 1
+      if (runs === 1) return Promise.reject(new Error('transport'))
       throw new Error('synchronous failure')
     }
   }
@@ -603,11 +760,11 @@ test('survives a rejected page and a throwing loadOlder', async () => {
   })
   loader.start()
   loader.attach('session-1')
-  assert.equal(await waitFor(() => pages >= 3), true)
+  assert.equal(await waitFor(() => runs >= 3), true)
   await new Promise((resolve) => {
     setTimeout(resolve, 10)
   })
-  assert.equal(pages, 3)
+  assert.equal(runs, 3)
   loader.dispose()
 })
 
@@ -679,14 +836,20 @@ test('stops reacting once disposed', async () => {
   })
   loader.start()
   loader.attach('session-1')
-  assert.equal(await waitFor(() => state.pages >= 1), true)
+  assert.equal(await waitFor(() => state.runs >= 1), true)
   loader.dispose()
-  const settled = state.pages
+  // The run the Controller is already serving plays out — the plugin cannot cancel
+  // it — but once it lands the loader starts nothing else.
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  const runs = state.runs
+  state.hasMore = true
+  state.head = 200
   await new Promise((resolve) => {
-    setTimeout(resolve, 10)
+    setTimeout(resolve, 20)
   })
-  assert.equal(state.pages, settled)
+  assert.equal(state.runs, runs)
   assert.doesNotThrow(() => loader.drive())
+  assert.equal(state.runs, runs)
 })
 
 // ---------------------------------------------------------------------- mounting

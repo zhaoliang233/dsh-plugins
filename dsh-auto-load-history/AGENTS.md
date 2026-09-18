@@ -5,7 +5,7 @@
 纯客户端插件。Host 半体只做 DSH 版本门（同工作区其它插件），**不新增路由、不改写会话日志、不写 `~/.dsh/settings.yaml`、不持久化任何 Host 侧状态**。客户端只做三件事：
 
 1. 在会话作用域 list slot `conversation.session.header.actions` 里放一个渲染 `null` 的驱动组件，从 slot props 拿到当前显示的 `sessionId`；
-2. 订阅该会话的生命周期快照，调用公开的 `SessionFace.loadOlder()` 把历史分页补齐；
+2. 订阅该会话的生命周期快照，用公开的 `SessionFace.loadThrough(seq)`（回退 `SessionFace.loadOlder()`）分批把整段历史拉完，并在每批落地后锚定住读者的阅读位置；
 3. 在 `settings.general.item` 注册一行偏好（自动 / 手动）。
 
 不替换核心会话视图、消息 renderer、Slot occupant，也不改 DSH 源码。
@@ -28,7 +28,8 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
-| `ISession.loadOlder(): Promise<void>` | `dsh-api-session-controller/lib/types/client/contract/session.d.ts` | 唯一的写动作；`openState !== 'open'`、`!hasMore`、`loadingOlder` 三种情况下自 noexcept 跳过 |
+| `ISession.loadOlder(): Promise<void>` | `dsh-api-session-controller/lib/types/client/contract/session.d.ts` | 逐页回退（回退路径）：`openState !== 'open'`、`!hasMore`、`loadingOlder` 三种情况下自 noexcept 跳过 |
+| `ISession.loadThrough(seq): Promise<void>` | 同文件（`Jump loader: page backwards until the window covers seq`） | **主路径**：Controller 内部按 200 条/页 prepend 到覆盖 `seq`；插件传 `head - BATCH_EVENTS` 实现分批（详见「运行模型」）。调用不可中断，失败会跳出循环并 resolve |
 | `SessionSnapshot.openState/removed/hasMore/loadingOlder` | 同包 `lib/types/client/contract/snapshot.d.ts` | 驱动状态机 |
 | 会话作用域 list slot `conversation.session.header.actions` | `dsh-client-ui-conversation/lib/client.js:16923` 声明、`:15423` 渲染 | **唯一的身份来源**：slot props 注入 `sessionId`（`SessionStandardProps`）；list slot 直接渲染 occupant，渲染 `null` 无 DOM |
 | `ctx.sessions.binding(id).session` / `.eventSource` | 同包 `lib/types/client/sessions/service.d.ts`（`sessionId`/`session`/`eventSource`） | 会话面 + 事件窗口（只读窗口头 seq 作为进度信号）；id 由 slot 给出 |
@@ -42,15 +43,20 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 ## 运行模型
 
-不轮询：状态机只在**会话快照发布**时前进一步（`session.subscribe`）。一页在飞（自己的，或读者点的「加载更早」）时只等待；`loadOlder()` 同步把 `loadingOlder` 置真并发布快照，因此重入的 drive 会被 `loadingOlder === true` 挡掉，不会误记一次“停滞”（`pendingHead` 只在 `!loadingOlder` 时才结算）。
+不轮询：状态机只在**会话快照发布**时前进一步（`session.subscribe`）。一次运行在飞时（自己的，或读者点的「加载更早」）只等待；Controller 在 `loadThrough` 期间把 `loadingOlder` 置真并持续发布快照，因此重入的 drive 会被 `loadingOlder === true` 挡掉，不会误记一次“停滞”（`pendingHead` 只在 `!loadingOlder` 时才结算）。
 
-身份驱动：驱动组件在 `useEffect` 里 `loader.attach(sessionId)`，卸载时 `loader.detach(sessionId)`（带 id 的解绑只在身份匹配时生效，避免被替换视图的 cleanup 拆掉新会话）。`attach` 是幂等切换：同一 id 只重新 drive，不同 id 先 `detach()` 再绑定。绑定后 `step()` 通过 `resolveFace(boundSessionId)` 分类：`ready` 用 `binding.session`/`binding.eventSource`；`pending`（视图先画、Controller 尚未 retain）按 `MAX_BINDING_RETRIES = 30` 帧重试；`unsupported`（缺 `loadOlder`）直接惰性，不重试。
+**分批拉取**：`page` 动作走 `startRun()` —— 优先 `session.loadThrough(head - BATCH_EVENTS)`（Controller 内部按 200 条/页 prepend 到覆盖目标 seq），没有 `loadThrough` 时回退 `session.loadOlder()`。一批只拉 `BATCH_EVENTS = 600` 条，因为**每个 prepend 都会提交一次渲染**：一个 run 吞掉整段历史会把主线程占住几秒（实测最差帧间隔 ~3000ms），读者恰好在那时滚动就是"页面完全不动"。批与批之间 `scheduleBatchYield()` 等浏览器空闲（`requestIdleCallback`，不可用或超时则回退 `schedule(BATCH_GAP_MS)`），并保留 `BATCH_GAP_MS = 32` 的最小间隔。单批运行**不可中断**（循环在 Controller 里），所以让位只能发生在批与批之间：读者在滚动时暂停**发起**下一批，而不是打断进行中的那一批。
 
-纯函数（可测）：`parseStoredEnabled`、`readerAtBottom`、`advanceStall`、`nextAutoLoadAction`、`windowHead`。判定顺序 `enabled → openState → removed → hasMore(done) → loadingOlder(wait) → 读者驱动且不在底部(defer) → stalled(idle) → page`。
+身份驱动：驱动组件在 `useEffect` 里 `loader.attach(sessionId)`，卸载时 `loader.detach(sessionId)`（带 id 的解绑只在身份匹配时生效，避免被替换视图的 cleanup 拆掉新会话）。`attach` 是幂等切换：同一 id 只重新 drive，不同 id 先 `detach()` 再绑定。绑定后 `step()` 通过 `resolveFace(boundSessionId)` 分类：`ready` 用 `binding.session`/`binding.eventSource`；`pending`（视图先画、Controller 尚未 retain）按 `MAX_BINDING_RETRIES = 30` 帧重试；`unsupported`（`loadThrough` 与 `loadOlder` 都没有）直接惰性，不重试。
 
-- **进度**：用事件窗口头 seq（`eventSource.getSnapshot().entries[0].event.seq`）判断这一页有没有真的把窗口往前推；连续 `MAX_STALLED_PAGES = 3` 页没推进就停止本次补齐，把控制权还给原生按钮，避免请求失败时无限重试。`loadOlder` 的 reject 与同步抛错都会重新调度一次（否则没有后续快照可响应），仍受同一停滞预算约束。
-- **让位阅读**：`readerAtBottom(metrics, 64)` 用 scrollport 的 `scrollHeight - scrollTop - clientHeight` 判断，但**只有读者自己驱动过视口**（`readerScrolled`：`USER_INTENT_EVENTS` = `wheel`/`touchstart`/`touchmove`/`pointerdown`/`keydown` 之一；`attach` 新会话时重置）**且不在底部**时才 `defer`。打开会话时的视口位置是 Conversation 自己放的，DSH 在 prepend 期间也一直在做滚动补偿——把这种"暂时不在底部"当成读者在阅读，补齐就会停住，直到读者碰巧滚回底部（0.1.2 的表现：打开长会话不滑动就不加载）。进入 defer 后在 `document` 挂捕获阶段 `scroll` 监听（scroll 不冒泡但捕获阶段到得了 document），回到底部即恢复；监听不缓存元素，Chat ↔ Trajectory 切换、scrollport 被替换都不需要重挂。
-- **清理**：会话/偏好订阅、滚动与意图监听、定时器、style 标签全部归 `ctx.effect` 与 `loader.dispose()`；`drive()` 外层 try/catch，任何异常都不会漏进会话来通知链。
+纯函数（可测）：`parseStoredEnabled`、`readerAtBottom`、`advanceStall`、`nextAutoLoadAction`、`windowHead`。判定顺序 `enabled → openState → removed → hasMore(done) → loadingOlder(wait) → 读者滚动中且不在底部(defer) → stalled(idle) → page`。
+
+- **进度**：用事件窗口头 seq（`eventSource.getSnapshot().entries[0].event.seq`）判断一次运行有没有真的把窗口往前推；连续 `MAX_STALLED_PAGES = 3` 次运行没推进就停止本次补齐，把控制权还给原生按钮，避免请求失败时无限重试。reject 与同步抛错都会重新调度一次（否则没有后续快照可响应），仍受同一停滞预算约束。
+- **让位阅读**：`readerAtBottom(metrics, 64)` 用 scrollport 的 `scrollHeight - scrollTop - clientHeight` 判断，但**只有读者自己驱动过视口**（`USER_INTENT_EVENTS` = `wheel`/`touchstart`/`touchmove`/`pointerdown`/`keydown`，document 捕获阶段）**且不在底部**时才 `defer`；读者意图带 `READER_IDLE_MS = 1000` 的存活期，停手后自动过期并恢复运行——读者不会因为"顺手翻了两下"就把功能停死。defer 期间挂捕获阶段 `scroll` 监听（scroll 不冒泡但捕获阶段到得了 document），回到底部立即恢复；监听不缓存元素，Chat ↔ Trajectory 切换、scrollport 被替换都不需要重挂。
+- **锚点补偿**：prepend 会让视口上方的内容变高，读者的阅读位置会被推下去。`ANCHOR_ATTRIBUTES = ['chatAnchorKey', 'turnTail']` 取**视口内第一个可见行**作为锚点；每批只在**发起前读一次**（`readAnchor`），**落地后在两个 rAF 之后**按该行的位移反向修正 `scrollTop`（`afterLayout` + `restoreAnchor`）。这与 DSH 为「加载更早」按钮做的补偿同构（它记 `row.dataset.chatAnchorKey` + `flowTop`）；读者在底部时不干预（DSH 的 follow-scroll 负责跟住流尾）。
+
+  **测量纪律**（直接决定流畅度）：`getBoundingClientRect` 会强制同步布局，所以**绝不在每步、更不在每个滚动帧测量**——每帧测量正是实测最差帧间隔 ~3100ms 的元凶，改成每批两次后降到 ~700ms。找可见行用**二分查找**（行按位置有序，`O(log n)` 次测量），恢复时用属性选择器 + `CSS.escape` 直接命中该行（拿不到 `CSS.escape` 才回退遍历）。
+- **清理**：会话/偏好订阅、滚动与意图监听、两个定时器、style 标签全部归 `ctx.effect` 与 `loader.dispose()`；`drive()` 外层 try/catch，任何异常都不会漏进会话来通知链。
 
 ## 偏好存储
 
@@ -70,13 +76,17 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 ## 已知限制与升级策略
 
-- 只处理**当前查看会话**，不预加载后台会话；分页在会话打开后立即开始，长会话可能需要数秒；只有读者自己滚动过并且离开了底部才会暂停（defer）。
+- 只处理**当前查看会话**，不预加载后台会话；一次运行在会话打开后立即开始，长会话可能需要数秒；读者滚动时只暂停**发起**下一次运行（进行中的那一次在 Controller 内部循环，插件无法打断）。
+- 一次运行不可中断：`loadThrough` 由 Controller 服务，读者中途滚动不会停止它——补偿负责让这个过程中视口稳定（见「运行模型」的锚点补偿）。
+- 锚点补偿依赖 DSH 的行标记：优先 `data-chat-anchor-key`（DSH 自己 paging 用的行），回退 `data-turn-tail`；两者都取不到时不补（视口可能被 prepend 推动，退回 0.1.3 的行为）。
 - defer 依赖 `[data-conversation-scroll]`：DSH 改名后 `metrics()` 返回 null，`readerAtBottom` 视为“在底部”继续分页，只是不再让位阅读（fail open，退回 v0 语义）。
 - 读者意图靠 `USER_INTENT_EVENTS` 判断（document 捕获阶段、passive）：滚动条拖动会触发 `pointerdown`、点击会话内容也算，因此"点了某处之后又不在底部"会让位（可接受：读者确实在交互）；反过来，非常规的视口驱动方式（脚本滚动、DSH 自身的滚动）一律不算读者意图，插件继续补齐而不是停住——宁可补完，也不要停在半路。
 - 进度信号依赖 `binding.eventSource` 的窗口头；取不到时不结算停滞（`advanceStall` 原样返回），此时完全靠 `hasMore` 变化驱动，最坏情况是补不齐而不是死循环。
 - 不读 `ui-chat.transcriptView`：行为与排版无关（普通排版下把历史带起来也无害），避免跨插件读私有设置命名空间。
-- 身份依赖 `conversation.session.header.actions` 这一 slot 声明：DSH 若删掉该 slot 或改其 scope，`slots.inject` 回调不再触发、驱动组件永不挂载，插件会**静默失效**（不报错）——这是 `loadOlder` 能力检查之外唯一的硬依赖，升级时必须连同上表一起复核。
-- DSH 升级后必须重新核对上表每个契约（紧凑折叠判断、`SessionSnapshot` 四字段、`loadOlder` 语义与页大小、会话作用域 slot 的声明与 props、`settings.general.item` 注册契约、scrollport 标记），再声明兼容。
+- 身份依赖 `conversation.session.header.actions` 这一 slot 声明：DSH 若删掉该 slot 或改其 scope，`slots.inject` 回调不再触发、驱动组件永不挂载，插件会**静默失效**（不报错）——这是加载能力检查之外唯一的硬依赖，升级时必须连同上表一起复核。
+- 补齐完成瞬间 DSH 会折叠所有已关闭回合，内容高度骤降（实测 `130794px → 56250px`），读者在中部阅读时仍会感到一次收缩；这是 DSH 的渲染行为，插件只能保证折叠后回到同一个锚点行。
+- 极大会话（数万像素、上千条消息）在每批落地时仍可能有几百毫秒顿挫：实测最差帧间隔 **~700ms**（对照：插件每帧测量版 ~3100ms、一次拉完不分批版 ~3000ms；把批缩到 400 条没有进一步改善，说明剩下的是 DSH 渲染历史的成本，插件侧已无每帧工作）。
+- DSH 升级后必须重新核对上表每个契约（紧凑折叠判断、`SessionSnapshot` 四字段、`loadThrough`/`loadOlder` 语义与页大小、会话作用域 slot 的声明与 props、`settings.general.item` 注册契约、scrollport 与锚点行标记），再声明兼容。
 
 ## 发布线
 
@@ -94,7 +104,7 @@ npm run publish:check     # check + test + pack:check
 ./install.sh
 ```
 
-单元测试覆盖（29 个）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者驱动过且不在底部才 defer"）、窗口头防御读取、整段补齐（4 页到 `hasMore === false`）、关→开恢复、运行中关闭停止、读者驱动离底后 defer 再回底恢复、**视口不在底部但从未发生读者意图时仍补齐**、**重新 attach 不继承上一次的读者意图**、停滞 3 页放弃、`openState` 未开时等待、缺少 `loadOlder` 时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach。harness 的 `loadOlder` 每页占一个宏任务（模拟真实往返），使运行可被中断，避免微任务链把整段历史一次跑完。
+单元测试覆盖（30 个）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
 
 真实浏览器验证（`0.1.6-alpha.2`，`--port 0` 隔离服务器 + headless CDP，2026-09-18）：
 
@@ -105,12 +115,14 @@ npm run publish:check     # check + test + pack:check
 | 偏好置为 `false` 后刷新再开会话 | 按钮保留、历史不补齐 |
 | 偏好恢复 `true` 后刷新再开会话 | 按钮消失、整段补齐 |
 | 切走再切回后，**持续把视口钉在顶部**（`gap ≈ 7048px`、无任何用户输入） | 仍然补齐到 `hasMore === false`（按钮消失）——0.1.2 会在这里停住 |
-| 切走再切回后，先派发真实 `wheel` 再把视口放在中部（`gap ≈ 1356px`） | 分页暂停、按钮保留；随后滚回底部立即恢复并补齐 |
+| 超大历史会话（内容峰值 13 万 px、完整后 5.6 万 px）：打开后约 3 秒补齐 | **读者在中部时一次 46732px 的 prepend 前后 gap 恒定**（10038 → 10038），折叠（130794 → 56250）后回到同一锚点行（turn 27 / top −167） |
+| 加载中途派发真实 `wheel` 后不再输入 | 运行继续到完成（停手即恢复），读者位置未被推走 |
+| 同一会话的加载期帧间隔（`PerformanceObserver` longtask + rAF 采样） | 最差帧间隔 **2989ms → 3106ms（仅分批）→ 980ms（去掉每帧测量）→ 703ms（批间等 idle）**；把批缩到 400 条为 770ms，无进一步改善 |
 
 GUI 验证清单（挂载并重启后）：
 
 1. 打开历史很长的会话：顶部「加载更早」按钮消失（`hasMore` 已清），紧凑排版立即折叠每个回合的思考过程；
 2. 设置 → 通用出现「会话历史」行，切到「手动」后新开会话不再自动补齐、切回「自动」后当前会话继续补齐；
-3. 会话打开后立刻向上滚动：分页暂停（内容不被挤走），滚回底部后继续；
+3. 加载中途向上滚动：视口停在你的位置不动（新历史插入不推走内容），停手约 1 秒后运行自行继续，滚回底部则立即继续；
 4. 刷新页面后偏好保持；另一个标签页切换偏好后本页跟随；
 5. Chat ↔ Trajectory 切换、会话切换、流式回答期间无报错、无重复分页。

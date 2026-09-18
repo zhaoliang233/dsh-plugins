@@ -55,6 +55,32 @@ window.__ModuleLoader__.load({
      * away — paging would stall until the reader happened to scroll back.
      */
     const USER_INTENT_EVENTS = ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'keydown']
+    /**
+     * How long a reader-intent signal stays valid after the last input. A reader
+     * who scrolled away pauses paging, but only while they are actually driving the
+     * viewport: once they settle, the run resumes on its own (the anchor correction
+     * below keeps their place), so a brief scroll never leaves the history half
+     * loaded — and half-loaded is exactly what keeps the compact transcript from
+     * folding its Turns.
+     */
+    const READER_IDLE_MS = 1000
+    /**
+     * Row markers used as the reader's visual anchor, most precise first. They are
+     * the same rows DSH anchors a manual "load earlier" click on; paging must hold
+     * one steady across a prepend or the reader's viewport slides.
+     */
+    const ANCHOR_ATTRIBUTES = ['chatAnchorKey', 'turnTail']
+    /**
+     * Older events pulled per run. The Controller serves a run as a continuous
+     * sequence of 200-event prepends and each prepend commits a render, so a single
+     * run that swallows a whole huge history blocks the main thread for seconds —
+     * scrolling stops responding right when the load lands. Batching keeps every
+     * commit small, and the gap below lets the browser lay out and take input between
+     * batches.
+     */
+    const BATCH_EVENTS = 600
+    /** Quiet gap between runs, so layout and input are not starved by the next batch. */
+    const BATCH_GAP_MS = 32
     /** Yield one frame between pages so opening a Session can paint first. */
     const PAGE_DELAY_MS = 16
     /** Completed pages without a moved window head before the run gives up. */
@@ -262,11 +288,13 @@ window.__ModuleLoader__.load({
      *
      * The loader never owns a polling loop: every step is a reaction to a Session
      * snapshot publication, so a page in flight (ours, or the reader's own
-     * "Load earlier" click) is simply waited on. Progress is measured by the event
-     * window head, so pages that do not extend the window stop the run after
-     * `MAX_STALLED_PAGES` instead of retrying forever. Paging from a scrolled-away
-     * reader defers until they return to the bottom, so prepended content never
-     * moves what is being read.
+     * "Load earlier" click) is simply waited on. A run asks the Session to load
+     * through the earliest seq once, which the Controller serves as a continuous
+     * sequence of prepends — far fewer round trips than paging page by page.
+     * Progress is measured by the event window head, so a run that does not extend
+     * the window stops after `MAX_STALLED_PAGES` instead of retrying forever. A
+     * reader who scrolls away pauses the run only while they are actually scrolling,
+     * and each prepend is anchor-corrected so their viewport does not slide.
      * @param options - sessions service, preference store, and injectable environment.
      * @returns start/attach/detach/drive/dispose handles bound to the plugin fiber.
      */
@@ -276,8 +304,14 @@ window.__ModuleLoader__.load({
       const documentRef = options.documentRef ?? (() => (typeof document === 'undefined' ? null : document))
       const setTimeoutFn = options.setTimeout ?? (typeof setTimeout === 'function' ? setTimeout : null)
       const clearTimeoutFn = options.clearTimeout ?? (typeof clearTimeout === 'function' ? clearTimeout : null)
+      const requestFrameFn = options.requestAnimationFrame ?? (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null)
+      const readerIdleMs = typeof options.readerIdleMs === 'number' ? options.readerIdleMs : READER_IDLE_MS
+      const batchGapMs = typeof options.batchGapMs === 'number' ? options.batchGapMs : BATCH_GAP_MS
+      const requestIdleFn = options.requestIdleCallback ?? (typeof requestIdleCallback === 'function' ? requestIdleCallback : null)
+      const cancelIdleFn = options.cancelIdleCallback ?? (typeof cancelIdleCallback === 'function' ? cancelIdleCallback : null)
       let disposed = false
       let timer = null
+      let idleTimer = null
       let unsubscribePreference = null
       let unsubscribeSession = null
       let unsubscribeScroll = null
@@ -288,6 +322,15 @@ window.__ModuleLoader__.load({
       let pendingHead = null
       let stalled = 0
       let readerScrolled = false
+      /**
+       * The reader's anchor captured before the in-flight run and restored when that
+       * run lands. Measured twice per batch at most: `getBoundingClientRect` forces a
+       * synchronous layout, so reading it on every step — or every scroll frame — would
+       * stall a long transcript.
+       */
+      let pendingAnchor = null
+      /** When the last run settled, so batches keep a quiet gap between them. */
+      let lastRunSettledAt = 0
 
       /**
        * Classify the Session this loader was attached to.
@@ -310,16 +353,17 @@ window.__ModuleLoader__.load({
         const session = binding.session
         if (session === null || session === undefined) return { state: 'pending' }
         if (typeof session.getSnapshot !== 'function' || typeof session.subscribe !== 'function') return { state: 'pending' }
-        // The one audited capability: without it the plugin stays inert.
-        if (typeof session.loadOlder !== 'function') return { state: 'unsupported' }
+        // The audited capabilities: the jump loader when the release exposes it,
+        // otherwise one-page paging; without either the plugin stays inert.
+        if (typeof session.loadThrough !== 'function' && typeof session.loadOlder !== 'function') return { state: 'unsupported' }
         return { state: 'ready', session, events: binding.eventSource }
       }
 
       /**
-       * Read the scrollport metrics the defer decision needs.
-       * @returns metrics, or null when the scrollport is not measurable.
+       * The Conversation's scrollport element.
+       * @returns the element carrying the `[data-conversation-scroll]` marker, or null.
        */
-      function metrics() {
+      function scrollport() {
         const doc = documentRef()
         if (doc === null || doc === undefined || typeof doc.querySelector !== 'function') return null
         let element
@@ -328,12 +372,159 @@ window.__ModuleLoader__.load({
         } catch {
           return null
         }
-        if (element === null || element === undefined) return null
+        return element === undefined ? null : element
+      }
+
+      /**
+       * Read the scrollport metrics the defer decision needs.
+       * @returns metrics, or null when the scrollport is not measurable.
+       */
+      function metrics() {
+        const element = scrollport()
+        if (element === null) return null
         return {
           scrollHeight: element.scrollHeight,
           scrollTop: element.scrollTop,
           clientHeight: element.clientHeight
         }
+      }
+
+      /** CSS attribute selector for one camelCase dataset key (`turnTail` → `[data-turn-tail]`). */
+      function anchorSelector(attribute) {
+        return `[data-${attribute.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}]`
+      }
+
+      /**
+       * Collect the anchor rows for one marker, in document order.
+       * @param doc - document to query.
+       * @param attribute - camelCase dataset key.
+       * @returns the rows, or an empty array when the marker is absent.
+       */
+      function anchorRows(doc, attribute) {
+        try {
+          const rows = doc.querySelectorAll(anchorSelector(attribute))
+          if (rows === null || rows === undefined || typeof rows.length !== 'number') return []
+          return Array.from(rows)
+        } catch {
+          return []
+        }
+      }
+
+      /** Dataset key of one row, or undefined when it is not a usable anchor. */
+      function anchorKeyOf(row, attribute) {
+        if (row === null || row === undefined || row.dataset === undefined || row.dataset === null) return undefined
+        const key = row.dataset[attribute]
+        return typeof key === 'string' && key !== '' ? key : undefined
+      }
+
+      /** Viewport offset of one row, or null when it cannot be measured. */
+      function anchorTopOf(row) {
+        if (row === null || row === undefined || typeof row.getBoundingClientRect !== 'function') return null
+        const rect = row.getBoundingClientRect()
+        return rect === null || rect === undefined ? null : rect
+      }
+
+      /**
+       * Read the reader's visual anchor: the topmost anchor row still visible in the
+       * scrollport. DSH marks the same rows it anchors a manual "load earlier" click
+       * on, so a prepend can put the reader's place back exactly.
+       *
+       * Rows are ordered by position, and every measurement forces a layout, so the
+       * first visible row is found by binary search — a long transcript must not pay a
+       * layout per row just to keep the reader's place.
+       * @returns `{ attribute, key, top }`, or null when no anchor row is visible.
+       */
+      function readAnchor() {
+        const doc = documentRef()
+        const element = scrollport()
+        if (doc === null || element === null || typeof doc.querySelectorAll !== 'function') return null
+        const height = typeof element.clientHeight === 'number' ? element.clientHeight : null
+        for (const attribute of ANCHOR_ATTRIBUTES) {
+          const rows = anchorRows(doc, attribute)
+          let low = 0
+          let high = rows.length - 1
+          let found = -1
+          while (low <= high) {
+            const mid = (low + high) >> 1
+            const rect = anchorTopOf(rows[mid])
+            if (rect === null) {
+              low = mid + 1
+              continue
+            }
+            if (rect.bottom > 0) {
+              found = mid
+              high = mid - 1
+            } else {
+              low = mid + 1
+            }
+          }
+          if (found < 0) continue
+          const row = rows[found]
+          const key = anchorKeyOf(row, attribute)
+          const rect = anchorTopOf(row)
+          if (key === undefined || rect === null) continue
+          if (height !== null && rect.top >= height) continue
+          return { attribute, key, top: rect.top }
+        }
+        return null
+      }
+
+      /**
+       * Put the anchored row back where the reader had it. A prepend grows the flow
+       * above the viewport, which would otherwise slide what the reader is looking at
+       * downward; DSH corrects this for its own paging button, and automatic paging
+       * has to correct it for itself.
+       * @param saved - anchor captured before the prepend landed.
+       */
+      function restoreAnchor(saved) {
+        if (saved === null) return
+        const doc = documentRef()
+        const element = scrollport()
+        if (doc === null || element === null) return
+        const row = findAnchorRow(doc, saved.attribute, saved.key)
+        if (row === null) return
+        const rect = anchorTopOf(row)
+        if (rect === null) return
+        const delta = rect.top - saved.top
+        if (Math.abs(delta) < 1) return
+        element.scrollTop += delta
+      }
+
+      /**
+       * Find one anchor row by its marker value.
+       * @param doc - document to search.
+       * @param attribute - camelCase dataset key.
+       * @param key - marker value captured earlier.
+       * @returns the row, or null when it is gone.
+       */
+      function findAnchorRow(doc, attribute, key) {
+        const selector = `${anchorSelector(attribute)}`
+        if (typeof doc.querySelector === 'function' && typeof CSS !== 'undefined' && CSS !== null && typeof CSS.escape === 'function') {
+          try {
+            const direct = doc.querySelector(`${selector}[data-${attribute.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}="${CSS.escape(key)}"]`)
+            if (direct !== null && direct !== undefined) return direct
+          } catch {
+            // Fall through to the scan.
+          }
+        }
+        for (const row of anchorRows(doc, attribute)) {
+          if (anchorKeyOf(row, attribute) === key) return row
+        }
+        return null
+      }
+
+      /**
+       * Run once the prepend is laid out, so the correction measures real geometry.
+       * @param callback - work to run after layout.
+       */
+      function afterLayout(callback) {
+        if (requestFrameFn === null) {
+          callback()
+          return
+        }
+        requestFrameFn(() => {
+          requestFrameFn(callback)
+        })
       }
 
       /** Drop the Session-subscription half only; the attach target stays. */
@@ -368,6 +559,7 @@ window.__ModuleLoader__.load({
         detach()
         boundSessionId = sessionId
         readerScrolled = false
+        pendingAnchor = null
         drive()
       }
 
@@ -379,17 +571,24 @@ window.__ModuleLoader__.load({
       function detach(sessionId) {
         if (sessionId !== undefined && sessionId !== null && sessionId !== boundSessionId) return
         cancel()
+        clearReaderIdle()
         unbindSession()
         boundSessionId = null
         bindingRetries = 0
         pendingHead = null
         stalled = 0
+        pendingAnchor = null
       }
 
       function cancel() {
         if (timer === null) return
-        if (clearTimeoutFn !== null) clearTimeoutFn(timer)
+        const pending = timer
         timer = null
+        if (typeof pending === 'object' && pending !== null) {
+          if (cancelIdleFn !== null && pending.handle !== null) cancelIdleFn(pending.handle)
+          return
+        }
+        if (clearTimeoutFn !== null) clearTimeoutFn(pending)
       }
 
       function schedule(delay) {
@@ -398,6 +597,26 @@ window.__ModuleLoader__.load({
           timer = null
           drive()
         }, delay)
+      }
+
+      /**
+       * Wait for a quiet moment before the next batch. A fixed delay cannot know how
+       * long the previous commit needs to lay out, so the browser's own idle signal
+       * decides when there is room again; the timeout keeps a busy page progressing.
+       */
+      function scheduleBatchYield() {
+        if (disposed || timer !== null) return
+        if (requestIdleFn === null) {
+          schedule(batchGapMs)
+          return
+        }
+        const pending = { handle: null }
+        pending.handle = requestIdleFn(() => {
+          timer = null
+          pending.handle = null
+          drive()
+        }, { timeout: batchGapMs * 8 })
+        timer = pending
       }
 
       function unwatchScroll() {
@@ -442,10 +661,35 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /** Drop the armed reader-intent expiry. */
+      function clearReaderIdle() {
+        if (idleTimer === null) return
+        if (clearTimeoutFn !== null) clearTimeoutFn(idleTimer)
+        idleTimer = null
+      }
+
       /**
-       * Learn whether the reader is driving the viewport at all. Until one of
-       * these inputs happens, a viewport away from the bottom belongs to the
-       * Conversation's own placement, and paging must continue through it.
+       * Arm (or re-arm) the reader-intent expiry. A reader mid-scroll pauses the run,
+       * but a reader who merely stopped looking — settled, no input for
+       * `READER_IDLE_MS` — must not leave the history half loaded: the anchor
+       * correction keeps their place, and an unfinished window is exactly what stops
+       * the compact transcript from folding.
+       */
+      function armReaderIdle() {
+        if (setTimeoutFn === null) return
+        clearReaderIdle()
+        idleTimer = setTimeoutFn(() => {
+          idleTimer = null
+          readerScrolled = false
+          drive()
+        }, readerIdleMs)
+      }
+
+      /**
+       * Learn whether the reader is driving the viewport, and for how long. Until one
+       * of these inputs happens, a viewport away from the bottom belongs to the
+       * Conversation's own placement, and paging must continue through it; once the
+       * reader settles, the intent expires and the run resumes by itself.
        */
       function watchUserIntent() {
         if (disposed || unsubscribeIntent !== null) return
@@ -453,6 +697,7 @@ window.__ModuleLoader__.load({
         if (doc === null || doc === undefined || typeof doc.addEventListener !== 'function') return
         const listener = () => {
           readerScrolled = true
+          armReaderIdle()
           schedule(0)
         }
         for (const type of USER_INTENT_EVENTS) doc.addEventListener(type, listener, { capture: true, passive: true })
@@ -472,6 +717,24 @@ window.__ModuleLoader__.load({
         } catch (error) {
           console.warn(`[${PLUGIN_ID}] auto-load step failed:`, error)
         }
+      }
+
+      /**
+       * Ask the Session for the next slice of earlier events. The Controller serves a
+       * `loadThrough` request as a continuous sequence of 200-event prepends — the same
+       * loader its own turn navigation uses — and this asks for `BATCH_EVENTS` at a
+       * time so no single commit stalls the main thread; `loadOlder` stays the fallback
+       * for a face that does not expose it.
+       * @param face - resolved Session face of the attached identity.
+       * @returns the run's completion.
+       */
+      function startRun(face) {
+        if (typeof face.session.loadThrough === 'function') {
+          const head = windowHead(face.events)
+          const target = head === null ? 0 : Math.max(0, head - BATCH_EVENTS)
+          return face.session.loadThrough(target)
+        }
+        return face.session.loadOlder()
       }
 
       /**
@@ -501,14 +764,25 @@ window.__ModuleLoader__.load({
         }
         const snapshot = face.session.getSnapshot()
         const loadingOlder = snapshot.loadingOlder === true
-        // One page settled: score it by whether the window actually grew. The
-        // re-entrant drive published by `loadOlder()` itself is filtered here,
-        // because `loadingOlder` is already true at that point.
+        const head = windowHead(face.events)
+        // One run settled: score it by whether the window actually grew, then put the
+        // reader's anchor back. A smaller head than the one captured when the run was
+        // issued means older history landed above the viewport. The re-entrant drive
+        // published by the load itself is filtered here, because `loadingOlder` is
+        // already true at that point.
         if (pendingHead !== null && !loadingOlder) {
-          const head = windowHead(face.events)
           if (head !== null) {
             stalled = advanceStall(stalled, pendingHead, head)
+            const prepended = head < pendingHead
             pendingHead = null
+            lastRunSettledAt = Date.now()
+            if (prepended && pendingAnchor !== null && !readerAtBottom(metrics())) {
+              const saved = pendingAnchor
+              afterLayout(() => {
+                restoreAnchor(saved)
+              })
+            }
+            pendingAnchor = null
           }
         }
         const action = nextAutoLoadAction({
@@ -523,20 +797,30 @@ window.__ModuleLoader__.load({
           maxStalled: MAX_STALLED_PAGES
         })
         if (action === 'page') {
+          // Give the previous batch a quiet moment: the browser lays out and answers
+          // input before the next slice of history lands.
+          const sinceSettled = Date.now() - lastRunSettledAt
+          if (lastRunSettledAt !== 0 && sinceSettled < batchGapMs) {
+            scheduleBatchYield()
+            return
+          }
           pendingHead = windowHead(face.events)
+          // Capture the reader's place once, just before the slice lands (null while
+          // they sit at the bottom, where DSH's own follow-scroll owns the position).
+          pendingAnchor = readerAtBottom(metrics()) ? null : readAnchor()
           try {
-            const result = face.session.loadOlder()
+            const result = startRun(face)
             if (result !== null && result !== undefined && typeof result.then === 'function') {
               result.then(undefined, (error) => {
-                console.warn(`[${PLUGIN_ID}] loadOlder rejected:`, error)
-                // A page that never published leaves no snapshot to react to.
+                console.warn(`[${PLUGIN_ID}] history load rejected:`, error)
+                // A run that never published leaves no snapshot to react to.
                 schedule(PAGE_DELAY_MS)
               })
             }
           } catch (error) {
             pendingHead = null
             stalled += 1
-            console.warn(`[${PLUGIN_ID}] loadOlder failed:`, error)
+            console.warn(`[${PLUGIN_ID}] history load failed:`, error)
             schedule(PAGE_DELAY_MS)
           }
           return
@@ -580,6 +864,7 @@ window.__ModuleLoader__.load({
         detach()
         unwatchScroll()
         unwatchUserIntent()
+        clearReaderIdle()
         if (unsubscribePreference !== null) {
           const unsubscribe = unsubscribePreference
           unsubscribePreference = null
@@ -751,6 +1036,9 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     // Inspector-visible test surface only; not part of the plugin's runtime API.
     exports.__test = {
+      ANCHOR_ATTRIBUTES,
+      BATCH_EVENTS,
+      BATCH_GAP_MS,
       BOTTOM_SLACK_PX,
       DEFAULT_ENABLED,
       DRIVER_ID,
@@ -759,6 +1047,7 @@ window.__ModuleLoader__.load({
       MAX_STALLED_PAGES,
       PAGE_DELAY_MS,
       PLUGIN_ID,
+      READER_IDLE_MS,
       ROW_ORDER,
       SCROLL_SELECTOR,
       STORAGE_KEY,

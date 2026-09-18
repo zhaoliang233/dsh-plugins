@@ -12,8 +12,8 @@ npm publish --dry-run      # 跑 prepublishOnly 并构造包，不上传
 ## 打 tag
 
 ```bash
-git tag dsh-auto-load-history-v0.1.3
-git push origin dsh-auto-load-history-v0.1.3
+git tag dsh-auto-load-history-v0.1.4
+git push origin dsh-auto-load-history-v0.1.4
 ```
 
 ## 安装路线
@@ -26,7 +26,7 @@ git push origin dsh-auto-load-history-v0.1.3
 release_root="$(mktemp -d /tmp/dsh-auto-load-history-release.XXXXXX)"
 mkdir -p "$release_root/artifacts"
 npm pack --ignore-scripts --pack-destination "$release_root/artifacts"
-tarball="$release_root/artifacts/dsh-auto-load-history-0.1.2.tgz"   # 换成本次发布的版本
+tarball="$release_root/artifacts/dsh-auto-load-history-0.1.4.tgz"   # 换成本次发布的版本
 DSH_HOME="$release_root/dsh-home" \
   dsh plugin --profile web add "$tarball" --config.minimumReleaseAge=0
 DSH_HOME="$release_root/dsh-home" dsh web --dump-config
