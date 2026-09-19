@@ -9,9 +9,12 @@ const manifest = JSON.parse(
 const output = execFileSync(
   'npm',
   ['pack', '--dry-run', '--json', '--ignore-scripts'],
-  { cwd: packageRoot, encoding: 'utf8' }
+  { cwd: packageRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
 )
-const [pack] = JSON.parse(output)
+// npm 10 reports an array of pack results, newer npm reports an object keyed by package
+// name; accept both instead of pinning the gate to one CLI version.
+const parsed = JSON.parse(output)
+const [pack] = Array.isArray(parsed) ? parsed : Object.values(parsed)
 const actualFiles = pack.files.map((entry) => entry.path).sort()
 const expectedFiles = [
   'CHANGELOG.md',

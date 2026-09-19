@@ -1,0 +1,16 @@
+# Keep every text file LF in the working tree on every platform.
+#
+# Several gates assert exact file contents (cordis.patch.yml, client.js) and would otherwise fail
+# on a Windows checkout where git's autocrlf turns those files into CRLF — the same files that are
+# published and verified on Linux. Normalising removes that whole class of false failures.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.tgz binary
