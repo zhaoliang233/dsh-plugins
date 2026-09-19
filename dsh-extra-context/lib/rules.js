@@ -50,19 +50,16 @@ export function estimateTokens(text) {
 }
 
 /**
- * 生成稳定、可读、可去重的分段 id。
- * @param {string} label 分段标签
- * @param {ReadonlyArray<{id?: string}>} existing 已有分段
+ * 生成一把未被占用的分段 id。
+ *
+ * id 只是一把稳定的键：分段没有名称之后（`label` 字段已从设置 schema 与界面移除），
+ * 它不再从任何文本派生，固定基名 `segment`，冲突时依次退让到 `segment-2`、`segment-3`…
+ * @param {Iterable<string>} takenIds 已被占用的 id
  * @returns {string}
  */
-export function createSegmentId(label, existing = []) {
-  const slug = String(label ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fff]+/gu, '-')
-    .replace(/^-+|-+$/gu, '')
-  const base = slug === '' ? 'segment' : slug.slice(0, 40)
-  const taken = new Set(existing.map((segment) => segment?.id).filter((id) => typeof id === 'string'))
+export function createSegmentId(takenIds = []) {
+  const taken = takenIds instanceof Set ? takenIds : new Set(takenIds)
+  const base = 'segment'
   if (!taken.has(base)) return base
   for (let suffix = 2; suffix < 1000; suffix += 1) {
     const candidate = `${base}-${String(suffix)}`
@@ -74,17 +71,18 @@ export function createSegmentId(label, existing = []) {
 /**
  * 规范化一个分段：只保留已知字段并修正类型，避免外部编辑进来的脏数据
  * 在渲染时把整次 prompt 组装弄崩。
+ *
+ * 分段只有 id / enabled / text；老数据里残留的 `label`（已移除的分段名称）
+ * 在这里被丢弃，不再进入状态接口与渲染路径。
  * @param {unknown} value
  * @param {number} index
- * @returns {{id: string, label: string, enabled: boolean, text: string}}
+ * @returns {{id: string, enabled: boolean, text: string}}
  */
 export function normalizeSegment(value, index = 0) {
   const record = value !== null && typeof value === 'object' ? value : {}
   const id = typeof record.id === 'string' && record.id.trim() !== '' ? record.id.trim() : `segment-${String(index + 1)}`
-  const label = typeof record.label === 'string' ? record.label : ''
   return {
     id,
-    label,
     enabled: record.enabled !== false,
     text: typeof record.text === 'string' ? record.text : ''
   }
@@ -101,14 +99,14 @@ export function normalizeSettings(value) {
   const rawSegments = Array.isArray(record.segments) ? record.segments : DEFAULT_SETTINGS.segments
   const segments = rawSegments.map((segment, index) => normalizeSegment(segment, index))
   const seen = new Set()
-  const deduped = segments.map((segment, index) => {
+  const deduped = segments.map((segment) => {
     if (!seen.has(segment.id)) {
       seen.add(segment.id)
       return segment
     }
-    const id = createSegmentId(segment.id, [...seen].map((taken) => ({ id: taken })))
+    const id = createSegmentId(seen)
     seen.add(id)
-    return { ...segment, id, label: segment.label === '' ? `分段 ${String(index + 1)}` : segment.label }
+    return { ...segment, id }
   })
   const maxBytes = Number.isFinite(record.maxBytes) && Number(record.maxBytes) > 0 ? Math.trunc(Number(record.maxBytes)) : DEFAULT_MAX_BYTES
   return {
@@ -171,7 +169,6 @@ export function buildStatus(value, options = {}) {
   const segments = settings.segments
     .map((segment) => ({
       id: segment.id,
-      label: segment.label,
       enabled: segment.enabled,
       text: segment.text,
       bytes: byteLength(segment.text),

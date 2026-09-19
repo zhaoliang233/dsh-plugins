@@ -52,10 +52,12 @@ window.__ModuleLoader__.load({
     /**
      * Cutoffs. `hours`/`days` are rolling windows; `dayBoundary` starts at local
      * midnight so that "1 天前" means yesterday and earlier rather than being a
-     * duplicate of the rolling 24-hour window. The archive rule is authored by
-     * the user, never by a timer.
+     * duplicate of the rolling 24-hour window; `unbounded` is "所有时间", the one
+     * option that drops the time condition entirely so every chat is a
+     * candidate. The archive rule is authored by the user, never by a timer.
      */
     const BATCH_PRESETS = [
+      { id: 'all', label: '所有时间', unbounded: true },
       { id: '24h', label: '24 小时前', hours: 24 },
       { id: '1d', label: '1 天前', dayBoundary: true },
       { id: '7d', label: '7 天前', days: 7 },
@@ -355,10 +357,16 @@ window.__ModuleLoader__.load({
       return time
     }
 
-    /** Resolve the chosen time condition to a local cutoff instant. */
+    /**
+     * Resolve the chosen time condition to a local cutoff instant. `+Infinity`
+     * is the explicit "所有时间" value — every chat is strictly older than it, so
+     * the time filter accepts all of them — while an unknown preset or an
+     * invalid custom date stays `undefined` and fails closed to no candidates.
+     */
     function resolveCutoff(presetId, dateValue, now) {
       const preset = BATCH_PRESETS.find(item => item.id === presetId)
       if (preset === undefined) return undefined
+      if (preset.unbounded === true) return Number.POSITIVE_INFINITY
       if (preset.dayBoundary === true) {
         const startOfToday = new Date(now)
         startOfToday.setHours(0, 0, 0, 0)
@@ -376,7 +384,10 @@ window.__ModuleLoader__.load({
      */
     function batchCandidates(options) {
       const { workspaceState, sessionState, cutoff, scope, include } = options
-      if (typeof cutoff !== 'number' || !Number.isFinite(cutoff)) return []
+      // `+Infinity` is 所有时间 and passes on purpose; only a missing or NaN
+      // cutoff — an unknown preset, an unparsable custom date — still yields no
+      // candidates. (A negative cutoff is kept as-is and matches nothing.)
+      if (typeof cutoff !== 'number' || Number.isNaN(cutoff)) return []
       const archived = new Set(Array.isArray(workspaceState?.archivedSessionIds)
         ? workspaceState.archivedSessionIds
         : [])
@@ -454,7 +465,10 @@ window.__ModuleLoader__.load({
      */
     function deletionCandidates(options) {
       const { workspaceState, sessionState, cutoff, scope, include } = options
-      if (typeof cutoff !== 'number' || !Number.isFinite(cutoff)) return []
+      // `+Infinity` is 所有时间 and passes on purpose; only a missing or NaN
+      // cutoff — an unknown preset, an unparsable custom date — still yields no
+      // candidates. (A negative cutoff is kept as-is and matches nothing.)
+      if (typeof cutoff !== 'number' || Number.isNaN(cutoff)) return []
       const archivedIds = Array.isArray(workspaceState?.archivedSessionIds)
         ? workspaceState.archivedSessionIds
         : []
@@ -1532,9 +1546,11 @@ window.__ModuleLoader__.load({
                 }, option.label)))),
               React.createElement('div', { className: 'dac-field' },
                 React.createElement('span', { className: 'dac-field-label' },
-                  batchDeleting
-                    ? '时间条件（删除最近更新早于该时间点的归档聊天）'
-                    : '时间条件（归档最近更新早于该时间点的聊天）'),
+                  batch.cutoffPreset === 'all'
+                    ? '时间条件（不做时间过滤）'
+                    : batchDeleting
+                      ? '时间条件（删除最近更新早于该时间点的归档聊天）'
+                      : '时间条件（归档最近更新早于该时间点的聊天）'),
                 selectField({
                   'aria-label': batchDeleting ? '批量删除时间条件' : '批量归档时间条件',
                   value: batch.cutoffPreset,
@@ -1579,7 +1595,7 @@ window.__ModuleLoader__.load({
               React.createElement('p', { className: 'dac-note' },
                 `匹配 ${batchMatches.length} 条。${batchExcluded > 0 ? `另有 ${batchExcluded} 条因上述排除项未计入。` : ''}`),
               React.createElement('p', { className: 'dac-note' },
-                '“24 小时前”是从当前时间往前数 24 小时；“1 天前”包含昨天以及更早，即从本地今天 00:00 起算。其余预设为滚动 N×24 小时，自定义日期取所选日期的本地 00:00。'),
+                '“24 小时前”是从当前时间往前数 24 小时；“1 天前”包含昨天以及更早，即从本地今天 00:00 起算。其余预设为滚动 N×24 小时，自定义日期取所选日期的本地 00:00；“所有时间”不做时间过滤。'),
               React.createElement('p', { className: 'dac-note' },
                 '时间依据 DSH 列表显示的“最近更新”（创建时间与最后一次你的输入中较晚者）；子代理会话始终不参与。',
                 batchDeleting

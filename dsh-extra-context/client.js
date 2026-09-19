@@ -11,7 +11,12 @@ window.__ModuleLoader__.load({
     // 视觉上一个明显大一圈。官方图标集按 14/16 分档，跨档搭配就会不一致。
     // IconContextInjectionOutline16 单独用在设置页导航（壳层那一列的图标都是 16 档），
     // 与规则行不同行，不参与上面的同档约束。
-    const { IconCloseFill14, IconTriangleRightFill14, IconContextInjectionOutline16 } = require('@deepseek-ai/dsh-client-ui-primitives')
+    //
+    // Switch 是壳层自己的开关控件（`<button role="switch" aria-checked>`：36x20、
+    // 开启态品牌色轨道、圆形拇指、深浅主题与焦点环都跟随壳层），总开关与每行的启停
+    // 都用它。**不要自绘开关**：自绘出来的尺寸/配色/过渡必然与壳层不一致，而壳层已经
+    // 提供现成控件（`Switch.d.ts`：`{ checked, onChange, label, disabled, title, className }`）。
+    const { IconCloseFill14, IconTriangleRightFill14, IconContextInjectionOutline16, Switch } = require('@deepseek-ai/dsh-client-ui-primitives')
 
     /**
      * settings 命名空间控制器。apply() 创建它，组件通过闭包读取；
@@ -81,12 +86,17 @@ window.__ModuleLoader__.load({
       return value.length
     }
 
-    /** 规范化一个分段，容忍外部文档里的脏字段。 */
+    /**
+     * 规范化一个分段，容忍外部文档里的脏字段。
+     *
+     * 分段只有 id / enabled / text：`label`（分段名称）已随界面改版从代码与设置
+     * schema 里移除，所以这里**只挑已知字段**——老数据里残留的 label 会被丢弃，
+     * 而不是继续往后传。
+     */
     function normalizeSegment(value, index) {
       const record = value !== null && typeof value === 'object' ? value : {}
       return {
         id: typeof record.id === 'string' && record.id !== '' ? record.id : `segment-${String(index + 1)}`,
-        label: typeof record.label === 'string' ? record.label : '',
         enabled: record.enabled !== false,
         text: typeof record.text === 'string' ? record.text : ''
       }
@@ -111,7 +121,7 @@ window.__ModuleLoader__.load({
           seen.add(segment.id)
           return segment
         }
-        const id = createSegmentId(segment.id, [...seen].map((taken) => ({ id: taken })))
+        const id = createSegmentId(seen)
         seen.add(id)
         return { ...segment, id }
       })
@@ -122,11 +132,16 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** 生成不与现有分段冲突的新 id。 */
-    function createSegmentId(label, segments) {
-      const slug = String(label || '').trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/gu, '-').replace(/^-+|-+$/gu, '')
-      const base = slug === '' ? 'segment' : slug.slice(0, 40)
-      const taken = new Set((segments || []).map((segment) => segment.id))
+    /**
+     * 生成一把未被占用的分段 id。
+     *
+     * id 只是一把稳定的键（React key + 提交时的身份），分段没有名称之后它不再从
+     * 任何文本派生：固定基名 `segment`，冲突时依次退让到 `segment-2`、`segment-3`…
+     * @param {Iterable<string>} takenIds 已被占用的 id
+     */
+    function createSegmentId(takenIds) {
+      const taken = takenIds instanceof Set ? takenIds : new Set(takenIds || [])
+      const base = 'segment'
       if (!taken.has(base)) return base
       for (let suffix = 2; suffix < 1000; suffix += 1) {
         const candidate = `${base}-${String(suffix)}`
@@ -188,11 +203,15 @@ window.__ModuleLoader__.load({
 .dec-item-row{display:flex;align-items:center;gap:8px;padding:0 10px;min-height:44px}
 .dec-item-open .dec-item-row{background:var(--dsw-alias-bg-layer-2)}
 .dec-item-off .dec-item-preview{opacity:.5}
-.dec-check{flex:none;width:14px;height:14px;accent-color:var(--dsw-alias-brand-primary)}
+/* 开关外观完全归官方 Switch 组件（36x20、aria-checked 驱动配色、圆形拇指），
+   插件样式只负责定位：每行开关占行首，总开关贴动作行右侧。
+   不要在这里给开关写尺寸或颜色——那正是"自绘控件与壳层不一致"的老路。 */
+.dec-row-switch{flex:none}
+.dec-master{margin-left:auto;display:inline-flex;align-items:center;gap:8px}
+.dec-master-label{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .dec-item-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:row;align-items:center;gap:8px;padding:8px 0;cursor:pointer;background:none;border:0;text-align:left;font:inherit;color:inherit}
 .dec-item-main:hover .dec-item-preview{color:var(--dsw-alias-label-primary)}
 .dec-item-order{flex:none;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
-.dec-item-label{font-size:13px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dec-item-preview{font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dec-caret{flex:none;color:var(--dsw-alias-label-secondary);transition:transform .12s ease}
 .dec-caret-open{transform:rotate(90deg)}
@@ -206,16 +225,15 @@ window.__ModuleLoader__.load({
 .dec-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .dec-actions-end{justify-content:flex-end}
 .dec-btn{height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
-.dec-btn-on{background:var(--dsw-alias-bg-layer-2)}
 .dec-btn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-1)}
-.dec-btn-on:hover:not(:disabled){background:var(--dsw-alias-bg-layer-3)}
 .dec-btn:disabled{opacity:.45;cursor:default}
 .dec-status{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-secondary)}
 .dec-footer{display:flex;flex-direction:column;gap:8px}
 /* 预览模块：小标题 / 说明 / 内容 / 消耗 四行分区，整体仍是一个带边框的容器 */
 .dec-preview{margin:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
+/* 预览卡片只有两段：内容（详情）／消耗。位置与优先级的说明属于页面级文案，
+   已移到标题下方的 .dec-intro-line，卡片里不再有说明段（用户明确要求）。 */
 .dec-preview-heading{margin:0;font-size:13px;font-weight:600;line-height:20px;color:var(--dsw-alias-label-primary)}
-.dec-preview-note{margin:0;padding:9px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
 .dec-preview-text{padding:10px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto}
 .dec-preview-cost{margin:0;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);display:flex;flex-direction:column;gap:2px}
 .dec-preview-cost-value{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
@@ -449,26 +467,26 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 一条规则。
+     * 一条上下文。
      *
-     * 折叠态只占一行：看到的是"正文摘要"——这直接回答"到底加载了哪些上下文"。
-     * 名称是可选的，只有填写过才作为副标题显示。点这一行展开编辑。
+     * 折叠态只占一行：行首是启停开关，随后是序号与"正文摘要"——后者直接回答
+     * "到底加载了哪些上下文"。点这一行展开编辑。
      */
     function SegmentCard(props) {
-      // 注意：输入控件（勾选框 / 正文）刻意不绑 busy。
+      // 注意：输入控件（正文 / 每行的启停开关）刻意不绑 busy。
       // 自动写入会把 busy 置真，而给已聚焦元素加 disabled 会让浏览器强制失焦，
       // 表现为"打字一停顿就无法继续输入"。
       const { segment, index, expanded, onToggleExpand, onChange, onToggle, onRemove, onCommit } = props
       const row = [
-        React.createElement('input', {
+        // 官方 Switch（不是自绘开关，也不再是原生 checkbox）。
+        // 与正文输入一样**不绑 busy**：写入期间给聚焦控件加 disabled 会让浏览器强制失焦。
+        React.createElement(Switch, {
           key: 'toggle',
-          className: 'dec-check',
-          type: 'checkbox',
+          className: 'dec-row-switch',
           checked: segment.enabled,
           disabled: false,
-          'aria-label': `启用第 ${String(index + 1)} 条规则`,
-          onBlur: onCommit,
-          onChange: (event) => onToggle(event.target.checked)
+          label: `启用第 ${String(index + 1)} 条上下文`,
+          onChange: (next) => onToggle(next)
         }),
         React.createElement('button', {
           key: 'main',
@@ -516,7 +534,10 @@ window.__ModuleLoader__.load({
             onChange: (event) => onChange({ text: event.target.value })
           }),
           React.createElement('div', { className: 'dec-actions', key: 'meta' }, [
-            React.createElement('span', { className: 'dec-status', key: 'status' }, `${String(characterCount(segment.text))} 字`)
+            // 计数单位与预览区保持一致：都用「字符」（用户实测反馈：一处写「N 字」、
+            // 一处写「约 N 个字符」，同一个数字两种叫法）。
+            // 这条是**精确**字素计数，不加"约"；"约"留给预览里的 token 估算。
+            React.createElement('span', { className: 'dec-status', key: 'status' }, `${String(characterCount(segment.text))} 个字符`)
           ])
         ]))
       }
@@ -762,9 +783,9 @@ window.__ModuleLoader__.load({
       return renderSectionView({ actions, state, helpers: { createSegmentId } })
     }
 
-    /** 空列表提示：区分"设置尚未读回来"与"确实没有规则"。 */
+    /** 空列表提示：区分"设置尚未读回来"与"确实没有上下文"。 */
     function emptyStateHint(isReady) {
-      return isReady ? '还没有规则。添加一条，写清你希望所有对话都遵守的内容。' : '正在读取设置…'
+      return isReady ? '还没有上下文。点「添加上下文」写一段，之后新开的对话都会带上它。' : '正在读取设置…'
     }
 
     /**
@@ -786,7 +807,7 @@ window.__ModuleLoader__.load({
       const segments = local.segments.slice()
 
       /**
-       * 改一条规则：立刻反映到界面，写设置留到失焦。
+       * 改一条上下文：立刻反映到界面，写设置留到失焦。
        *
        * 不在输入过程中写入——写入会触发重渲染与状态回读，用户的输入位置会被打断。
        */
@@ -797,10 +818,10 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * 勾选/取消勾选：立即生效。
+       * 每行的启停开关：立即生效。
        *
-       * 与正文输入不同，勾选是一次明确的点击动作，没有"边打边看"的过程，
-       * 所以当场提交（曾经只改本地不提交，表现为"勾了没用、预览也不变"）。
+       * 与正文输入不同，切开关是一次明确的点击动作，没有"边打边看"的过程，
+       * 所以当场提交（曾经只改本地不提交，表现为"切了像没切、预览也不变"）。
        */
       function toggleSegment(index, enabled) {
         const next = segments.slice()
@@ -818,8 +839,8 @@ window.__ModuleLoader__.load({
       }
 
       function addSegment() {
-        const id = helpers.createSegmentId('', segments)
-        const next = segments.concat([{ id, label: '', enabled: true, text: '' }])
+        const id = helpers.createSegmentId(segments.map((segment) => segment.id))
+        const next = segments.concat([{ id, enabled: true, text: '' }])
         setExpandedId(id)
         editLocal({ ...local, segments: next }, { segments: next })
         commitPending()
@@ -829,12 +850,15 @@ window.__ModuleLoader__.load({
 
       // 标题与说明：与官方设置页一致——标题 18/600，说明 13 三级色，
       // 两者是外层容器的两个子元素（由区段 gap 撑开），说明内部再留小间距。
+      // 「它写在最前面、优先于其他说明」这句是**页面级**说明（位置与优先级），
+      // 归这里；预览卡片只呈现内容与消耗，不要再把它塞回卡片里（用户明确要求）。
       children.push(React.createElement('div', { className: 'dec-heading', key: 'head' }, [
         React.createElement('p', { className: 'dec-title', key: 't' }, '额外上下文'),
-        React.createElement('p', { className: 'dec-intro-line', key: 'intro' }, '这里写的规则会附加到之后新开的对话里持续生效，改动只影响新开的对话——如果某个对话里看不到这些规则，通常是该对话的 Agent 预设也定义了同名设置。')
+        React.createElement('p', { className: 'dec-intro-line', key: 'intro' }, '它写在每次对话的最前面，优先于其他说明。这里写的上下文会附加到之后新开的对话里持续生效，改动只影响新开的对话——如果某个对话里看不到这些内容，通常是该对话的 Agent 预设也定义了同名设置。')
       ]))
 
-      // 操作行：添加规则与总开关同一行
+      // 操作行：左侧「添加上下文」，右侧功能总开关（官方 Switch，贴右）。
+      // 总开关是硬开关：关闭后整段上下文都不进入提示词，所以点一下当场提交。
       children.push(React.createElement('div', { className: 'dec-actions', key: 'add-row' }, [
         React.createElement('button', {
           key: 'add',
@@ -843,15 +867,19 @@ window.__ModuleLoader__.load({
           disabled: busy || !writable,
           onBlur: commitPending,
           onClick: addSegment
-        }, '+ 添加规则'),
-        React.createElement('button', {
-          key: 'switch',
-          type: 'button',
-          className: local.enabled ? 'dec-btn dec-btn-on' : 'dec-btn',
-          disabled: busy || !writable,
-          onBlur: commitPending,
-          onClick: () => void flush({ enabled: !local.enabled })
-        }, local.enabled ? '已开启' : '已关闭')
+        }, '+ 添加上下文'),
+        React.createElement('span', { className: 'dec-master', key: 'master' }, [
+          React.createElement('span', { className: 'dec-master-label', key: 'label' }, '总开关'),
+          React.createElement(Switch, {
+            key: 'switch',
+            className: 'dec-master-switch',
+            checked: local.enabled,
+            // 与其它动作按钮一致：写入进行中禁用（输入控件不参与，见本文件相关注释）
+            disabled: busy || !writable,
+            label: '额外上下文总开关',
+            onChange: (next) => void flush({ enabled: next })
+          })
+        ])
       ]))
 
       // 规则列表
@@ -888,19 +916,18 @@ window.__ModuleLoader__.load({
       }
 
       // 预览常显：它就是这段上下文最终的样子，不做成可关闭的按钮。
-      // 「预览」标题在卡片之外；卡片内三段：说明（浅色底）／内容／消耗。
+      // 「预览」标题在卡片之外；卡片内只有两段：内容（详情）／消耗。
+      // 位置与优先级的说明属于页面级文案，已上移到标题下方的 dec-intro-line。
       {
         const { text, overBudget, bytes, chars, tokens } = preview
         children.push(React.createElement('p', { className: 'dec-preview-heading', key: 'preview-heading' }, '预览'))
         children.push(React.createElement('div', { className: 'dec-preview', key: 'preview-body' }, [
-          React.createElement('p', { className: 'dec-preview-note', key: 'note' },
-            '它写在每次对话的最前面，优先于其他说明。'),
           React.createElement('div', { className: 'dec-preview-text', key: 'text' },
             text !== '' ? text : '（当前为空：不会向对话附加任何内容）'),
           React.createElement('div', { className: 'dec-preview-cost', key: 'cost' }, [
             React.createElement('span', { className: 'dec-preview-cost-value', key: 'value' }, `约 ${String(chars)} 个字符 · 约 ${String(tokens)} tokens`),
             overBudget
-              ? React.createElement('span', { className: 'dec-preview-warn', key: 'warn' }, '内容偏长，建议精简或拆成按需启用的规则')
+              ? React.createElement('span', { className: 'dec-preview-warn', key: 'warn' }, '内容偏长，建议精简或拆成按需启用的上下文')
               : null
           ].filter((node) => node !== null))
         ]))

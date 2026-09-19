@@ -286,7 +286,10 @@ test('filters rows by title, directory, and workspace title', () => {
 test('resolves rolling, day-boundary, and custom-date cutoffs', () => {
   const { internals } = pluginDefinition()
   const now = new Date(2026, 4, 10, 15, 30, 0, 0).getTime()
-  assert.deepEqual(internals.BATCH_PRESETS.map(preset => preset.id), ['24h', '1d', '7d', '15d', '30d', '90d', 'date'])
+  assert.deepEqual(internals.BATCH_PRESETS.map(preset => preset.id),
+    ['all', '24h', '1d', '7d', '15d', '30d', '90d', 'date'])
+  assert.equal(internals.resolveCutoff('all', '', now), Number.POSITIVE_INFINITY)
+  assert.equal(internals.resolveCutoff('all', '2026-02-31', now), Number.POSITIVE_INFINITY)
   assert.equal(internals.resolveCutoff('24h', '', now), now - 24 * 60 * 60 * 1000)
   assert.equal(internals.resolveCutoff('1d', '', now), new Date(2026, 4, 10, 0, 0, 0, 0).getTime())
   assert.equal(internals.resolveCutoff('7d', '', now), now - 7 * 24 * 60 * 60 * 1000)
@@ -405,6 +408,47 @@ test('selects batch candidates with explicit exclusions and a strict cutoff', ()
     scope: { kind: 'all' },
     include: {}
   }), [])
+})
+
+test('treats 所有时间 as no time filter instead of an empty candidate set', () => {
+  const { internals } = pluginDefinition()
+  const now = new Date(2026, 4, 10, 15, 30, 0, 0).getTime()
+  const workspaceState = {
+    items: [{ workspaceId: 'w1', path: '/one', title: 'one', sessionIds: ['just-now'] }],
+    archivedSessionIds: ['archived', 'fresh-archived']
+  }
+  const sessionState = {
+    ids: ['just-now', 'archived', 'fresh-archived', 'child', 'blank', 'running'],
+    byId: {
+      'just-now': archivedRow({ id: 'just-now', updatedAt: now }),
+      archived: archivedRow({ id: 'archived', updatedAt: 100 }),
+      'fresh-archived': archivedRow({ id: 'fresh-archived', updatedAt: now }),
+      child: archivedRow({ id: 'child', updatedAt: 100, origin: 'subagent' }),
+      blank: archivedRow({ id: 'blank', updatedAt: 100, blank: true }),
+      running: archivedRow({ id: 'running', updatedAt: 100, running: true })
+    }
+  }
+  const none = { running: false, blank: false, current: false }
+  const everything = { running: true, blank: true, current: true }
+  const all = internals.resolveCutoff('all', '', now)
+  const pick = (cutoff, include) => internals.batchCandidates({
+    workspaceState, sessionState, cutoff, scope: { kind: 'all' }, include
+  }).map(row => row.id)
+  const pickDeleted = (cutoff, include) => internals.deletionCandidates({
+    workspaceState, sessionState, cutoff, scope: { kind: 'all' }, include
+  }).map(row => row.id)
+
+  // 所有时间 reaches a chat updated a moment ago — which no rolling preset can
+  // express — while the explicit default exclusions still apply.
+  assert.deepEqual(pick(all, none), ['just-now'])
+  assert.deepEqual(pick(all, everything), ['just-now', 'blank', 'running'])
+  // Permanent deletion draws from the archived set, and there the same option is
+  // what makes an archived-but-recent chat deletable at all.
+  assert.deepEqual(pickDeleted(all, none), ['fresh-archived', 'archived'])
+  assert.deepEqual(pickDeleted(internals.resolveCutoff('24h', '', now), none), ['archived'])
+  // An unparsable custom date still fails closed to no candidates.
+  assert.deepEqual(pick(internals.resolveCutoff('date', '2026-02-31', now), everything), [])
+  assert.deepEqual(pickDeleted(internals.resolveCutoff('unknown', '', now), everything), [])
 })
 
 test('selects permanent-deletion candidates from the archived set only', () => {

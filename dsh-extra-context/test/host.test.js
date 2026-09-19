@@ -151,9 +151,11 @@ test('normalizeSettings 对脏数据保持形状稳定', () => {
   assert.equal(dirty.maxBytes, DEFAULT_MAX_BYTES)
   assert.equal(dirty.segments.length, 3)
   assert.equal(dirty.segments[0].enabled, true)
-  assert.equal(dirty.segments[0].label, '')
+  // label 已随界面改版移除：规范化结果里不得再出现该字段（脏数据里的 7 也不能留下）
+  assert.equal(Object.hasOwn(dirty.segments[0], 'label'), false, '规范化必须丢弃已移除的 label 字段')
   // order 已随排序功能移除：规范化结果里不应再出现该字段
   assert.equal(Object.hasOwn(dirty.segments[0], 'order'), false)
+  assert.deepEqual(Object.keys(dirty.segments[0]).sort(), ['enabled', 'id', 'text'], '分段只有 id/enabled/text 三个字段')
   assert.equal(dirty.segments[1].id, 'segment-2')
   assert.notEqual(dirty.segments[2].id, 'a')
   assert.equal(new Set(dirty.segments.map((segment) => segment.id)).size, 3)
@@ -180,7 +182,7 @@ test('renderExtraContext 渲染分段，禁用或空内容时不贡献任何文�
   })
   assert.equal(rendered.includes('回答用中文。'), true)
   assert.equal(rendered.includes('提交信息不要超过 10 行。'), true)
-  // 分段名称不得出现在给模型看的文本里
+  // label 字段已移除：即便老数据里还留着分段名称，也绝不能出现在给模型看的文本里
   assert.equal(rendered.includes('【长期偏好】'), false)
   assert.equal(rendered.includes('长期偏好'), false)
   assert.equal(rendered.startsWith('以下内容由用户在'), true)
@@ -206,6 +208,8 @@ test('buildStatus 报告分段明细与预算', () => {
   assert.deepEqual(status.segments.map((segment) => segment.id), ['a', 'b'])
   assert.equal(status.segments[0].effective, true)
   assert.equal(status.segments[1].effective, false)
+  // label 已移除：状态接口也不能再把老数据里的 label 透出去
+  assert.equal(status.segments.every((segment) => Object.hasOwn(segment, 'label') === false), true, '状态里的分段不再含 label 字段')
   assert.equal(status.sectionName, SECTION_NAME)
   assert.equal(status.sectionOrder, SECTION_ORDER)
   assert.equal(status.overBudget, true)
@@ -221,10 +225,13 @@ test('字节数与 token 估算', () => {
   assert.equal(byteLength('中文') === 6, true)
   assert.equal(estimateTokens('中文字符') === 4, true)
 })
-test('createSegmentId 避免重复且对相同标签稳定', () => {
-  assert.equal(createSegmentId('Long Term', []), 'long-term')
-  assert.equal(createSegmentId('Long Term', [{ id: 'long-term' }]), 'long-term-2')
-  assert.equal(createSegmentId('', []), 'segment')
+test('createSegmentId 只在没有冲突时给出 segment，其余依次退让', () => {
+  // 分段没有名称之后，id 不再从文本派生：固定基名 + 冲突后缀（界面与宿主两侧同款）
+  assert.equal(createSegmentId([]), 'segment')
+  assert.equal(createSegmentId(['segment']), 'segment-2')
+  assert.equal(createSegmentId(['segment', 'segment-2']), 'segment-3')
+  assert.equal(createSegmentId(new Set(['segment', 'segment-2', 'segment-3'])), 'segment-4')
+  assert.equal(createSegmentId(['anything-else']), 'segment', '与已有 id 无关时仍用基名')
 })
 
 /** 构造一个足以跑通宿主装配的伪 Cordis 上下文。 */
@@ -418,6 +425,9 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
     const schema = state.registers[0].schema
     assert.equal(typeof schema.toJSON, 'function', '注册的必须是真正的 schemastery schema')
     assert.equal(typeof schema.toJSON().uid, 'number')
+    // 分段形状只声明 id/enabled/text：label 已从设置 schema 移除
+    // （schemastery 对未知键是"原样保留"，所以老文件里的 label 不会让校验失败，只是不再被声明）
+    assert.equal(JSON.stringify(schema.toJSON()).includes('"label"'), false, '设置 schema 不得再声明 label 字段')
 
     // 「尚未配置」时保留组合层基线；用户写入后以设置为准。
     assert.equal(sectionText(state).includes('组合层基线'), true)
@@ -434,7 +444,7 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
  * 真实缺陷：`loadSchemastery` 曾把 `require.resolve` 的返回值（文件系统路径）直接交给
  * `import()`。Windows 上 `C:` 会被当成 URL 协议，抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，
  * 异常被捕获后 schema 变 null → settings 命名空间静默不注册 → 状态接口 `writable:false`
- * → 设置页「+ 添加规则」与总开关被永久禁用（用户实测反馈）。修法是 `pathToFileURL`。
+ * → 设置页「+ 添加上下文」与右侧总开关被永久禁用（用户实测反馈）。修法是 `pathToFileURL`。
  *
  * 这里的假 DSH 根**不需要真 schemastery**：只要 node_modules 里有一个真实的包，
  * `require.resolve` 就会返回绝对文件路径，正好复现那条装载路径——装载失败时

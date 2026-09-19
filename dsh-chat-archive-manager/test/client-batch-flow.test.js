@@ -462,7 +462,7 @@ test('scopes a batch to one workspace group and lists newly archived rows', asyn
     const presetSelect = elements(tree).find(element => element.props?.['aria-label'] === '批量归档时间条件')
     assert.deepEqual(
       elements(presetSelect).filter(element => element.type === 'option').map(option => option.children[0]),
-      ['24 小时前', '1 天前', '7 天前', '15 天前', '30 天前', '90 天前', '自定义日期']
+      ['所有时间', '24 小时前', '1 天前', '7 天前', '15 天前', '30 天前', '90 天前', '自定义日期']
     )
     assert.equal(classTexts(tree, 'dac-note').some(text => text.includes('匹配 1 条')), true)
 
@@ -689,6 +689,57 @@ test('renders the custom date condition as a themed date field', async () => {
     dateInput.props.onChange({ target: { value: '2026-01-02' } })
     tree = await flow.mini.settle()
     assert.equal(classTexts(tree, 'dac-note').some(text => text.includes('匹配 0 条')), true)
+  } finally {
+    await flow.close()
+  }
+})
+
+test('offers 所有时间 and reaches chats the rolling presets cannot', async () => {
+  const flow = await mountSection()
+  const timeLabel = (node) => elements(node)
+    .filter(element => element.props?.className === 'dac-field-label')
+    .map(element => texts(element))
+    .find(text => text.includes('时间条件'))
+  try {
+    button(flow.tree, '批量归档').props.onClick()
+    let tree = await flow.mini.settle()
+    assert.equal(timeLabel(tree), '时间条件（归档最近更新早于该时间点的聊天）')
+    assert.equal(classTexts(tree, 'dac-note').some(text => text.includes('匹配 1 条')), true)
+
+    const presetSelect = elements(tree).find(element => element.props?.['aria-label'] === '批量归档时间条件')
+    assert.equal(presetSelect.props.value, '30d')
+    presetSelect.props.onChange({ target: { value: 'all' } })
+    tree = await flow.mini.settle()
+    assert.equal(timeLabel(tree), '时间条件（不做时间过滤）')
+    assert.equal(classTexts(tree, 'dac-note').some(text =>
+      text.includes('匹配 2 条') && text.includes('另有 1 条因上述排除项未计入')), true)
+
+    button(tree, '下一步').props.onClick()
+    tree = await flow.mini.settle()
+    // The chat from a day ago is a candidate now; the running one stays excluded.
+    assert.deepEqual(elements(tree)
+      .filter(element => hasClassToken(element, 'dac-preview-title'))
+      .map(element => texts(element)), ['刚聊过', '很久没动'])
+    button(tree, '开始归档(2)').props.onClick()
+    tree = await flow.mini.settle()
+    assert.deepEqual(flow.archiveCalls, ['fresh', 'old'])
+    assert.deepEqual(classTexts(tree, 'dac-progress'), ['已归档 2 条。'])
+
+    // Permanent deletion gets the same reach: with the two chats archived, the
+    // recent one is only deletable under 所有时间.
+    button(tree, '完成').props.onClick()
+    tree = await flow.mini.settle()
+    button(tree, '批量删除').props.onClick()
+    tree = await flow.mini.settle()
+    assert.equal(classTexts(tree, 'dac-note').some(text => text.includes('匹配 1 条')), true)
+    const deletePresetSelect = elements(tree).find(element => element.props?.['aria-label'] === '批量删除时间条件')
+    deletePresetSelect.props.onChange({ target: { value: 'all' } })
+    tree = await flow.mini.settle()
+    assert.equal(timeLabel(tree), '时间条件（不做时间过滤）')
+    assert.equal(classTexts(tree, 'dac-note').some(text => text.includes('匹配 2 条')), true)
+    button(tree, '下一步').props.onClick()
+    tree = await flow.mini.settle()
+    assert.deepEqual(classTexts(tree, 'dac-batch-summary'), ['将永久删除 2 条，共 2 条候选。'])
   } finally {
     await flow.close()
   }

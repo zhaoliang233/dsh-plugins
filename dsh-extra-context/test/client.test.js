@@ -171,8 +171,8 @@ React.useLayoutEffect = function useLayoutEffect(fn, deps) {
 }
 
 /**
- * primitives 桩：只放 bundle 真正 import 的图标。
- * 多放会掩盖"引用了不存在的图标"这类错误——bundle 一旦 import 新图标就会立刻暴露。
+ * primitives 桩：只放 bundle 真正 import 的图标与组件。
+ * 多放会掩盖"引用了不存在的东西"这类错误——bundle 一旦 import 新的图标/组件就会立刻暴露。
  */
 // 图标桩返回真实的 <svg> 元素，而不是 null：
 // 浏览器里这些图标就是 svg，桩返回 null 会让"按钮里装的是什么"无法断言
@@ -182,7 +182,20 @@ const primitives = {
   // 与三角箭头同属 14 尺寸集；用 16 集（IconCloseOutline16）会大一圈
   IconCloseFill14: (props) => ({ type: 'svg', props: { ...(props || {}), viewBox: '0 0 14 14' }, children: [] }),
   // 设置页导航专用的 16 档图标：壳层那一列的图标都是 16 档
-  IconContextInjectionOutline16: (props) => ({ type: 'svg', props: { ...(props || {}), viewBox: '0 0 16 16' }, children: [] })
+  IconContextInjectionOutline16: (props) => ({ type: 'svg', props: { ...(props || {}), viewBox: '0 0 16 16' }, children: [] }),
+  /**
+   * 官方的开关控件桩：类型标成 `switch`。
+   *
+   * 这个标记很关键——"到底用的是壳层的 `Switch`，还是自绘的 `<input type="checkbox">`
+   * / `<button>`"在渲染树上因此可判定：自绘控件永远拿不到 `type === 'switch'`。
+   * 真实组件的契约（`Switch.d.ts`）：`{ checked, onChange, label, disabled }` →
+   * `<button role="switch" aria-checked={checked}>`，点击时回调 `onChange(!checked)`。
+   */
+  Switch: (props) => ({
+    type: 'switch',
+    props: { ...(props || {}), role: 'switch', 'aria-checked': props.checked === true },
+    children: []
+  })
 }
 
 function byteLengthOf(text) {
@@ -246,7 +259,12 @@ function declaredSymbols(source) {
   return declared
 }
 
-/** 默认宿主报告：一条规则。 */
+/**
+ * 默认宿主报告：一条上下文。
+ *
+ * 报告里**故意留着 `label` 与 `order`**（两个已移除的字段）：它们正是"老设置文档
+ * 残留字段"的真实形状，界面必须原样忽略，既不能显示出来、也不能再提交回去。
+ */
 function oneSegmentReport(overrides = {}) {
   return {
     ok: true,
@@ -344,7 +362,9 @@ function mountPanel(handler, hooks = {}) {
                 return {
                   ...before,
                   ...segment,
-                  label: segment.label !== '' ? segment.label : (before.label ?? segment.label),
+                  // label 字段已移除：界面不再提交它。这里沿用 `...before` 的语义
+                  // （与 schemastery 对未知键的 merge 行为一致）——老数据里的 label
+                  // 会留在宿主侧，界面必须继续忽略它。
                   text: segment.text.trim() !== '' ? segment.text : (before.text ?? segment.text)
                 }
               })
@@ -659,7 +679,7 @@ test('界面只保留功能文案，不出现实现细节', async () => {
     assert.equal(headerIndex !== -1 && timingIndex !== -1 && timingIndex <= headerIndex + 2, true, '生效时机应紧跟在顶部标题说明之后')
     // 刷新命令已移除：界面上不得再出现任何命令名
     assert.equal(texts.some((text) => text.includes('/context-refresh')), false, '不应再出现已移除的刷新命令')
-    assert.equal(texts.some((text) => text.includes('添加规则')), true)
+    assert.equal(texts.some((text) => text.includes('添加上下文')), true)
 
     // 说明：`tokens` 是用户明确要求的"消耗预览"用语（不是实现术语），故不在禁止之列；
     // `字节` 这类单位仍禁止，界面用"字符"表达体积。
@@ -673,7 +693,7 @@ test('界面只保留功能文案，不出现实现细节', async () => {
   }
 })
 
-test('顶部排版：标题与说明区分开，开关与添加规则同一行', async () => {
+test('顶部排版：标题与说明区分开，总开关贴右且与添加上下文同一行', async () => {
   const panel = mountPanel(oneSegmentReport)
   try {
     const tree = await panel.settle()
@@ -687,37 +707,48 @@ test('顶部排版：标题与说明区分开，开关与添加规则同一行',
     const introLines = headingNodes.filter((node) => node.props?.className === 'dec-intro-line')
     assert.equal(introLines.length, 1, '说明必须是一句话，不拆成多行')
 
-    // 开关与添加规则在同一行，且按钮之间有间距
-    const actionRow = nodes.find((node) => typeof node.props.className === 'string' && node.props.className.split(' ').includes('dec-actions') && JSON.stringify(node.children).includes('添加规则'))
-    assert.notEqual(actionRow, undefined, '添加规则必须与开关同一行')
-    const gapRule = /\.dec-actions\{([^}]*)\}/u.exec(await readFile(new URL('../client.js', import.meta.url), 'utf8'))
+    // 操作行：左侧「添加上下文」，右侧功能总开关，且两者之间有间距
+    const actionRow = nodes.find((node) => typeof node.props.className === 'string' && node.props.className.split(' ').includes('dec-actions') && JSON.stringify(node.children).includes('添加上下文'))
+    assert.notEqual(actionRow, undefined, '添加上下文与总开关必须同一行')
+    const source = await readFile(new URL('../client.js', import.meta.url), 'utf8')
+    const gapRule = /\.dec-actions\{([^}]*)\}/u.exec(source)
     assert.notEqual(gapRule, null, '必须定义动作行样式')
     assert.equal(/gap:\s*[1-9][0-9]*px/u.test(gapRule[1]), true, '动作行必须用非零 gap 拉开按钮')
     const labels = gatherStrings(actionRow)
-    assert.equal(labels.some((text) => text.includes('添加规则')), true)
-    assert.equal(labels.some((text) => text === '已开启' || text === '已关闭'), true, '开关按钮必须与添加规则同一行')
-    // 开关与添加规则使用同一套按钮外观（不再是自己那套胶囊样式）
-    const rowButtons = collect(actionRow).filter((node) => node.type === 'button')
-    const addButton = rowButtons.find((node) => JSON.stringify(node.children).includes('添加规则'))
-    const switchButton = rowButtons.find((node) => JSON.stringify(node.children).includes('已开') || JSON.stringify(node.children).includes('已关'))
+    assert.equal(labels.some((text) => text.includes('添加上下文')), true)
+    assert.equal(labels.includes('总开关'), true, '总开关必须有可见标签，否则不知道这个开关管什么')
+
+    // 总开关必须是**官方 Switch 组件**（自绘的 button/checkbox 拿不到 type 'switch'），
+    // 并且靠 `margin-left:auto` 贴在动作行右侧。
+    const masterSwitch = collect(actionRow).find((node) => node.type === 'switch')
+    assert.notEqual(masterSwitch, undefined, '总开关必须是官方 primitives 的 Switch，不得自绘')
+    assert.equal(masterSwitch.props['aria-checked'], true, '开关的可访问状态必须跟随当前设置')
+    assert.equal(masterSwitch.props.checked, true, '开关必须是受控的（checked 来自设置）')
+    assert.equal(typeof masterSwitch.props.onChange, 'function', '开关必须接上写入回调')
+    assert.equal(String(masterSwitch.props.label).length > 0, true, '开关必须有可访问名（aria-label）')
+    assert.equal(String(masterSwitch.props.className).includes('dec-master-switch'), true, '总开关需要自己的定位类')
+    const masterGroup = nodes.find((node) => node.props.className === 'dec-master')
+    assert.notEqual(masterGroup, undefined, '总开关需要一个容器来贴右')
+    assert.equal(collect(masterGroup).some((node) => node.type === 'switch'), true, '总开关必须装在这个容器里')
+    const masterRule = /\.dec-master\{([^}]*)\}/u.exec(source)
+    assert.notEqual(masterRule, null, '必须定义总开关容器样式')
+    assert.equal(/margin-left:auto/u.test(masterRule[1]), true, '总开关必须靠 margin-left:auto 贴到右侧')
+
+    // 添加按钮仍是普通按钮；界面上不得再有任何自绘的勾选框
+    const addButton = collect(actionRow).find((node) => node.type === 'button' && JSON.stringify(node.children).includes('添加上下文'))
     assert.equal(typeof addButton.props.className, 'string')
-    assert.equal(typeof switchButton.props.className, 'string')
-    assert.equal(switchButton.props.className.split(' ').includes('dec-btn'), true, '开关必须使用与添加规则相同的按钮基类')
-    assert.equal(addButton.props.className.includes('dec-switch'), false)
-    assert.equal(switchButton.props.className.includes('dec-switch'), false, '不应再使用独立的胶囊开关样式')
-    // 状态差异只能来自中性填充，不能再出现品牌描边（深色主题下 brand 是近白色，和相邻按钮不像一套）
-    assert.equal(switchButton.props.className.includes('dec-btn-primary'), false, '开关不得使用品牌色按钮变体')
-    assert.equal(switchButton.props.className.includes('dec-btn-on'), true, '开启态用中性填充变体')
-    const neutral = /(^|\s)dec-btn-on(\s|$)/u.test(switchButton.props.className)
-    assert.equal(neutral, true)
+    assert.equal(addButton.props.className.split(' ').includes('dec-btn'), true, '添加上下文仍是按钮')
+    assert.equal(source.includes('.dec-check'), false, '自绘勾选框样式必须彻底移除')
+    assert.equal(nodes.some((node) => node.props?.type === 'checkbox'), false, '不得再有原生 checkbox')
   } finally {
     panel.unmount()
   }
 })
 
-test('规则行只显示正文，不显示名称；添加按钮在列表之前', async () => {
+test('列表行只显示正文摘要与序号，已移除的 label 不得出现在界面上；添加按钮在列表之前', async () => {
   const panel = mountPanel(() => oneSegmentReport({
     // order 故意与数组顺序相反：用来证明列表按数组顺序展示，而不是按 order 排序
+    // label 是已移除字段：老设置文档里可能还留着，界面必须原样忽略
     segments: [
       { id: 'a', label: '长期偏好', enabled: true, order: 90, text: '第一条内容', bytes: 15, effective: true },
       { id: 'b', label: '规则 2', enabled: true, order: 10, text: '', bytes: 0, effective: false }
@@ -730,11 +761,11 @@ test('规则行只显示正文，不显示名称；添加按钮在列表之前',
 
     assert.equal(texts.includes('第一条内容'), true, '显示正文摘要')
     assert.equal(texts.includes('未填写内容'), true, '空正文给出占位')
-    assert.equal(texts.includes('长期偏好'), false, '规则行不得显示名称')
-    assert.equal(texts.includes('规则 2'), false, '规则行不得显示名称')
+    assert.equal(texts.includes('长期偏好'), false, 'label 字段已移除，不得出现在界面上')
+    assert.equal(texts.includes('规则 2'), false, 'label 字段已移除，不得出现在界面上')
     assert.equal(nodes.filter((node) => node.props.className === 'dec-input').length, 0, '不应有名称输入框')
 
-    const addIndex = nodes.findIndex((node) => node.type === 'button' && JSON.stringify(node.children).includes('添加规则'))
+    const addIndex = nodes.findIndex((node) => node.type === 'button' && JSON.stringify(node.children).includes('添加上下文'))
     const rowIndexes = nodes.map((node, i) => (node.props.className === 'dec-item-row' ? i : -1)).filter((i) => i !== -1)
     assert.equal(addIndex !== -1 && rowIndexes.length === 2 && addIndex < rowIndexes[0], true, '添加按钮应在列表上方')
 
@@ -753,6 +784,12 @@ test('规则行只显示正文，不显示名称；添加按钮在列表之前',
     assert.equal(orderLabels[0], '第 1 条')
     assert.equal(orderLabels[1], '第 2 条')
     assert.equal(orderLabels.some((label) => label.includes('NaN')), false, '位置编号不得出现 NaN')
+
+    // 每行的启停用的是**同一个官方 Switch**（不再是原生 checkbox），状态跟随该条的 enabled
+    const rowSwitches = nodes.filter((node) => node.type === 'switch' && node.props.className === 'dec-row-switch')
+    assert.equal(rowSwitches.length, 2, '每条上下文行首都必须有开关')
+    assert.deepEqual(rowSwitches.map((node) => node.props.checked), [true, true], '开关状态必须跟随该条自己的 enabled')
+    assert.equal(rowSwitches.every((node) => String(node.props.label).includes('条上下文')), true, '每个开关都要有能说清是哪一条的可访问名')
   } finally {
     panel.unmount()
   }
@@ -789,14 +826,13 @@ test('预览常显：无需点击、不可关闭，且带消耗提示', async ()
     assert.equal(collect(container).some((node) => node.props.className === 'dec-preview-heading'), false, '标题不得放在卡片内部')
     assert.equal(/附加|生效|预设|refresh/u.test(gatherStrings(heading).join('')), false, '说明不得并入标题')
 
-    // ② 说明：卡片内的首段分区，交代位置与生效方式
-    const note = collect(container).find((node) => node.props.className === 'dec-preview-note')
-    assert.notEqual(note, undefined, '说明必须是卡片内的首段')
-    const noteText = gatherStrings(note).join('')
-    assert.equal(noteText.includes('最前面'), true, '说明必须交代位置')
-    assert.equal(noteText.includes('优先'), true, '说明必须交代优先级')
-    // 不重复顶部已经讲过的"作用范围/被预设覆盖"，避免两处文案重复
-    assert.equal(/新开|不受影响|同名设置/u.test(noteText), false, '预览说明不得重复顶部的范围说明')
+    // ② 卡片内只有两段：内容（详情）／消耗——位置与优先级的说明已上移到标题下方，不得留在卡片里
+    assert.equal(collect(container).some((node) => node.props.className === 'dec-preview-note'), false,
+      '预览卡片不得再有说明段（它已移到设置页标题下方的说明里）')
+    const cardSections = (container.children ?? []).flat(Infinity)
+      .filter((node) => node !== null && typeof node === 'object' && typeof node.props?.className === 'string')
+      .map((node) => node.props.className)
+    assert.deepEqual(cardSections, ['dec-preview-text', 'dec-preview-cost'], '预览卡片必须恰好两段：内容 + 消耗')
 
     const scrollArea = collect(container).find((node) => node.props.className === 'dec-preview-text')
     assert.notEqual(scrollArea, undefined, '正文应有自己的滚动区')
@@ -809,7 +845,7 @@ test('预览常显：无需点击、不可关闭，且带消耗提示', async ()
   try {
     const texts = gatherStrings(await empty.settle())
     assert.equal(texts.some((text) => text.includes('不会向对话附加任何内容')), true)
-    assert.equal(texts.some((text) => text.includes('还没有规则')), true, '空状态给出指引')
+    assert.equal(texts.some((text) => text.includes('还没有上下文')), true, '空状态给出指引')
   } finally {
     empty.unmount()
   }
@@ -858,6 +894,10 @@ test('apply 必须按官方契约绑定设置命名空间：namespace + decode',
   const decoded = bound[0].decode({ enabled: false, segments: [{ id: 'a', text: 'x', enabled: true }] })
   assert.equal(decoded.enabled, false, 'decode 必须读到真正的 section 值')
   assert.equal(decoded.segments.length, 1, 'decode 必须保留规则')
+  // label 字段已移除：老设置文档里的 label 不能再流进组件状态（否则界面/提交会把它带回来）
+  const withStaleLabel = bound[0].decode({ segments: [{ id: 'a', label: '旧名称', text: 'x', enabled: true }] })
+  assert.equal(Object.hasOwn(withStaleLabel.segments[0], 'label'), false, 'decode 必须丢弃已移除的 label 字段')
+  assert.deepEqual(Object.keys(withStaleLabel.segments[0]).sort(), ['enabled', 'id', 'text'], '分段只有 id/enabled/text 三个字段')
   // 脏数据不得让 decode 抛错（面板会整页空白）
   for (const dirty of [undefined, null, 'x', 42, [], { segments: 'oops' }]) {
     const safe = bound[0].decode(dirty)
@@ -1264,16 +1304,18 @@ test('坏数据不得让界面崩掉：规则 id 冲突、缺字段、超长摘�
     assert.equal(texts.some((text) => text.includes('同 id 的脏数据')), true, '重复 id 的那条不得被整条丢弃')
     assert.equal(texts.some((text) => text.includes('未填写内容')), true, '空白正文必须显示"未填写内容"')
 
-    // 添加一条：id 冲突时必须生成不重复的 id（否则新规则会和旧规则互相覆盖）
-    const add = collect(tree).find((node) => node.type === 'button' && JSON.stringify(node.children).includes('添加规则'))
-    assert.notEqual(add, undefined, '必须有添加规则按钮')
+    // 添加一条：id 冲突时必须生成不重复的 id（否则新的那条会和旧的重叠）
+    const add = collect(tree).find((node) => node.type === 'button' && JSON.stringify(node.children).includes('添加上下文'))
+    assert.notEqual(add, undefined, '必须有添加上下文按钮')
     const before = panel.mutations.length
     add.props.onClick()
     for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
     assert.equal(panel.mutations.length > before, true, '添加必须提交')
     const submitted = panel.mutations[panel.mutations.length - 1][0]
     const ids = submitted.value.map((segment) => segment.id)
-    assert.equal(new Set(ids).size, ids.length, '脏数据存在时新增规则也不得产生重复 id')
+    assert.equal(new Set(ids).size, ids.length, '脏数据存在时新增也不得产生重复 id')
+    // 新建的分段不得再带上已移除的 label 字段（脏数据里那条有 label，也不能被带进新记录）
+    assert.equal(submitted.value.every((segment) => Object.hasOwn(segment, 'label') === false), true, '提交的分段不得再含 label 字段')
     assert.equal(gatherStrings(panel.render()).some((text) => text.includes('设置页渲染失败')), false, '添加时 id 冲突不得让整页报错')
   } finally {
     panel.unmount()
@@ -1332,10 +1374,13 @@ test('回归护栏：读回未返回时不得用旧值回滚在途输入', async
 })
 
 
-test('规则行的字数必须与用户看到的字数一致（不得用字节数冒充）', async () => {
+test('规则行的字数必须与用户看到的字数一致（不得用字节数冒充），且单位统一为「字符」', async () => {
   // 用户实测反馈："为什么规则的字符统计跟我看到的字数不一致?"
   // 根因：界面显示的是 UTF-8 **字节**数（一个汉字 3 字节），却写着"字"——
   // 实测一条 67 字的规则显示成 183，差 2.7 倍。
+  //
+  // 另一次用户反馈：同一份数字，行内写「N 字」、预览里写「约 N 个字符」——两种叫法。
+  // 现在界面**只允许**用「字符」作为计数单位。
   const { characterCount } = loadPlugin().__internals
   assert.equal(typeof characterCount, 'function', '必须导出字符计数（用于断言口径）')
 
@@ -1360,11 +1405,18 @@ test('规则行的字数必须与用户看到的字数一致（不得用字节�
   try {
     const nodes = collect(await panel.settle())
     findCaret(nodes).props.onClick()
-    const shown = gatherStrings(panel.render()).find((piece) => /^\d+ 字$/u.test(piece))
-    assert.notEqual(shown, undefined, '展开后必须显示字数')
-    const shownNumber = Number(/^(\d+) 字$/u.exec(shown)[1])
+    const texts = gatherStrings(panel.render())
+    const shown = texts.find((piece) => /^\d+ 个字符$/u.test(piece))
+    assert.notEqual(shown, undefined, '展开后必须显示字符数')
+    const shownNumber = Number(/^(\d+) 个字符$/u.exec(shown)[1])
     assert.equal(shownNumber, characterCount(text), `界面字数(${String(shownNumber)})必须等于实际字符数(${String(characterCount(text))})`)
     assert.equal(shownNumber === new TextEncoder().encode(text).length, false, '不得再显示字节数')
+
+    // 单位统一：预览里的消耗行同样是「个字符」，且整页不再出现裸露的「N 字」
+    const cost = texts.find((piece) => piece.includes('tokens'))
+    assert.notEqual(cost, undefined, '必须有消耗行')
+    assert.equal(cost.includes('个字符'), true, '消耗行必须用「字符」')
+    assert.equal(texts.some((piece) => / 字(?!符)/u.test(piece)), false, `界面上不得再用「字」作单位: ${texts.filter((piece) => / 字(?!符)/u.test(piece)).join(' | ')}`)
   } finally {
     panel.unmount()
   }
@@ -1391,18 +1443,20 @@ test('回归护栏：两个图标按钮必须内容同型且几何一致（否�
   // 关键：两个图标必须来自**同一尺寸集**（都以 14 结尾）。
   // 跨档搭配过一次（IconCloseOutline16 + IconTriangleRightFill14），
   // 实测 12x12 vs 5x8，视觉上一个明显大一圈。
-  const iconNames = iconImports[1].split(',').map((piece) => piece.trim()).filter((piece) => piece !== '')
-  assert.equal(iconNames.length >= 2, true, '必须同时导入关闭与三角图标')
+  const importedNames = iconImports[1].split(',').map((piece) => piece.trim()).filter((piece) => piece !== '')
+  assert.equal(importedNames.length >= 2, true, '必须同时导入关闭与三角图标')
+  assert.equal(importedNames.includes('Switch'), true, '开关必须来自官方 primitives，不得自绘')
+  const iconNames = importedNames.filter((name) => name !== 'Switch')
   // 关键：**同一行里**的两个图标必须来自同一尺寸集（都以 14 结尾）。
   const rowIcons = iconNames.filter((name) => name.includes('Close') || name.includes('TriangleRight'))
-  assert.equal(rowIcons.length, 2, '规则行必须导入关闭与展开两个图标')
+  assert.equal(rowIcons.length, 2, '上下文行必须导入关闭与展开两个图标')
   for (const name of rowIcons) {
-    assert.equal(/14$/u.test(name), true, `规则行图标 ${name} 必须属于 14 尺寸集（与同一行其它图标同档）`)
+    assert.equal(/14$/u.test(name), true, `上下文行图标 ${name} 必须属于 14 尺寸集（与同一行其它图标同档）`)
   }
-  // 其余导入只允许设置页导航那一个：导航整列都是 16 档，与规则行不同行、不受上面的同档约束。
+  // 其余导入只允许设置页导航那一个：导航整列都是 16 档，与上下文行不同行、不受上面的同档约束。
   // 这条同时守着"别顺手再加第三个图标"——新增图标前必须先确定它属于哪一档、跟谁同行。
   const navIcons = iconNames.filter((name) => !rowIcons.includes(name))
-  assert.deepEqual(navIcons, ['IconContextInjectionOutline16'], '除规则行两个图标外，只允许导入导航图标（16 档）')
+  assert.deepEqual(navIcons, ['IconContextInjectionOutline16'], '除上下文行两个图标外，只允许导入导航图标（16 档）')
   assert.equal(iconNames.some((name) => name.includes('Close')), true, '必须导入关闭图标')
   assert.equal(iconNames.some((name) => name.includes('TriangleRight')), true, '必须导入展开三角图标')
 
@@ -1411,7 +1465,7 @@ test('回归护栏：两个图标按钮必须内容同型且几何一致（否�
     const tree = await panel.settle()
     const iconButtons = collect(tree).filter((node) => node.type === 'button'
       && String(node.props.className).includes('dec-icon-btn'))
-    assert.equal(iconButtons.length >= 2, true, '规则行必须有删除与展开两个图标按钮')
+    assert.equal(iconButtons.length >= 2, true, '上下文行必须有删除与展开两个图标按钮')
     for (const button of iconButtons) {
       const content = Array.isArray(button.children) ? button.children : [button.children]
       assert.equal(content.some((child) => child !== null && typeof child === 'object'), true,
@@ -1429,35 +1483,39 @@ test('回归护栏：总开关点击必须当场提交，并同步预览', async
   const panel = mountPanel(oneSegmentReport)
   try {
     let tree = await panel.settle()
-    const switchButton = collect(tree).find((node) => node.type === 'button'
-      && (JSON.stringify(node.children).includes('已开启') || JSON.stringify(node.children).includes('已关闭')))
-    assert.notEqual(switchButton, undefined, '必须有总开关')
+    const master = collect(tree).find((node) => node.type === 'switch' && node.props.className === 'dec-master-switch')
+    assert.notEqual(master, undefined, '必须有总开关（官方 Switch）')
+    assert.equal(master.props.checked, true, '初始状态必须与设置一致')
 
     const before = panel.mutations.length
-    switchButton.props.onClick()
+    // 官方 Switch 的点击语义就是 onChange(!checked)；这里直接按这个契约驱动
+    master.props.onChange(!master.props.checked)
     for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
     assert.equal(panel.mutations.length > before, true, '切换总开关必须当场提交')
     const submitted = panel.mutations[panel.mutations.length - 1]
     assert.equal(submitted[0].path[0], 'enabled', '提交的必须是 enabled 字段')
     assert.equal(submitted[0].value, false, '提交内容必须反映新的开关状态')
 
-    // 关闭后预览必须立刻变空（总开关是硬开关，预览要与注入口径一致）
+    // 关闭后预览必须立刻变空（总开关是硬开关，预览要与注入口径一致），开关本身也要落到关闭态
     tree = panel.render()
     const preview = collect(tree).find((node) => node.props?.className === 'dec-preview-text')
     const body = preview === undefined ? '' : gatherStrings(preview).join('')
-    assert.equal(body.includes('用中文回答'), false, '关闭后预览不得再显示规则正文')
+    assert.equal(body.includes('用中文回答'), false, '关闭后预览不得再显示上下文正文')
     assert.equal(body.includes('额外上下文开始'), false, '关闭后预览不得再渲染包裹结构')
+    const afterSwitch = collect(tree).find((node) => node.type === 'switch' && node.props.className === 'dec-master-switch')
+    assert.equal(afterSwitch.props.checked, false, '关闭后开关必须显示为关闭')
+    assert.equal(afterSwitch.props['aria-checked'], false, '可访问状态必须与视觉状态一致')
   } finally {
     panel.unmount()
   }
 })
 
-test('回归护栏：添加规则必须提交、生成不重复的 id，并把新卡片展开', async () => {
+test('回归护栏：添加上下文必须提交、生成不重复的 id，并把新卡片展开', async () => {
   const panel = mountPanel(oneSegmentReport)
   try {
     let tree = await panel.settle()
-    const add = collect(tree).find((node) => node.type === 'button' && JSON.stringify(node.children).includes('添加规则'))
-    assert.notEqual(add, undefined, '必须有添加规则按钮')
+    const add = collect(tree).find((node) => node.type === 'button' && JSON.stringify(node.children).includes('添加上下文'))
+    assert.notEqual(add, undefined, '必须有添加上下文按钮')
 
     const before = panel.mutations.length
     add.props.onClick()
@@ -1465,13 +1523,15 @@ test('回归护栏：添加规则必须提交、生成不重复的 id，并把�
     assert.equal(panel.mutations.length > before, true, '添加必须提交')
     const submitted = panel.mutations[panel.mutations.length - 1][0]
     assert.equal(submitted.path[0], 'segments', '提交的必须是 segments')
-    assert.equal(submitted.value.length, 2, '必须提交包含新规则在内的完整列表')
+    assert.equal(submitted.value.length, 2, '必须提交包含新条目在内的完整列表')
     const ids = submitted.value.map((segment) => segment.id)
-    assert.equal(new Set(ids).size, ids.length, '新规则的 id 不得与已有规则重复')
+    assert.equal(new Set(ids).size, ids.length, '新条目的 id 不得与已有条目重复')
+    // 新条目的形状必须是 id/enabled/text：label 字段已随界面改版移除
+    assert.deepEqual(Object.keys(submitted.value[1]).sort(), ['enabled', 'id', 'text'], '新条目只允许 id/enabled/text 三个字段')
 
     // 新卡片必须展开（否则用户点了"添加"却看不到输入框）
     const textareas = collect(panel.render()).filter((node) => node.type === 'textarea')
-    assert.equal(textareas.length >= 1, true, '添加后必须能看到新规则的输入框')
+    assert.equal(textareas.length >= 1, true, '添加后必须能看到新条目的输入框')
   } finally {
     panel.unmount()
   }
@@ -1641,10 +1701,9 @@ test('预览容器的边框足够可见：不用最淡的 l1', async () => {
   assert.equal(listRules.length > 0, true, '必须有列表容器样式')
   assert.equal(listRules.some((rule) => rule.includes('var(--dsw-alias-border-l2)')), true, '列表边框必须用 l2 级')
 
-  // 说明是卡片首段，必须用底色与正文区分（用户明确要求）
-  const noteRule = /\.dec-preview-note\{[^}]*\}/u.exec(source)
-  assert.notEqual(noteRule, null, '必须定义说明区样式')
-  assert.equal(noteRule[0].includes('background'), true, '说明区必须有底色，与正文区分')
+  // 预览卡片只有内容与消耗两段：说明段已上移到页面级文案，样式也必须随之消失
+  // （留着 .dec-preview-note 就等于给"卡片里还有第三段"留了后门）
+  assert.equal(/\.dec-preview-note\{/u.test(source), false, '说明段样式必须随文案一起移除')
 
   const costRule = /\.dec-preview-cost\{[^}]*\}/u.exec(source)
   assert.notEqual(costRule, null, '必须有消耗行样式')
@@ -1655,15 +1714,25 @@ test('预览容器的边框足够可见：不用最淡的 l1', async () => {
   assert.equal(costRule[0].includes('brand-primary'), false, '消耗行不应使用品牌色装饰')
 })
 
-test('按钮视觉：不再使用品牌色描边变体', async () => {
+test('开关视觉：一律使用官方 Switch，不得自绘外观', async () => {
   const source = await readFile(new URL('../client.js', import.meta.url), 'utf8')
-  // 深色主题下 --dsw-alias-brand-primary 解析为近白色（#f9fafb），
-  // 会让"已开启"变成刺眼白边，与相邻按钮不像一套。官方选中态用的是中性填充。
+  // 旧实现把总开关做成自绘按钮（深色主题下品牌色描边是近白色 #f9fafb，与相邻按钮不像一套）。
+  // 现在两个开关都用壳层自己的 Switch，配色/尺寸/过渡全部由它负责。
   assert.equal(source.includes('dec-btn-primary'), false, '不应再定义/使用品牌色按钮变体')
-  const onRule = /\.dec-btn-on\{([^}]*)\}/u.exec(source)
-  assert.notEqual(onRule, null, '必须定义开启态填充')
-  assert.equal(onRule[1].includes('background'), true, '开启态必须靠背景填充区分')
-  assert.equal(onRule[1].includes('brand'), false, '开启态不得使用品牌色')
+  assert.equal(source.includes('dec-btn-on'), false, '开关不再由插件按钮变体表达开启态')
+  const imports = /const \{ ([^}]+) \} = require\('@deepseek-ai\/dsh-client-ui-primitives'\)/u.exec(source)
+  assert.notEqual(imports, null, '必须从官方 primitives 取控件')
+  const importedNames = imports[1].split(',').map((piece) => piece.trim())
+  assert.equal(importedNames.includes('Switch'), true, '必须导入官方 Switch')
+  // 两个开关都必须挂上自己的定位类（证明用的是同一个官方组件，而不是各写一套）
+  assert.equal(source.includes("className: 'dec-master-switch'"), true, '总开关必须用官方 Switch 并带定位类')
+  assert.equal(source.includes("className: 'dec-row-switch'"), true, '每行开关必须用官方 Switch 并带定位类')
+  // 插件样式只负责定位：不得给自绘的开关写外观（旧实现有 .dec-check 勾选框样式）
+  assert.equal(source.includes('.dec-check'), false, '不得再定义自绘勾选框样式')
+  const switchRules = [...source.matchAll(/\.dec-(master|row)-switch\{([^}]*)\}/gu)].map((match) => match[2])
+  for (const rule of switchRules) {
+    assert.equal(/background|border-radius|width:|height:/.test(rule), false, `开关外观归官方组件：${rule}`)
+  }
 })
 
 test('P1：内容偏长时给出人话提醒，未超限时不出现', async () => {
@@ -1698,15 +1767,28 @@ test('P1：内容偏长时给出人话提醒，未超限时不出现', async () 
   }
 })
 
-test('P1：位置说明写明它在系统指令位、且会被预设覆盖', async () => {
+test('位置与优先级说明写在设置页标题下方的说明里（预览卡片里不得再出现）', async () => {
+  // 用户明确要求：「它写在每次对话的最前面，优先于其他说明。」属于页面级说明，
+  // 必须出现在标题下方的 dec-intro-line；预览卡片只留内容与消耗两段。
   const panel = mountPanel(oneSegmentReport)
   try {
     const tree = await panel.settle()
-    const where = collect(tree).find((node) => node.props.className === 'dec-preview-note')
-    assert.notEqual(where, undefined, '必须有位置说明')
-    const text = gatherStrings(where).join('')
-    assert.equal(text.includes('最前面'), true, '必须说明它的位置')
-    assert.equal(text.includes('优先'), true, '必须说明它的优先级')
+    const intro = collect(tree).find((node) => node.props.className === 'dec-intro-line')
+    assert.notEqual(intro, undefined, '必须有标题下方的说明')
+    const text = gatherStrings(intro).join('')
+    assert.equal(text.includes('最前面'), true, '说明必须交代它写在最前面')
+    assert.equal(text.includes('优先于其他说明'), true, '说明必须交代它优先于其他说明')
+    // 说明仍然要一眼看出它在标题下方：标题区里紧跟标题的那个 .dec-intro-line
+    const heading = collect(tree).find((node) => node.props.className === 'dec-heading')
+    assert.notEqual(heading, undefined, '标题区必须存在')
+    assert.equal(collect(heading).some((node) => node.props.className === 'dec-intro-line' && gatherStrings(node).join('').includes('最前面')), true,
+      '位置说明必须在标题区内的说明段里')
+
+    // 卡片里不得再有说明段承载这句话（否则两处文案重复）
+    const container = collect(tree).find((node) => node.props.className === 'dec-preview')
+    assert.notEqual(container, undefined, '预览卡片必须存在')
+    assert.equal(collect(container).some((node) => gatherStrings(node).join('').includes('最前面')), false,
+      '预览卡片里不得再出现位置说明')
   } finally {
     panel.unmount()
   }
@@ -1827,8 +1909,9 @@ test('写入失败必须报错并给出重试（这是唯一保留的提示）',
     let tree = render()
     for (let i = 0; i < 8; i += 1) { await new Promise((r) => setImmediate(r)); tree = render() }
     // 触发一次写入（切换总开关）
-    const switchButton = collect(tree).find((node) => node.type === 'button' && JSON.stringify(node.children).includes('已开启'))
-    switchButton.props.onClick()
+    const masterSwitch = collect(tree).find((node) => node.type === 'switch' && node.props.className === 'dec-master-switch')
+    assert.notEqual(masterSwitch, undefined, '必须有总开关')
+    masterSwitch.props.onChange(false)
     for (let i = 0; i < 8; i += 1) { await new Promise((r) => setImmediate(r)); tree = render() }
 
     const texts = gatherStrings(tree)
@@ -1864,15 +1947,15 @@ test('回归护栏：写入进行中，输入控件绝不能被禁用（否则�
     const busyTextarea = duringFlush.find((node) => node.type === 'textarea')
     assert.equal(busyTextarea.props.disabled, false, '写入进行中输入框不得被禁用')
     assert.equal(busyTextarea.props.value, '连续输入的测试内容', '写入进行中界面内容不得回滚')
-    const busyCheckbox = duringFlush.find((node) => node.type === 'input' && node.props.className === 'dec-check')
-    assert.equal(busyCheckbox.props.disabled, false, '写入进行中勾选框不得被禁用')
+    const busyRowSwitch = duringFlush.find((node) => node.type === 'switch' && node.props.className === 'dec-row-switch')
+    assert.notEqual(busyRowSwitch, undefined, '每行的启停开关此刻必须仍在渲染树上')
+    assert.equal(busyRowSwitch.props.disabled, false, '写入进行中每行的开关不得被禁用')
     // 写入尚未落地：这正是"提交期间"的可观测证据
     assert.equal(panel.mutations.length, 0, '闸门未放行时不得已写入')
-    // 并确证此刻 busy 真的为真：写入期间按钮必须被禁用。
+    // 并确证此刻 busy 真的为真：写入期间动作按钮必须被禁用。
     // （少了这条，"写入进行中"就只是个假设——删掉 setBusy(true) 也不会被发现。）
-    const busySwitch = duringFlush.find((node) => node.type === 'button'
-      && (JSON.stringify(node.children).includes('已开启') || JSON.stringify(node.children).includes('已关闭')))
-    assert.equal(busySwitch.props.disabled, true, '写入进行中动作按钮必须被禁用（busy 真的为真）')
+    const busyMaster = duringFlush.find((node) => node.type === 'switch' && node.props.className === 'dec-master-switch')
+    assert.equal(busyMaster.props.disabled, true, '写入进行中动作按钮必须被禁用（busy 真的为真）')
 
     panel.releaseWrites()
     for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r))
@@ -1886,43 +1969,45 @@ test('回归护栏：写入进行中，输入控件绝不能被禁用（否则�
   }
 })
 
-test('回归护栏：勾选/取消勾选必须立即提交，并让预览随之更新', async () => {
-  // 真实缺陷：toggleSegment 只改本地状态、没有提交（勾了像没勾），
+test('回归护栏：每行的启停开关必须立即提交，并让预览随之更新', async () => {
+  // 真实缺陷：toggleSegment 只改本地状态、没有提交（切了像没切），
   // 且预览读的是宿主报告（提交前算的旧值），于是预览不动。
   const panel = mountPanel(oneSegmentReport)
   try {
-    // 只检查预览区内的文本：整页扫描会把"规则行里的摘要"也算进来，曾因此误判
+    // 只检查预览区内的文本：整页扫描会把"列表行里的摘要"也算进来，曾因此误判
     const previewBodyOf = (tree) => {
       const node = collect(tree).find((item) => item.props?.className === 'dec-preview-text')
       return node === undefined ? '' : gatherStrings(node).join('')
     }
+    const rowSwitchOf = (tree) => collect(tree).find((node) => node.type === 'switch' && node.props.className === 'dec-row-switch')
 
-    let nodes = collect(await panel.settle())
-    assert.equal(previewBodyOf(panel.render()).includes('用中文回答'), true, '初始预览必须包含规则正文')
+    const nodes = collect(await panel.settle())
+    assert.equal(previewBodyOf(panel.render()).includes('用中文回答'), true, '初始预览必须包含上下文正文')
 
-    // 取消勾选
-    const checked = nodes.find((node) => node.type === 'input' && node.props.className === 'dec-check')
-    assert.notEqual(checked, undefined, '必须有勾选框')
-    assert.equal(checked.props.checked, true)
+    // 关闭这条上下文
+    const rowSwitch = nodes.find((node) => node.type === 'switch' && node.props.className === 'dec-row-switch')
+    assert.notEqual(rowSwitch, undefined, '每行必须有官方 Switch')
+    assert.equal(rowSwitch.props.checked, true)
     const before = panel.mutations.length
-    checked.props.onChange({ target: { checked: false } })
+    rowSwitch.props.onChange(false)
 
     // ① 立即提交，不依赖失焦
     for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
-    assert.equal(panel.mutations.length > before, true, '勾选必须立即提交写入')
+    assert.equal(panel.mutations.length > before, true, '切开关必须立即提交写入')
     const submitted = panel.mutations[panel.mutations.length - 1]
-    assert.equal(submitted[0].value[0].enabled, false, '提交内容必须反映取消勾选')
+    assert.equal(submitted[0].value[0].enabled, false, '提交内容必须反映这条被关闭')
 
-    // ② 预览必须随之更新（曾经"勾选后预览不动"）
-    assert.equal(previewBodyOf(panel.render()).includes('用中文回答'), false, '停用的规则不得出现在预览区')
+    // ② 预览必须随之更新（曾经"切了以后预览不动"）
+    assert.equal(previewBodyOf(panel.render()).includes('用中文回答'), false, '停用的上下文不得出现在预览区')
+    assert.equal(rowSwitchOf(panel.render()).props.checked, false, '开关本身必须落到关闭态')
 
-    // ③ 再勾回来：预览恢复，并再次提交
-    const again = collect(panel.render()).find((node) => node.type === 'input' && node.props.className === 'dec-check')
+    // ③ 再打开：预览恢复，并再次提交
     const countBefore = panel.mutations.length
-    again.props.onChange({ target: { checked: true } })
+    rowSwitchOf(panel.render()).props.onChange(true)
     for (let i = 0; i < 6; i += 1) await new Promise((r) => setImmediate(r))
-    assert.equal(panel.mutations.length > countBefore, true, '重新勾选也必须立即提交')
+    assert.equal(panel.mutations.length > countBefore, true, '重新打开也必须立即提交')
     assert.equal(previewBodyOf(panel.render()).includes('用中文回答'), true, '重新启用后预览恢复')
+    assert.equal(rowSwitchOf(panel.render()).props.checked, true, '开关必须回到开启态')
   } finally {
     panel.unmount()
   }

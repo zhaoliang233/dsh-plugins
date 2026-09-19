@@ -22,6 +22,7 @@
 | **设置页导航图标不可由插件声明**：壳层只取注册项的 `id/order/label`（没有 `icon`），图标由 `navIcon(id)` 决定，且只白名单 4 个官方 id（`models`/`agent-presets`/`plugins`/`archived-sessions`），其余一律回落 `IconSettingsOutline16`（齿轮） | `dsh-client-ui-settings-general/lib/client.js` 的 `rows`/`navIcon` |
 | `settings.action` 与 `settings.section` 同属 `sidebar.settings` 的 children 表（同时声明），随设置面板挂载/卸载 | 同上 `register({ name: 'sidebar.settings', children: {...} })` |
 | `agent.inject(UserMessage)` 是官方「补模型可见上下文」通道，空闲时不唤醒 driver | `dsh-agent/lib/types/runtime-types.d.ts`；`dsh-user-approval`、`dsh-cordis-host-runner` 同款用法 |
+| **开关一律用壳层自己的 `Switch`**：`Switch({ checked, onChange, label, disabled, title, className })` → `<button role="switch" aria-checked>`（36×20、开启态 `--dsw-alias-brand-primary` 轨道、视觉由 `aria-checked` 驱动、`disabled` 时 `opacity:.5`）；它在 primitives 静态 seed 里，`require('@deepseek-ai/dsh-client-ui-primitives').Switch` 直接可用 | `dsh-client-ui-primitives/lib/types/Switch.d.ts`、`lib/Switch.module.css`、`lib/index.js:1786`（0.1.6-alpha.2 实测） |
 | `PromptSection.interpolate: false` 让 `renderPrompt()` 原样取 `section.text`，不做 `{{variable}}` 插值 | `dsh-system-prompt/lib/index.js:115`；`renderPrompt()` 是 `assemble()` 的唯一渲染口（`dsh-agent-loop/lib/index.js:1014`） |
 | 浏览器 `__ModuleLoader__` 静态 seed 共 **9** 个键：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-store`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-ui-primitives`、`@deepseek-ai/dsh-client-ui-dockkit` | `dsh-web-frontend/dist/assets/index-*.js` 的 seed 映射 |
 
@@ -34,7 +35,7 @@
 1. `readDshPackage(process.argv[1])` 从 CLI 入口 realpath 后向上 ≤4 层找到 `@deepseek-ai/dsh` 包根（与工作区其他插件同款探测）；
 2. `createRequire(join(root,'package.json')).resolve('@deepseek-ai/schemastery')` → **`pathToFileURL()` 转成 file:// URL 后**动态 import。
 
-**第 2 步的 `pathToFileURL` 是 Windows 上必需的（真实缺陷，用户实测反馈）**：`require.resolve` 返回的是**文件系统路径**，而 ESM 装载器只接受带协议的说明符；Windows 下 `import('C:\\…\\schemastery\\lib\\index.cjs')` 把 `C:` 当成协议，抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Node 24 实测；解析到的是 `.cjs`，与扩展名无关）。这个异常被 `applyCompatibleRuntime` 里的 try/catch 吞掉 → `schema = null` → `ctx.inject(['settings'])` 里 fail closed 直接 return → **settings 命名空间静默不注册** → 状态接口 `writable: false` → 设置页「+ 添加规则」与总开关按钮被 `disabled: busy || !writable` **永久禁用**（只有这两个动作按钮会因它禁用：`textarea`/勾选框刻意恒 `disabled:false`）。POSIX 上裸绝对路径能 import，所以这个缺陷只在 Windows 暴露——**改这条链路时别再退回 `import(resolved)`**。
+**第 2 步的 `pathToFileURL` 是 Windows 上必需的（真实缺陷，用户实测反馈）**：`require.resolve` 返回的是**文件系统路径**，而 ESM 装载器只接受带协议的说明符；Windows 下 `import('C:\\…\\schemastery\\lib\\index.cjs')` 把 `C:` 当成协议，抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Node 24 实测；解析到的是 `.cjs`，与扩展名无关）。这个异常被 `applyCompatibleRuntime` 里的 try/catch 吞掉 → `schema = null` → `ctx.inject(['settings'])` 里 fail closed 直接 return → **settings 命名空间静默不注册** → 状态接口 `writable: false` → 设置页的「+ 添加上下文」与右侧总开关（`Switch`）被 `disabled: busy || !writable` **永久禁用**（只有这两个动作控件会因它禁用：`textarea` 与每行的启停开关刻意恒 `disabled:false`）。POSIX 上裸绝对路径能 import，所以这个缺陷只在 Windows 暴露——**改这条链路时别再退回 `import(resolved)`**。
 
 若 DSH 把 schemastery 移出 `node_modules`，这里 fail closed（只告警：settings 命名空间不注册，section 仍按组合层值生效）。
 
@@ -75,9 +76,9 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ## 文件职责
 
-- `lib/rules.js`：纯逻辑（规范化 / 过滤 / 渲染 / 预算）。**不对用户文本做任何改写**——`{{…}}` 由 section 的 `interpolate: false` 原样放行，不再用“把 `{{` 拆成零宽字符”的老 hack。只依赖 Node 内置，可在 `node --test` 下独立验证。顺序即数组顺序，`order` 字段已随排序功能移除。
-- `lib/index.js`：Cordis 入口。版本门 → 装配 section / settings 命名空间 / 状态路由。其余导出仅为测试与兼容检查可见。
-- `client.js`：单文件 CJS 惰性 bundle（无构建步骤，逻辑分层靠函数分区）。`apply()` 做三件事：绑定设置命名空间、注入插件样式表、注册两个插槽（`settings.section` id `extra-context` order 25；`settings.action` id `extra-context-nav-icon` order 25，仅作导航图标补丁的挂载点）。客户端**不**做 schema 校验（bundle 里拿不到 schemastery，`dsh-client-ui-settings` 也不导出 `Schema`）；宿主是权威，组件对任何字段都防御性读取。
+- `lib/rules.js`：纯逻辑（规范化 / 过滤 / 渲染 / 预算）。**不对用户文本做任何改写**——`{{…}}` 由 section 的 `interpolate: false` 原样放行，不再用“把 `{{` 拆成零宽字符”的老 hack。只依赖 Node 内置，可在 `node --test` 下独立验证。分段的形状是 `{ id, enabled, text }`：`label`（分段名称）与 `order` 字段都已随功能移除，规范化只挑已知字段，老数据里的残留键一律丢弃；顺序即数组顺序。
+- `lib/index.js`：Cordis 入口。版本门 → 装配 section / settings 命名空间 / 状态路由。其余导出仅为测试与兼容检查可见。设置 schema 只声明 `enabled` / `segments[{id,enabled,text}]` / `maxBytes`。
+- `client.js`：单文件 CJS 惰性 bundle（无构建步骤，逻辑分层靠函数分区）。`apply()` 做三件事：绑定设置命名空间、注入插件样式表、注册两个插槽（`settings.section` id `extra-context` order 25；`settings.action` id `extra-context-nav-icon` order 25，仅作导航图标补丁的挂载点）。客户端**不**做 schema 校验（bundle 里拿不到 schemastery，`dsh-client-ui-settings` 也不导出 `Schema`）；宿主是权威，组件对任何字段都防御性读取。界面上两个开关（动作行右侧的总开关、每行行首的启停）**都用官方 `Switch`**，插件样式只负责定位（`.dec-master{…margin-left:auto}` / `.dec-row-switch{flex:none}`），不给它写尺寸或配色。
 
 ## 运行期行为
 
@@ -105,10 +106,12 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 `test/` 下的护栏不是“断言存在”，而是**注入缺陷后必须失败**（逐条人工验证过）。按主题归纳：
 
-- 写入时机与并发：失焦才写入（改成 `onChange` 直接提交 → 失败）、勾选/增删/总开关当场提交、`busy` 期间动作按钮禁用而输入控件不 `disabled`——这三条规则本身见「已知边界」，这里守的是实现；另有“失败补丁必须留住并能重写”“commit 成功不得回滚在途输入”（用 `hooks.beforeReadback()` 构造窗口，别用“等固定若干微任务”）。
+- 写入时机与并发：失焦才写入（改成 `onChange` 直接提交 → 失败）、总开关与每行开关/增删当场提交、`busy` 期间动作控件禁用而输入控件不 `disabled`——这三条规则本身见「已知边界」，这里守的是实现；另有“失败补丁必须留住并能重写”“commit 成功不得回滚在途输入”（用 `hooks.beforeReadback()` 构造窗口，别用“等固定若干微任务”）。
 - 组合层优先级：`describe` 无 `user` 键时不得回退 `scope.get()`、`describe` 抛错必须保留组合层、字段级合并而非整体替换。
 - 文本口径：section 必须声明 `interpolate: false`、渲染结果不得含零宽空格、客户端预览不得再中和 `{{`、预览必须与宿主 `renderExtraContext()` 同口径（含包裹标记、空内容不包裹）、状态接口的口径与鉴权（删掉 `trustedClientRequest` 校验 → 失败）。
-- 界面几何与一致性：图标按钮内容必须同型（回退文本 `'✕'` → 失败）且同尺寸档、规则行字数必须是字符数（回退 `byteLength` → 失败）、预览容器边框足够可见（新增 `border-l1` 规则必须被扫到，只查第一条匹配规则会漏）、客户端 `normalizeSettings` 必须去重、错误边界必须真的接在渲染树上。
+- 界面几何与一致性：图标按钮内容必须同型（回退文本 `'✕'` → 失败）且同尺寸档、规则行字数必须是字符数（回退 `byteLength` → 失败）、计数单位必须是「个字符」（行内退回 `N 字` → 失败，且断言整页不出现裸露的 `N 字`）、预览容器边框足够可见（新增 `border-l1` 规则必须被扫到，只查第一条匹配规则会漏）、客户端 `normalizeSettings` 必须去重、错误边界必须真的接在渲染树上。
+- 预览分区（注入缺陷验证过）：卡片必须**恰好两段** `['dec-preview-text','dec-preview-cost']`，把 `.dec-preview-note` 塞回去 → 2 个用例红；「它写在每次对话的最前面，优先于其他说明」必须出现在标题下方的 `.dec-intro-line` 里，从那里删掉 → 1 个用例红（同时守着"卡片里不得再出现这句"）。
+- 开关与 `label` 移除（本轮新增的护栏，全部**注入缺陷验证过**）：primitives 桩把 `Switch` 渲染成 `type: 'switch'`，于是"用的是官方组件还是自绘控件"在渲染树上可判定——①去掉 `.dec-master{margin-left:auto}` → 顶部排版用例红；②把总开关/行内开关换回自绘按钮或原生 checkbox → 4 个用例红（含 `dec-check` 残留检测）；③行内开关丢掉 `dec-row-switch` 定位类 → 4 个用例红；④行内开关被按下 `disabled: true` → 「写入进行中不得禁用输入控件」用例红；⑤新增分段时把 `label` 写回去 → 2 个用例红（添加分段的字段清单断言 + 脏数据用例）。另外 `decode`、`buildStatus`、`normalizeSettings` 与真实 schemastery 的 `toJSON()` 各有一条"不得再出现 `label`"的断言。
 - 导航图标补丁：挂载点/CSS 变量/dataset 键**三处同源**（各自写一遍字面量就会静默失效）、必须补 `xmlns`、可回滚（引用计数递减、断开 MutationObserver、重建后补回）、`apply` 必须注册 `settings.action`、样式必须插件级注入（删掉 `apply()` 里的 `installStyles(ctx)` → 单测与 `tools/dsh-icons/verify-nav-icon.js` 的 `stylesInjected/originalIconHidden/maskApplied/squareIconBox` 四项同时失败）、样式表引用计数必须递减而不是清零。
 
 测试基建的两个坑（写在 `test/client.test.js` 顶部，勿简化）：**React 桩必须按组件实例分池**——曾用“全局游标 + 全局数组”，父子组件 hook 槽位互相推挤，同一 `useRef` 位置在不同渲染轮次返回不同对象，看起来像产品缺陷、实际是桩的错；**`useCallback` 桩必须真记忆化**——曾写成 `useCallback(fn) { return fn }`，回调标识每轮变化，`useEffect([flush])` 的清理每轮重跑，“打字过程中不得写设置”的守卫因此恒为真。
@@ -122,21 +125,25 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 - 同名 section 会被 agent preset 的 scoped 版本遮蔽（DSH 规则）；本插件不注册 agent 级 section，也不尝试对抗遮蔽。
 - `$DSH_HOME/AGENTS.md` 已承担“用户级工作指导”；两者分工只写在 README 的对照表里，设置页刻意不重复技术说明。
 - 这段文本每轮都在上下文里（token 成本），故有偏长提醒；软上限只提醒、不阻止任何改动。
-- **没有保存动作，也不做“打字即写入”**：输入过程只改本地（`editLocal`），**失焦时提交**（`commitPending`）；显式动作（添加/删除/勾选框/总开关）点了即写；组件卸载时兜底写入未提交的改动。提交串行化（pending + flush）避免并发覆盖，成功不提示，只有写入失败才出现错误与重试。（曾用“输入停顿 600ms 自动写入”，写入触发的重渲染打断输入，已改掉并加回归测试。）
-- **输入控件绝不禁用**：写入期间 `busy` 为真，而给已聚焦元素加 `disabled` 会让浏览器强制失焦（表现为“打字一停顿就再也输入不了”）。`textarea`/勾选框显式 `disabled: false`，`busy` 只用于按钮。
-- **勾选/增删/总开关必须当场提交**：这些是明确点击动作（没有“边打边看”的过程），漏提交会表现为“勾了像没勾”。
+- **没有保存动作，也不做“打字即写入”**：输入过程只改本地（`editLocal`），**失焦时提交**（`commitPending`）；显式动作（添加/删除/总开关/每行的启停开关）点了即写；组件卸载时兜底写入未提交的改动。提交串行化（pending + flush）避免并发覆盖，成功不提示，只有写入失败才出现错误与重试。（曾用“输入停顿 600ms 自动写入”，写入触发的重渲染打断输入，已改掉并加回归测试。）
+- **输入控件绝不禁用**：写入期间 `busy` 为真，而给已聚焦元素加 `disabled` 会让浏览器强制失焦（表现为“打字一停顿就再也输入不了”）。`textarea` 与每行的启停开关显式 `disabled: false`，`busy` 只用于动作控件（「+ 添加上下文」与总开关）。
+- **开关/增删必须当场提交**：这些是明确点击动作（没有“边打边看”的过程），漏提交会表现为“切了像没切”。
+- **两个开关都用官方 `Switch`，不自绘**（用户要求“开关组件在 dsh 中可以直接拿来用”）：动作行里是「总开关」（左侧配一行可见小字，容器 `.dec-master` 用 `margin-left:auto` 贴右），每行行首是启停开关（`.dec-row-switch`）。开关的尺寸、开启态品牌色轨道、圆角拇指、焦点环、过渡全部由壳层组件负责，插件样式**只做定位**（早先的实现是自绘按钮 + `.dec-btn-on` 中性填充，深色主题下还要额外绕开品牌色，已删除）。
+- **`label`（分段名称）字段已整体移除**：界面、客户端规范化、`buildStatus` 状态行、宿主规范化与设置 schema 五处都不再认识它。schemastery 对未知键是 **merge 保留**（`object` 非 strict），所以老设置文件里的 `label:` 不会让校验失败，但也**不会**被读进来；两侧规范化只挑 `id/enabled/text`，因此脏数据里的 label 既不出现在界面上，也不会被重新提交回去。改这条时注意别只改一边：`test/client.test.js` 的 `decode`、添加分支与 `test/host.test.js` 的 `normalizeSettings`/`buildStatus`/schema 都有断言。
 - **图标按钮两条硬约束**（用户实测反馈，两次都踩过）：①内容必须同型——删除按钮原用文本 `'✕'`、展开按钮用 SVG，class 相同却因基线对齐差 1.5px；现在两者都是 SVG，按钮 `inline-flex` + `align-items:center` 居中、图标 `display:block` 去掉行内盒间隙，**别把图标按钮的内容写成文本字符**（它还会随字体渲染变化）。②必须同尺寸档——官方图标按 `14`/`16` 分档（`IconXxx14`/`IconXxx16`），曾用 `IconCloseOutline16`（16 档描边）搭 `IconTriangleRightFill14`（14 档实心），实测删除图标 12×12、箭头 5×8，明显一大一小；**同一行里的图标必须同档**，本条用 `IconCloseFill14`，换图标前先确认档位。
-- **呈现用字符数、判断用字节数**（用户反馈“字符统计跟我看到的字数不一致”）：UTF-8 一个汉字 3 字节，把字节数标成“字”会大出约 2.7 倍（实测那条 67 字的规则显示成 183）。`characterCount()`（`Intl.Segmenter` 字素簇，emoji/组合字符算一个可见字符）**只用于界面呈现**（规则行「N 字」、预览「约 N 个字符」）；`byteLength()`（UTF-8 字节）**只用于预算与上限**（`overBudget` 必须字节口径，宿主上限 `maxBytes` 就是字节，换成字符数会“看着没超、实际已超”）。新增任何“给用户看的体积数字”时先问：这是字节还是字符？
+- **呈现用字符数、判断用字节数**（用户反馈“字符统计跟我看到的字数不一致”）：UTF-8 一个汉字 3 字节，把字节数标成“字”会大出约 2.7 倍（实测那条 67 字的规则显示成 183）。`characterCount()`（`Intl.Segmenter` 字素簇，emoji/组合字符算一个可见字符）**只用于界面呈现**（规则行「N 个字符」、预览「约 N 个字符 · 约 N tokens」）；`byteLength()`（UTF-8 字节）**只用于预算与上限**（`overBudget` 必须字节口径，宿主上限 `maxBytes` 就是字节，换成字符数会“看着没超、实际已超”）。新增任何“给用户看的体积数字”时先问：这是字节还是字符？
+- **计数单位全界面统一为「字符」**（用户反馈：行内写「N 字」、预览写「约 N 个字符」，同一份数字两种叫法）：行内是精确字素计数，不写“约”；“约”只留给预览里的 token 估算。测试同时断言"行内数字 == 实际字符数"与"整页不得出现裸露的 `N 字`"（注入回 `N 字` → 变红）。
 - **预览是本地渲染的单一数据源**：`previewText()` 必须与宿主 `renderExtraContext()` 口径一致（含前置说明与前后标记），空内容时**不得**渲染包裹结构；曾让预览在“本地/宿主”两份数据间切换，导致勾选后预览显示旧值（`test/client.test.js` 有跨端一致性断言守着两边固定文字）。
+- **预览卡片只有两段：内容（`.dec-preview-text`）与消耗（`.dec-preview-cost`）**，卡片外只有区块级「预览」标题。位置与优先级的说明（「它写在每次对话的最前面，优先于其他说明」）属于**页面级文案**，写在标题下方的 `.dec-intro-line` 里——用户明确要求从卡片里移出来，别再往卡片里塞第三段（旧的 `.dec-preview-note` 元素与它的样式都已删除，测试有"卡片恰好两段"与"该句只能出现在标题下方的说明里"两条断言守着）。
 
 ## 验证现状
 
 ```bash
 npm run check       # node --check ×4 + bash -n ×2（bash 不在 PATH 时本机跑不通，CI 用 ubuntu）
-npm test            # 68 项：版本门/定位/规范化/渲染/预算/装配/客户端组件、样式、
-                    #        写入时机与重试、预览口径、状态路由鉴权、字段级合并、
-                    #        错误边界、图标对齐与字数口径、导航图标补丁、样式表注入与引用计数、
-                    #        Windows 装载路径（file URL）
+npm test            # 68 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
+                    #        落位、形态与禁用策略）、label 移除、写入时机与重试、预览口径、
+                    #        状态路由鉴权、字段级合并、错误边界、图标对齐与字数口径、
+                    #        导航图标补丁、样式表注入与引用计数、Windows 装载路径（file URL）
 npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象而非数组，本机跑不通，见下）
 ```
 
@@ -152,6 +159,6 @@ npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象�
 
 1. 页面提示 "Failed to load plugins" → 看 Host 日志里的 `dsh-extra-context:` 前缀告警；常见原因是 schemastery 定位失败或版本门拒绝。
 2. 设置页分区不出现 → 确认 profile 的 bundle 列表已包含 `dsh-extra-context`（需重启），且 `@deepseek-ai/dsh-client-ui-settings` 已进 boot graph。
-3. **分区在、但「+ 添加规则」和总开关灰掉点不动（其余控件可点）** → 客户端只按 `disabled: busy || !writable` 禁这两个动作按钮，所以必然是"宿主没给可写"或"busy 卡住"。查状态接口：`GET /dsh-extra-context/status`（带 `x-dsh-extra-context-client: 1`，浏览器同源请求才过鉴权；命令行 curl 会拿到 401）看 `writable`，`?debug=1` 看 `scopePresent` 与 `providerNamespaces` 里有没有 `extra-context`。`scopePresent:false` = settings 命名空间没注册成功——Windows 上最常见的原因是 schemastery 装载失败（见实现事实 1），也可能是 `settings` 服务缺失/`register()` 抛错（Host 日志有 `dsh-extra-context:` 前缀告警）。
+3. **分区在、但「+ 添加上下文」和右侧总开关灰掉点不动（其余控件可点）** → 客户端只按 `disabled: busy || !writable` 禁这两个动作控件（每行的启停开关与 `textarea` 刻意不禁用），所以必然是"宿主没给可写"或"busy 卡住"。查状态接口：`GET /dsh-extra-context/status`（带 `x-dsh-extra-context-client: 1`，浏览器同源请求才过鉴权；命令行 curl 会拿到 401）看 `writable`，`?debug=1` 看 `scopePresent` 与 `providerNamespaces` 里有没有 `extra-context`。`scopePresent:false` = settings 命名空间没注册成功——Windows 上最常见的原因是 schemastery 装载失败（见实现事实 1），也可能是 `settings` 服务缺失/`register()` 抛错（Host 日志有 `dsh-extra-context:` 前缀告警）。
 4. 文本没进提示词 → 检查是否 `enabled=false`、分段是否启用且非空、是否有 preset 注册了同名 section。
 5. 改了设置但当前会话没变 → **预期行为**（见「已知边界」）。若新开的对话也没变，再查预览里是不是你想要的内容、是否有 preset 注册了同名 section。

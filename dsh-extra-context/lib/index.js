@@ -131,7 +131,7 @@ async function realpathSafe(path) {
  * 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Node 24 实测）。异常被下面的 try/catch 吞掉后
  * schema 变 null，`ctx.inject(['settings'])` 里 fail closed 直接 return，
  * 于是 settings 命名空间静默不注册：状态接口 `writable:false`，设置页的
- * 「+ 添加规则」与总开关按钮被 `disabled: busy || !writable` 永久禁用（用户实测反馈）。
+ * 「+ 添加上下文」与右侧总开关被 `disabled: busy || !writable` 永久禁用（用户实测反馈）。
  * @param {string} dshRoot
  * @returns {Promise<any>}
  */
@@ -149,9 +149,11 @@ async function loadSchemastery(dshRoot) {
  * @returns {any}
  */
 function createSettingsSchema(z) {
+  // 分段只有 id / enabled / text：`label`（分段名称）已从界面、客户端规范化与
+  // 这里一并移除。schemastery 对未知键是"原样保留"（object 非 strict 时会 merge），
+  // 所以老设置文件里的 label 键不会让校验失败，只是不再被声明、也不再被读写。
   const segment = z.object({
     id: z.string().default(''),
-    label: z.string().default(''),
     enabled: z.boolean().default(true),
     text: z.string().default('')
   })
