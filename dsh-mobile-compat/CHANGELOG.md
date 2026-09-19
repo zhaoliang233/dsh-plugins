@@ -2,59 +2,30 @@
 
 本文件记录本项目的所有重要变更。
 
-## [0.3.2] - 2026-09-17
+## [0.3.6] - 2026-09-19
 
-### 文档
+> 说明：0.3.3–0.3.6 的实现与文档曾在开发过程中被一次错误的 git 操作从工作区覆盖，本版是**按设计记录重建**的版本，并逐条重新验证（21 个单元测试、完整浏览器回归、隔离实例实测）。
 
-- 全部文档改为纯中文，不再维护中英双语；`README.md` 收敛为「功能 → 要求 → 安装与卸载 → 生效范围 → 注意事项」，只描述当前行为，结构探测与验证清单留在 `AGENTS.md`。
-- 安装入口改为官方命令 `dsh plugin --profile web add/remove dsh-mobile-compat`，并补上升级方式（profile 依赖是 caret 范围，需显式写版本号）；`./install.sh` 明确为源码 `link:` 开发路线。
-- `PUBLISHING.md` 改中文并补上兼容矩阵校验与隔离浏览器回归的运行方式。
+### 变更
 
-## [0.3.1] - 2026-09-14
-
-首个公开发布到 npm registry 的版本。
-
-### 兼容性
-
-- 在官方新增的 `package.json#engines.dsh` 字段第二次声明 DSH 兼容范围，并在 manifest 测试中守卫同源。
-- 针对 DSH `0.1.6-alpha.1` 重新核对 source-verified 契约矩阵：layout bundle 逐字节相同，sidebar bundle 只差构建字符串，workspace header/search/action 标记未变，settings 外壳未变，sidebar-right 面板标记未变，conversation 骨架只是拆到多个文件（`ConversationContent` 仍渲染同样的 `body > [data-conversation-scroll]` 树，没有新增 wrapper），因此所有结构探测仍然成立。已验证发布线移到 `>=0.1.6-alpha.1 <0.1.7`，`0.1.6-alpha.1` 是唯一的源核对版本。
+- 抽屉入口与右栏入口统一为**同一款图标 token**（`IconPanelLeftOutline16`）并由 primitives 的 `size` 声明尺寸（15，与原生控件同值），不再由 CSS 覆盖宽度。canvas 栅格化实测两侧墨迹 `15×14.06`、内缩 0、同一 y，距各自边缘均为 **26.5px**。
+- 手机会话标题栏把标题与两侧操作簇（任务 / 日程 / 智能体预设 / 终端、模式、智能体团队、更多菜单）一起放进**一条可横向滑动的 strip**：高度锁 28px（整行仍 44px，标题栏不增高）、`overflow-x: auto`、滑块隐藏且不占布局、`touch-action: pan-x`；拖动由 pointer 事件驱动，手势结束吞掉随后的 click，避免拖完误触。实测 320px 可滚 82px、390px 可滚 12px，拖动确实改变 `scrollLeft` 且手势后 click 被吞。
+- 手机抽屉改为**全屏**（`width: 100%`），与右栏在 <768px 自动全屏的形态一致；>720px 的粗指针大屏仍保留抽屉宽度。
 
 ### 修复
 
-- 停用上一代 bundle 遗留的悬浮层：每次激活给自己那份 `.dmc-layer` 打上 `data-dsh-mobile-layer-generation`，并把其他所有 layer 标为 `data-dsh-mobile-orphan`（`display:none` + `pointer-events:none`）。残留的悬浮入口会持续盖住 header，0.2.x 之前那份全屏 backdrop 会吞掉整页点击——表现就是“多了 UI 且部分 UI 失灵”。
-- 样式表文本与当前 bundle 不一致时重写它，并打上 `data-plugin="dsh-mobile-compat"`。DSH 会把未打标签的 `<style>` 认领给下一个物化的客户端 bundle 并随其热更新删除，可能导致样式被交给别的插件、或升级后残留，页面一直沿用上一代规则直到手动刷新。
+- **点左侧入口却打开了右侧栏**：`[data-sidebar-right-toggle]` 是 DSH 的对称 toggle，面板原本关着时盲点一下会把它**打开**，而面板在手机上是 `z-index:40` 全屏浮层，会立刻盖住正要打开的抽屉。现在只在面板确实打开时才去点它；打开抽屉的顺序改为先 `toggleSidebar()` 再收起面板，避免面板收起带来的 `narrowExpanded=false` 把刚开的抽屉关掉。
+- **抽屉底部漏出对话界面**：抽屉列、`[data-slot='sidebar']`、SidebarRoot 三层钉上 `min-height: 100%`，修掉「844px 视口下抽屉只有 820px、下方 24px 仍可点」的形态。
+- **Composer 附件预览被撑坏（删除图片图标巨大无比）**：44px 命中下限原先一刀切到 Composer 内所有按钮，把待发送附件缩略图上的删除键从 DSH 自己的 **18×18** 顶成 44×44（在 64px 缩略图上是一块盖住照片的方块），滚动箭头也被顶大。DSH 已为触屏适配过这块：`@media (pointer: coarse)` 里把删除键设为常显、尺寸**故意保持 18px**。现在 44px 下限按结构排除附件条（composer 里唯一的 `role=group`），条内小圆钮改用 `::after` 不可见 44px 指针靶区；实测五档手机视口 `rail 64×64 / 18×18`、操作行仍 `44×44`。
+- **左右两侧导航图标不对称**：修前实测插件入口 44px 命中盒在 `x 20..64`、原生右栏入口在 `x 334..378`（按盒子差 8px，按墨迹差 4px）。现在入口可视框落在手机 header 自身的 20px 左留白（28×28 可视框 20..48），图标回到原生 15px；六档宽度（320/390/457/568/578/844）实测两侧墨迹完全一致。
 
-## [0.3.0] - 2026-09-10
+### 兼容性
 
-- 细化移动端 header 几何：只把悬浮入口占用的通道留在 header 的**第一行**，使 `对话/轨迹` 标签行保持 DSH 原生留白（375px 实测：标签从 x=72 回到 x=28），不再被整块留白推右。
-- 把悬浮入口的可视 chip 通过 `::after` 内缩到 36px，同时保留 44×44 命中盒、上移到 `top: 4px`，并把焦点环移到 chip 上：它不再压过 header 行，chip 底边 y44、命中盒底边 y48 都不会进入 y50 起的标签行。
-- 不再在移动端隐藏右侧栏列：0.1.5 起右栏是该列内的绝对定位浮层（fullscreen 时 `position: fixed; inset: 0`，低于 768px 自动生效），对整列 `display:none` 会把已打开的右栏压成 0×0，手机上根本显示不出来。现在该列保留零宽 grid 轨道，对话保持全宽，原生右栏仍可打开。
-- 已验证兼容线从 `>=0.1.2-alpha.3 <0.1.3` 移到 `>=0.1.5-alpha.2 <0.1.6`：`0.1.5-alpha.2` 是唯一源核对的版本，下界停在已验证版本而不是猜测 `0.1.5-alpha.1` 也匹配。
-- AppFrame 结构探测改到 0.1.5 的 seat：中间列承载直接的 `main` seat（ConversationRoot occupant），右列承载直接的 `rightbar` seat；已退休的 `conversation`/`details` seat 名会让插件在 0.1.5 上完全惰性。
-- 移动端只用 CSS 隐藏右列，绝不调用 0.1.5 的 `layout.closeRightbar()`，从而保留桌面右栏宽度偏好。
-- 修复悬浮入口的 header 净空规则：0.1.5 把会话 header 渲染在 `display:contents` 的 Slot anchor 内，净空 padding 现在作用于 anchor 内的 header 元素，而不是 anchor 本身。
-- 把 `compatibility.json#contracts` 的 owner 与预期更新到 0.1.5 AppFrame，并同步刷新运行时版本门、检查清单、安装脚本门禁、测试与文档。
-- 兼容策略从过期的精确 channel 迁移到带运行时能力检查保护的版本发布线。
-- 使用 `connection.generation` 就绪契约；该能力缺失时保持惰性。
-- 通过可访问的 textbox 语义覆盖 contenteditable 版 Composer，包含 16px 移动端输入规则与浏览器断言。
-- 把部分挂载的 AppFrame 与 Slot occupant 视为 pending，避免在已验证结构完成前误报不兼容；持续 pending 时只输出一次延迟诊断。
-- 激活前要求 `layout.toggleSidebar()` 可用，并在观察 childList 之外同时观察结构属性变化，使 HMR 或 owner 属性漂移能立即停用并可恢复。
+- 收录 `0.1.6-alpha.2` 为第二个 source-verified 版本：该版本全部 51 个 `dsh-client-*` 发布包按文件哈希与 `0.1.6-alpha.1` 逐文件比对，只有 `dsh-client-ui-agent-preset`（hero chip seat store）与 `dsh-client-ui-cordis`（会话选择器改为按视图）不同，本插件依赖的 layout / sidebar / sidebar-right / conversation / workspace / settings 产物逐字节相同。兼容发布线仍是 `>=0.1.6-alpha.1 <0.1.7`。
 
-## [0.2.0] - 2026-08-28
+### 测试
 
-- 引入最初的精确 channel 兼容矩阵（已被上面的发布线策略取代）。
-- 增加 npm channel 与 artifact provenance 检查，以及 `compatibility.json` 中的机器可读 selector/API 契约。
-- 增加由执行中的 CLI package manifest 支撑的 no-store 版本接口，并让浏览器激活依赖该精确版本与 fail-closed 的 AppFrame/Slot 结构探测。
-- 通过移除移动端的 `layout.closeDetails()` 变更，保留桌面的 Details 偏好。
-- 增加抽屉 modal 语义、compare-and-restore 的 `inert`/ARIA 隔离、紧凑关闭控件焦点入口、双向 Tab 环绕、竞争 modal 暂停、Escape 恢复，以及 900→901 与移动↔桌面的直接切换处理。
-- 命中区提升到 44px，并让 Workspace 搜索与操作区留在移动抽屉内。
-- 加入 Node 22 的 CDP 浏览器回归，覆盖移动、横屏、断点、焦点、Settings、诊断与桌面恢复。
+- 浏览器回归新增四组判据：标题 strip（存在性、28px 高度、整行 44px、`overflow-x: auto`、隐藏滑块不占布局、控件都在可滚动范围内、真实 pointer 拖动生效且吞掉手势 click）；导航图标对称（两侧墨迹距各自边缘之差 ≤1.5px、图标同为 15×15、同一行同色）；附件条（真实粘贴图片挂载附件条，断言条内不出现 44px、Composer 操作行仍 ≥44px）；抽屉全屏与面板交接（全屏宽高、下方无可达元素、面板打开时点入口后抽屉可见且面板关闭、面板关闭时点入口不得打开面板、Escape 关闭后焦点回到入口）。
+- `scripts/check-pack.js` 同时接受 npm 10 的数组输出与新版 npm 的对象输出，并把 npm 警告挡在 JSON 之外；测试改用 `fileURLToPath`，修掉 `url.pathname` 在 Windows 上生成 `C:\C:\...` 的失效路径。
 
-## [0.1.0] - 2026-08-28
-
-- 增加由公开 layout Service 与 `shell.overlay` 驱动的移动端 Sidebar 抽屉：把 inline-width 的 SidebarRoot 展开到抽屉全宽，并让 40px 的 Workspace 操作区留在 header 内。
-- 增加窄屏下的 Settings、Conversation、Composer、触控命中区、viewport 与安全区兼容规则。
-- 在不使用 CSS Module hash selector 的前提下同时支持最初的 textarea 与 contenteditable 两种 Composer 形态。
-- 对最初支持的 DSH artifact 在移动、横屏与桌面视口下做运行时测试。
-- 声明精确的 DSH 兼容元数据，并在安装时对未声明版本 fail closed。
-- 记录每次 DSH 升级后必须重新验证兼容性。
+## [0.3.2] - 2026-09-17

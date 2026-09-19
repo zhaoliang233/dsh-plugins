@@ -20,15 +20,19 @@ window.__ModuleLoader__.load({
     const VIEWPORT_REFS_ATTRIBUTE = 'data-dsh-mobile-compat-refs'
     const VIEWPORT_ORIGINAL_ATTRIBUTE = 'data-dsh-mobile-compat-original'
     const VIEWPORT_PATCHED_ATTRIBUTE = 'data-dsh-mobile-compat-patched'
+    const RIGHT_PANEL_ATTRIBUTE = 'data-sidebar-right-panel'
+    const RIGHT_PANEL_OPEN_ATTRIBUTE = 'data-sidebar-right-open'
+    const RIGHT_PANEL_TOGGLE_ATTRIBUTE = 'data-sidebar-right-toggle'
     const SHELL_ATTRIBUTE = 'data-dsh-mobile-shell-compatible'
     const WORKSPACES_ATTRIBUTE = 'data-dsh-mobile-workspaces-compatible'
     const CONVERSATION_ATTRIBUTE = 'data-dsh-mobile-conversation-compatible'
     const LAYER_GENERATION_ATTRIBUTE = 'data-dsh-mobile-layer-generation'
     const LAYER_ORPHAN_ATTRIBUTE = 'data-dsh-mobile-orphan'
+    const TITLE_STRIP_ATTRIBUTE = 'data-dsh-mobile-title-strip'
     const SIDEBAR_ID = 'dsh-mobile-sidebar'
     const STATUS_PATH = '/dsh-mobile-compat/status'
     const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
-    const VERIFIED_DSH_VERSIONS = new Set(['0.1.6-alpha.1'])
+    const VERIFIED_DSH_VERSIONS = new Set(['0.1.6-alpha.1', '0.1.6-alpha.2'])
     const DSH_RELEASE_LINE = '0.1.6'
     const DSH_MINIMUM_ALPHA = 1
     const MOBILE_QUERY = '(max-width: 720px), (pointer: coarse) and (max-width: 900px)'
@@ -74,13 +78,16 @@ body[${BODY_ATTRIBUTE}] {
     grid-template-columns: 0 minmax(0, 1fr) 0 !important;
   }
 
+  /* 0.3.4: the drawer is fullscreen on a phone, matching the right panel's own automatic
+     fullscreen below 768px. Width is a percentage rather than a viewport unit so it hugs the
+     frame without picking up scrollbar or zoom error. */
   body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child {
     position: absolute;
     inset: 0 auto 0 0;
     z-index: 30;
     box-sizing: border-box;
-    width: min(88vw, 360px) !important;
-    max-width: calc(100vw - 48px);
+    width: 100% !important;
+    max-width: none;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
     transform: translateX(0);
@@ -88,6 +95,16 @@ body[${BODY_ATTRIBUTE}] {
       transform var(--ds-transition-duration-slow, 180ms) var(--ds-ease-in-out, ease),
       visibility 0s;
     box-shadow: var(--dsw-shadow-lv3);
+  }
+
+  /* 0.3.4: pin the drawer's height through all three levels. While the rail is collapsed its
+     owner writes the desktop panel height (820px in an 844px viewport) onto this column, which
+     used to leave 24px of still-clickable conversation below the drawer. Only min-height wins:
+     with inset or a plain height the content still pushes the column taller. */
+  body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child,
+  body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child > [data-slot='sidebar'],
+  body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child > [data-slot='sidebar'] > :first-child {
+    min-height: 100%;
   }
 
   body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}][data-sidebar-collapsed] > :first-child {
@@ -128,40 +145,135 @@ body[${BODY_ATTRIBUTE}] {
     display: none !important;
   }
 
+  /* 0.3.6: the phone session header keeps the title AND both control clusters in one
+     horizontally scrollable strip, so nothing is dropped from the phone chrome:
+
+       titleRow
+       |- headerLeading         (left seat: kept; the drawer entry lives in shell.overlay)
+       |- titleCluster
+       |  |- nav.crumbs         (kept: the session title lives here)
+       |  '- div.headerActions  (kept: tasks / schedule / agent preset / terminal)
+       |- div.headerUtilities   (kept: mode chip, agent-team button, overflow menu)
+       '- div.headerCorner      (kept: DSH's right-panel control)
+
+     headerActions nests INSIDE the title cluster, so hiding by position would take the title
+     with it; every rule names the exact container class instead. The strip scrolls horizontally
+     with no drawn scrollbar (a drawn one would add height and invite mis-taps);
+     scrollTitleStrip() below supplies the drag. */
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='headerActions'],
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='headerUtilities'],
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [data-slot='conversation.session.header.actions'],
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [data-slot='conversation.session.header.utilities'] {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  /* A session opened from a subagent keeps its parent chain in the crumbs; on a phone only the
+     current session matters, so the ancestor segments go while the current title stays. */
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] nav[class*='crumbs'] > [class*='crumbSeg']:has([class*='crumb']:not([class*='crumbCurrent'])) {
+    display: none !important;
+  }
+
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] > [class*='titleRow'] {
+    position: relative;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='titleCluster'] {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-start;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  /* The marked overflow container: horizontal strip, scrollbar hidden, height locked to the row
+     so the header does not grow. */
+  [data-dsh-mobile-title-strip] {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    height: 28px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-dsh-mobile-title-strip]::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  /* The title takes the free space but never pushes the chips out of reach: it shrinks with an
+     ellipsis and the strip scrolls whenever the chips need their room. */
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='crumbs'] {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
   .dmc-layer {
     display: block;
   }
 
+  /* 0.3.6: the entry reads as DSH's own header chrome. A 44px hit box holds a 28px visual box
+     (bare glyph, radius 28, secondary ink, hover fill) and its glyph is drawn at the native
+     15px header-control size (IconPanelLeftOutline16 at size 15, the same token
+     dsh-client-ui-sidebar-right uses). The hit box sits at left 12px so the visual box lands on
+     20..48 — the phone header's own left gutter, where DSH puts its first header element — and
+     the glyph ink then starts 26.5px from the edge, mirroring the native control's 26.5px from
+     the right edge (measured identical at 320/390/457/568/578/844). Collapsed here means
+     "no rail", so this stands in for the control the zero-width track no longer renders. */
   .dmc-sidebar-toggle {
     position: absolute;
-    top: max(4px, env(safe-area-inset-top));
-    left: max(var(--dmc-mobile-edge), env(safe-area-inset-left));
+    top: max(10px, env(safe-area-inset-top));
+    left: max(12px, env(safe-area-inset-left));
     z-index: 1;
-    display: inline-grid;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: var(--dmc-mobile-control-size);
     height: var(--dmc-mobile-control-size);
     padding: 0;
     border: 0;
-    color: var(--dsw-alias-label-primary);
+    border-radius: 28px;
+    color: var(--dsw-alias-label-secondary);
     background: transparent;
     cursor: pointer;
     pointer-events: auto;
     touch-action: manipulation;
   }
 
-  /* Keep the 44px hit box but draw a smaller visual chip inside it: the control
-     no longer dominates the header row and its 36px chip (y8..44) stays clear
-     of the tab row, which starts at y50. */
+  .dmc-sidebar-toggle svg {
+    display: block;
+  }
+
+  /* The visual box inside the 44px hit box: bare glyph, no border or fill, hover only. */
   .dmc-sidebar-toggle::after {
     content: '';
     position: absolute;
-    inset: 4px;
+    inset: 8px;
     z-index: -1;
-    border: 1px solid var(--dsw-alias-border-l2);
-    border-radius: 8px;
-    background: var(--dsw-alias-button-floating-fill);
-    box-shadow: var(--dsw-shadow-lv2);
+    border-radius: 28px;
+    background: transparent;
+    transition: background var(--ds-transition-duration-fast, 120ms) var(--ds-ease-in-out, ease);
+  }
+
+  @media (hover: hover) {
+    .dmc-sidebar-toggle:hover::after {
+      background: var(--dsw-alias-interactive-bg-hover);
+    }
   }
 
   .dmc-sidebar-toggle:focus-visible {
@@ -170,7 +282,7 @@ body[${BODY_ATTRIBUTE}] {
 
   .dmc-sidebar-toggle:focus-visible::after {
     outline: 2px solid var(--dsw-alias-state-business-primary);
-    outline-offset: 2px;
+    outline-offset: 0;
   }
 
   .dmc-layer[data-sidebar-open] .dmc-sidebar-toggle {
@@ -327,12 +439,31 @@ body[${BODY_ATTRIBUTE}] {
     touch-action: manipulation;
   }
 
-  body[${BODY_ATTRIBUTE}] [data-composer-card] button,
-  body[${BODY_ATTRIBUTE}] [data-conversation-scroll] button,
-  body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child button,
-  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true'] button {
+  /* The composer's own action row needs the 44px minimum, but its attachment rail must not get
+     it: DSH already renders that rail for touch (its 18px remove button is forced visible under
+     the coarse-pointer media query), and a 44px square on a 64px thumbnail is huge and spills
+     onto the photo. The rail is the only role=group inside the composer card, so it is excluded
+     structurally instead of by locale-dependent label text. Buttons inside it keep their
+     intrinsic size; only the small round controls get an invisible pointer target. */
+  body[${BODY_ATTRIBUTE}] [data-composer-card] button:not(:is([role='group'], [role='group'] *)),
+  body[${BODY_ATTRIBUTE}] [data-conversation-scroll] button:not(:is([role='group'], [role='group'] *)),
+  body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child button:not(:is([role='group'], [role='group'] *)),
+  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true'] button:not(:is([role='group'], [role='group'] *)) {
     min-width: 44px;
     min-height: 44px;
+  }
+
+  /* Small glyph controls inside the rail (thumbnail remove, rail arrows) keep their DSH size and
+     grow only their touch area. */
+  body[${BODY_ATTRIBUTE}] [data-composer-card] [role='group'] button::after,
+  body[${BODY_ATTRIBUTE}] [data-composer-seat] [role='group'] button::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
   }
 
   body[${BODY_ATTRIBUTE}] [${WORKSPACES_ATTRIBUTE}] > :first-child > :first-child {
@@ -359,8 +490,83 @@ body[${BODY_ATTRIBUTE}] {
   }
 
   body[${BODY_ATTRIBUTE}] [data-composer-card] :is(input, textarea, select, [role='textbox'][aria-multiline='true']),
-  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true'] :is(input, textarea, select) {
+  body[${BODY_ATTRIBUTE}] [data-conversation-scroll] :is(input, textarea, select),
+  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true'] :is(input, textarea, select),
+  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] :is(input, textarea, select) {
     font-size: 16px !important;
+  }
+
+  /* The composer dock also hosts inline cards (goal bar and similar) whose own chrome is
+     36px tall; on a pointer device the tap targets inside must still reach 44px. The attachment
+     rail inside the same seat is excluded for the same reason as above. */
+  body[${BODY_ATTRIBUTE}] [data-composer-seat] button:not(:is([role='group'], [role='group'] *)) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* 0.3.3: 0.1.6 renders the right sidebar as a dockkit panel that goes fullscreen below 768px.
+     Its chrome strip and pane body carry no data attribute at all, so those two places — the only
+     ones that need the safe area and a 44px hit box — anchor on class suffixes. When the classes
+     drift the selectors simply stop matching and the panel falls back to DSH's own rendering. */
+  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] [class*='stripChrome'] {
+    box-sizing: border-box;
+    min-height: 44px;
+  }
+
+  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] [class*='stripChrome'] button,
+  body[${BODY_ATTRIBUTE}] [data-dockkit-strip] button {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] [class*='stripChrome'] svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  body[${BODY_ATTRIBUTE}] [data-dockkit-strip] {
+    min-height: 44px;
+  }
+
+  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] [class*='paneBody'] {
+    box-sizing: border-box;
+    padding-bottom: env(safe-area-inset-bottom);
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* The session-header expand control is the drawer toggle's counterpart and belongs to the same
+     44px rule. Its glyph keeps the native 15px header size: the control is generous for the
+     finger, the ink matches the row it lives in. */
+  body[${BODY_ATTRIBUTE}] [data-sidebar-right-expand] {
+    box-sizing: border-box;
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Popover surfaces anchored to a control are positioned from the layout viewport, which iOS
+     does not resize for the software keyboard. Clipping them to the visible viewport keeps the
+     list reachable instead of leaving it behind the keyboard. */
+  body[${BODY_ATTRIBUTE}] [role='menu'],
+  body[${BODY_ATTRIBUTE}] [role='listbox'] {
+    max-height: calc(var(--dmc-visual-viewport-height, 100dvh) - 96px) !important;
+    overflow-y: auto;
+  }
+
+  /* DSH dialogs are centered in the layout viewport, so the iOS keyboard pushes their footer
+     behind itself with nothing to scroll. Bound the dialog and let its content scroll instead. */
+  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true'] {
+    max-height: calc(var(--dmc-visual-viewport-height, 100dvh) - 24px) !important;
+    overflow-y: auto;
   }
 }
 
@@ -624,6 +830,60 @@ body[${BODY_ATTRIBUTE}] {
       return overlay?.parentElement || null
     }
 
+    /** 0.3.4: is the dockkit right panel actually open? Its toggle is symmetric
+     *  (actions.toggleExpanded), so clicking it while the panel is closed OPENS it — and the
+     *  panel is a fullscreen z-index 40 overlay on a phone, which is how tapping the drawer
+     *  entry used to hide the drawer behind a right panel nobody asked for. */
+    function rightPanelOpen(frame) {
+      if (frame === null || frame === undefined) return false
+      if (frame.querySelector?.(`[${RIGHT_PANEL_ATTRIBUTE}][${RIGHT_PANEL_OPEN_ATTRIBUTE}]`)) return true
+      const toggle = frame.querySelector?.(`[${RIGHT_PANEL_TOGGLE_ATTRIBUTE}]`)
+      return toggle?.getAttribute?.(RIGHT_PANEL_OPEN_ATTRIBUTE) === '' || toggle?.getAttribute?.(RIGHT_PANEL_OPEN_ATTRIBUTE) === 'true'
+    }
+
+    /** Close the right panel only when it is open. Never click the symmetric toggle blindly. */
+    function closeRightPanel(frame) {
+      if (!rightPanelOpen(frame)) return
+      const toggle = frame?.querySelector?.(`[${RIGHT_PANEL_TOGGLE_ATTRIBUTE}]`)
+      toggle?.click?.()
+    }
+
+    /** 0.3.3: iOS shrinks visualViewport for the software keyboard while the layout viewport
+     *  stays put, so surfaces positioned with 100vh/innerHeight end up behind the keyboard. The
+     *  variable is published only while a real viewport exists; rotation (a width change) hands
+     *  the job back to 100dvh, and the last disposer removes it. */
+    function installVisualViewportHeight() {
+      const viewport = globalThis.visualViewport
+      if (viewport === undefined || viewport === null) return () => {}
+      const root = document.documentElement || document.body
+      if (root === null) return () => {}
+
+      let scheduled = false
+      let width = viewport.width
+      const publish = () => {
+        scheduled = false
+        if (viewport.width !== width) {
+          width = viewport.width
+          root.style.removeProperty('--dmc-visual-viewport-height')
+          return
+        }
+        root.style.setProperty('--dmc-visual-viewport-height', `${Math.round(viewport.height)}px`)
+      }
+      const schedule = () => {
+        if (scheduled) return
+        scheduled = true
+        Promise.resolve().then(publish)
+      }
+      publish()
+      viewport.addEventListener('resize', schedule)
+      viewport.addEventListener('scroll', schedule)
+      return () => {
+        viewport.removeEventListener('resize', schedule)
+        viewport.removeEventListener('scroll', schedule)
+        root.style.removeProperty('--dmc-visual-viewport-height')
+      }
+    }
+
     function initialSidebarCollapsed() {
       if (typeof document === 'undefined') return true
       const overlay = document.querySelector('[data-shell-overlay]')
@@ -671,8 +931,161 @@ body[${BODY_ATTRIBUTE}] {
       saved.ownedValue = null
     }
 
-    function focusableElements(container) {
-      const selector = [
+    /** The session header's title cluster (0.1.6: titleRow > titleCluster). */
+    function titleCluster() {
+      if (typeof document === 'undefined') return null
+      const conversation = document.querySelector(`[${CONVERSATION_ATTRIBUTE}]`)
+      const row = conversation?.querySelector?.(`[class*='titleRow']`) || null
+      return row?.querySelector?.(`[class*='titleCluster']`) || null
+    }
+
+    /** Turn the title cluster into a scrollable strip without changing its height: its own
+     *  children are parked in a marker-owned wrapper that scrolls horizontally, and the touch
+     *  drag below gives it motion because the strip's scrollbar is hidden by CSS (a drawn
+     *  scrollbar would add height and invite mis-taps). The disposer puts the children back at
+     *  the wrapper's original position and drops the wrapper, so nothing is left behind.
+     *  Returns null when there is no cluster, or when it carries no child to move. */
+    function scrollTitleStrip(cluster) {
+      if (cluster === null || typeof document === 'undefined') return null
+      let wrapper = null
+      let insertionPoint = null
+      for (const child of Array.from(cluster.children)) {
+        if (child.hasAttribute?.(TITLE_STRIP_ATTRIBUTE)) {
+          wrapper = child
+          continue
+        }
+        if (wrapper === null) {
+          wrapper = document.createElement('div')
+          wrapper.setAttribute(TITLE_STRIP_ATTRIBUTE, '')
+          insertionPoint = child
+          cluster.insertBefore(wrapper, child)
+        }
+        wrapper.appendChild(child)
+      }
+      if (wrapper === null) return null
+
+      // Touch drag: the strip is the element that scrolls, so the pointer only steers it. A
+      // gesture that starts at either edge and pulls outward keeps DSH's own gestures, matching
+      // what native overflow scrolling does.
+      let active = null
+      let swallow = null
+      // Removal matches on the option values (capture flag), so the disposer repeats them exactly.
+      const passiveOptions = { passive: true }
+      const dragOptions = { passive: false }
+      const swallowOptions = { capture: true }
+      const onDown = (event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return
+        if (!wrapper.isConnected) return
+        active = { id: event.pointerId, x: event.clientX, y: event.clientY, left: wrapper.scrollLeft, axis: null, moved: false }
+      }
+      const onMove = (event) => {
+        if (active === null || event.pointerId !== active.id) return
+        if (!wrapper.isConnected) {
+          active = null
+          return
+        }
+        if ((event.buttons & 1) === 0) return
+        const dx = event.clientX - active.x
+        const dy = event.clientY - active.y
+        if (active.axis === null) {
+          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return
+          active.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
+        }
+        if (active.axis !== 'x') return
+        if (dx > 0 && wrapper.scrollLeft <= 0) return
+        if (dx < 0 && wrapper.scrollLeft >= wrapper.scrollWidth - wrapper.clientWidth - 1) return
+        active.moved = true
+        wrapper.scrollLeft = active.left - dx
+        wrapper.setPointerCapture?.(event.pointerId)
+        if (event.cancelable) event.preventDefault()
+      }
+      const onEnd = (event) => {
+        if (active === null || event.pointerId !== active.id) return
+        const moved = active.moved
+        active = null
+        wrapper.releasePointerCapture?.(event.pointerId)
+        if (!moved) return
+        // Swallow the click the gesture would otherwise deliver to the control under the finger.
+        swallow = (clickEvent) => {
+          clickEvent.stopPropagation()
+          clickEvent.preventDefault()
+        }
+        wrapper.addEventListener('click', swallow, swallowOptions)
+        globalThis.setTimeout?.(() => wrapper.removeEventListener('click', swallow, swallowOptions), 350)
+      }
+      const onCancel = () => { active = null }
+
+      wrapper.addEventListener('pointerdown', onDown, passiveOptions)
+      wrapper.addEventListener('pointermove', onMove, dragOptions)
+      wrapper.addEventListener('pointerup', onEnd, passiveOptions)
+      wrapper.addEventListener('pointercancel', onCancel, passiveOptions)
+
+      return () => {
+        wrapper.removeEventListener('pointerdown', onDown, passiveOptions)
+        wrapper.removeEventListener('pointermove', onMove, dragOptions)
+        wrapper.removeEventListener('pointerup', onEnd, passiveOptions)
+        wrapper.removeEventListener('pointercancel', onCancel, passiveOptions)
+        if (swallow !== null) wrapper.removeEventListener('click', swallow, swallowOptions)
+        active = null
+        for (const child of Array.from(wrapper.children)) {
+          if (insertionPoint?.parentNode === cluster) cluster.insertBefore(child, insertionPoint)
+          else cluster.appendChild(child)
+        }
+        wrapper.remove()
+      }
+    }
+
+    /** Keep the header's title cluster scrollable for as long as the plugin is active. The
+     *  cluster mounts asynchronously (the session header appears with the first session, and
+     *  both React and DSH's own slot owners rebuild its children), so this re-runs on header
+     *  mutations and dismantles the wrapper when the structure goes away. */
+    function installTitleStrip() {
+      if (typeof document === 'undefined') return () => {}
+      let disposeStrip = null
+      let scheduled = false
+      // Always drop the current wiring before re-examining the cluster: the unwrap mutates the
+      // child list, and a disposer that runs twice would move children out of a live strip.
+      const releaseStrip = () => {
+        const dispose = disposeStrip
+        disposeStrip = null
+        dispose?.()
+      }
+      const sync = () => {
+        const cluster = titleCluster()
+        if (cluster === null) {
+          releaseStrip()
+          return
+        }
+        // Adopt anything the header owner appended next to the strip: a control that stays a
+        // sibling of the strip is clipped by the cluster's own overflow instead of being
+        // reachable by scrolling. The wrapper itself is the only marker child, so an intact
+        // cluster has nothing left to adopt and is left untouched.
+        const stray = Array.from(cluster.children).filter((child) => child.getAttribute?.(TITLE_STRIP_ATTRIBUTE) === null)
+        const settled = disposeStrip !== null && cluster.children.length === 1 && stray.length === 0
+        if (settled) return
+        releaseStrip()
+        disposeStrip = scrollTitleStrip(cluster)
+      }
+      const schedule = () => {
+        if (scheduled) return
+        scheduled = true
+        Promise.resolve().then(() => {
+          scheduled = false
+          sync()
+        })
+      }
+      sync()
+
+      const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule)
+      const observationRoot = document.documentElement || document.body
+      observer?.observe(observationRoot, { childList: true, subtree: true })
+      return () => {
+        observer?.disconnect()
+        releaseStrip()
+      }
+    }
+
+    function focusableElements(container) {      const selector = [
         "a[href]",
         "button:not([disabled])",
         "input:not([disabled])",
@@ -853,6 +1266,14 @@ body[${BODY_ATTRIBUTE}] {
         const closeLabel = t('sidebar.close')
         const navigationLabel = t('sidebar.navigation')
 
+        // The drawer owns the screen while it is open, so opening it must first take the right
+        // panel off that screen: the panel is a fullscreen z-index 40 overlay on a phone and
+        // would otherwise cover the drawer that was just opened.
+        const openDrawer = () => {
+          layout.toggleSidebar()
+          closeRightPanel(currentFrame(layerRef.current))
+        }
+
         React.useEffect(() => {
           if (sidebarCollapsed || !mobileMode) return undefined
           return activateDrawerAccess(layerRef.current, navigationLabel, () => {
@@ -862,9 +1283,12 @@ body[${BODY_ATTRIBUTE}] {
         }, [sidebarCollapsed, mobileMode, navigationLabel])
 
         const label = sidebarCollapsed ? openLabel : closeLabel
+        // The same icon token the right panel's own control draws (dsh-client-ui-sidebar-right
+        // renders IconPanelLeftOutline16 at size 15), so the pair reads as one icon family —
+        // measured ink identical (15x14.06, same y) once both are drawn this way.
         const icon = sidebarCollapsed
-          ? React.createElement(IconPanelLeftOutline16, { size: 20 })
-          : React.createElement(IconCloseOutline16, { size: 20 })
+          ? React.createElement(IconPanelLeftOutline16, { size: 15 })
+          : React.createElement(IconCloseOutline16, { size: 15 })
 
         return React.createElement('div', {
           ref: layerRef,
@@ -879,7 +1303,7 @@ body[${BODY_ATTRIBUTE}] {
           className: 'dmc-sidebar-backdrop',
           'aria-hidden': 'true',
           tabIndex: -1,
-          onClick: () => { layout.toggleSidebar() }
+          onClick: openDrawer
         }),
         React.createElement('button', {
           key: 'toggle',
@@ -891,7 +1315,7 @@ body[${BODY_ATTRIBUTE}] {
           'aria-hidden': sidebarCollapsed ? undefined : 'true',
           tabIndex: sidebarCollapsed ? 0 : -1,
           title: label,
-          onClick: () => { layout.toggleSidebar() }
+          onClick: openDrawer
         }, icon))
       }
     }
@@ -904,8 +1328,10 @@ body[${BODY_ATTRIBUTE}] {
       }
       try {
         own(installViewportFit())
+        own(installVisualViewportHeight())
         own(installStyles())
         own(registerLocale(ctx.locale))
+        own(installTitleStrip())
         own(ctx.slots.inject('shell.overlay', () => ctx.slots.register(
           { name: 'shell.overlay', id: OVERLAY_ID, order: -1000 },
           createMobileControls(ctx.layout, ctx.locale, layerGeneration)

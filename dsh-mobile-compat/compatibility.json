@@ -4,13 +4,19 @@
   "policy": "compatible-release-line",
   "range": ">=0.1.6-alpha.1 <0.1.7",
   "verifiedVersions": [
-    "0.1.6-alpha.1"
+    "0.1.6-alpha.1",
+    "0.1.6-alpha.2"
   ],
   "futureVersionsRequireCapabilityChecks": true,
   "versions": [
     {
       "version": "0.1.6-alpha.1",
       "status": "source-verified"
+    },
+    {
+      "version": "0.1.6-alpha.2",
+      "status": "source-verified",
+      "note": "All 51 dsh-client-* packages of the release were compared file-by-file by hash against 0.1.6-alpha.1: only dsh-client-ui-agent-preset (hero chip seat store) and dsh-client-ui-cordis (per-view session selector) differ; the layout/sidebar/sidebar-right/conversation/workspace/settings artifacts this plugin depends on are byte-identical, and the full browser regression was rerun green."
     }
   ],
   "contracts": {
@@ -20,7 +26,8 @@
         "owner": "dsh-mobile-compat Host half",
         "surface": "Authenticated GET /dsh-mobile-compat/status reads the installed @deepseek-ai/dsh package.json version after connection.requestRejection(req)",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -28,7 +35,8 @@
         "owner": "@deepseek-ai/dsh-client-connection",
         "surface": "connection.generation.getSnapshot()/subscribe() triggers status refresh; the plugin status route remains the release-version source",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -36,7 +44,8 @@
         "owner": "@deepseek-ai/dsh-client-ui-layout",
         "surface": "layout.toggleSidebar()",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -44,7 +53,8 @@
         "owner": "@deepseek-ai/dsh-client-ui-layout",
         "surface": "shell.overlay list Slot (entry options id and order)",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       }
     ],
@@ -55,7 +65,8 @@
         "expectation": "The data-shell-overlay parent has the Sidebar column, Center column, Rightbar column (data-rightbar-col), and overlay as its first four host children; the three columns contain the direct sidebar, main, and rightbar Slot seats. Within the main seat, ConversationRoot is reached through single-child display:contents Slot anchors (0.1.6: main.conversation), and its last direct child holds a direct data-conversation-scroll element.",
         "runtimeMarker": "data-dsh-mobile-shell-compatible",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -63,7 +74,8 @@
         "owner": "packages/client/ui-sidebar/src/client/SidebarRoot.tsx",
         "expectation": "[data-slot='sidebar'] has one first occupant (SidebarRoot) that only writes an inline desktop width while wide, so the mobile drawer may force it to 100%.",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -72,7 +84,8 @@
         "expectation": "[data-slot='sidebar.workspaces'] resolves to WorkspaceBrowser root > section header; the search container has button[aria-expanded] and is followed by the action cluster.",
         "runtimeMarker": "data-dsh-mobile-workspaces-compatible",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -80,7 +93,8 @@
         "owner": "packages/client/ui-settings-general/src/client/SettingsRoot.tsx",
         "expectation": "The Settings modal is role=dialog, aria-modal=true, with a direct nav (title + section list) followed by its content column.",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -89,7 +103,8 @@
         "expectation": "The main Slot occupant chain resolves to ConversationRoot; its last direct child contains direct data-conversation-scroll. Conversation and Composer also expose data-composer-seat, data-composer-card, and an accessible role=textbox aria-multiline=true editor.",
         "runtimeMarker": "data-dsh-mobile-conversation-compatible",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
@@ -97,15 +112,53 @@
         "owner": "packages/client/ui-sidebar-right/src/client/shell/SidebarPanel.tsx",
         "expectation": "The right panel is an absolutely positioned overlay inside the rightbar column, switched to position:fixed inset:0 for fullscreen, which is automatic below 768px viewport width. The mobile layer must keep that column displayed with a zero-width grid track and must never set display:none on it.",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       },
       {
         "id": "conversation-header-rows",
         "owner": "packages/client/ui-conversation/src/client/skeleton/ConversationSession.tsx",
-        "expectation": "The conversation session header has one row for the session title/mode cluster and a later row for the view tabs. The floating sidebar toggle's clearance must be applied to the first row only (the header itself keeps DSH's native gutter), so the tab row is not indented; the toggle keeps a 44x44 hit box with a smaller visual chip that stays clear of the tab row.",
+        "expectation": "The session header is a titleRow whose first row holds headerLeading, titleCluster (nav.crumbs + div.headerActions), headerUtilities and headerCorner, followed by a later row for the view tabs. headerActions nests inside titleCluster, so rules must name containers instead of relying on position, and the first row is the only row that may carry the toggle clearance. The phone layer wraps the titleCluster children in a scrollable strip: 28px tall, overflow-x auto, hidden scrollbar that reserves no layout, and a pointer-drag disposer that restores the children in place.",
         "versions": [
-          "0.1.6-alpha.1"
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
+        ]
+      },
+      {
+        "id": "right-panel-chrome",
+        "owner": "packages/client/ui-sidebar-right/src/client/shell/ExpandButton.tsx and shell/StripChrome.tsx",
+        "expectation": "The session-header expand control is [data-sidebar-right-expand]: a 28x28 control drawing IconPanelLeftOutline16 at 15px, whose 44px touch box ends 12px from the right edge (header 28px right padding minus headerCorner's margin-right:-16px), leaving the glyph ink 26.5px from that edge; the phone layer gives it a 44px box and mirrors its glyph from the left edge. The panel's chrome strip and pane body carry no data attribute, so they are anchored by the class suffixes [class*='stripChrome'] and [class*='paneBody']; a miss simply falls back to DSH's own rendering.",
+        "versions": [
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
+        ]
+      },
+      {
+        "id": "right-panel-overlay-stacking",
+        "owner": "packages/client/ui-sidebar-right/src/client/shell/SidebarPanel.tsx",
+        "expectation": "The right panel is fixed inset:0 at z-index 40 while the drawer is z-index 30 and this plugin's overlay layer is z-index 0, so the panel always wins. The drawer entry must therefore close the panel only when it is actually open: [data-sidebar-right-toggle] is a symmetric toggle, and clicking it while the panel is closed opens a fullscreen panel over the drawer. Opening the drawer must also toggle the sidebar before closing the panel, so the panel collapse's narrowExpanded=false cannot close the drawer that was just opened. While the panel is open the drawer must not add inert/aria-hidden to that column.",
+        "versions": [
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
+        ]
+      },
+      {
+        "id": "composer-dock-inline-cards",
+        "owner": "packages/client/ui-conversation/src/client/Composer.tsx and ui-chat composer seats",
+        "expectation": "[data-composer-seat] hosts the composer card and inline dock cards whose own chrome is 36px tall, so their buttons need the 44px touch floor. The pending-attachment rail is the only role=group inside the card/composer seat: DSH already renders it for touch (its 18px thumbnail remove button is forced visible under the coarse-pointer media query) and the thumbnails are 64px, so the 44px floor must exclude that group structurally and only expand the small controls' pointer target.",
+        "versions": [
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
+        ]
+      },
+      {
+        "id": "modal-and-popover-viewport",
+        "owner": "packages/client/ui-primitives primitives and ui-settings-general shell",
+        "expectation": "aria-modal dialogs, role=menu and role=listbox surfaces are positioned from the layout viewport, which iOS does not resize for the software keyboard. The phone layer publishes visualViewport height into --dmc-visual-viewport-height and bounds those surfaces with it, removing the variable when the width changes so 100dvh takes over.",
+        "versions": [
+          "0.1.6-alpha.1",
+          "0.1.6-alpha.2"
         ]
       }
     ]

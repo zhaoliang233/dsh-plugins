@@ -8,9 +8,9 @@ Client 主导、Host 只提供运行版本状态接口、外壳级且版本锁�
 
 ## 兼容发布线策略
 
-`compatibility.json` 是机器可读矩阵，`package.json#dshCompatibility` 必须满足：`policy: "compatible-release-line"`；package 为 `@deepseek-ai/dsh`；range `>=0.1.6-alpha.1 <0.1.7`；verifiedVersions 严格为 `0.1.6-alpha.1`；`futureVersionsRequireCapabilityChecks: true`；matrix 指向 `./compatibility.json`；`engines.dsh` 与 `dshCompatibility.range` 同源。
+`compatibility.json` 是机器可读矩阵，`package.json#dshCompatibility` 必须满足：`policy: "compatible-release-line"`；package 为 `@deepseek-ai/dsh`；range `>=0.1.6-alpha.1 <0.1.7`；verifiedVersions 严格为 `0.1.6-alpha.1`、`0.1.6-alpha.2`；`futureVersionsRequireCapabilityChecks: true`；matrix 指向 `./compatibility.json`；`engines.dsh` 与 `dshCompatibility.range` 同源。
 
-`0.1.6-alpha.1` 已逐版本读取发布包源码并核对契约。同一 `0.1.6` 发布线内的后续 alpha/beta/rc/正式版允许带警告运行，但版本门、公开能力和精确 DOM 结构探测必须继续 fail closed；跨到 `0.1.7` 之前、或收录低于 `0.1.6-alpha.1` 的版本（本次只 source-verified 了 `0.1.6-alpha.1`），都必须重新读取源码并调整范围，禁止无上界范围或跨发布线猜测。
+`0.1.6-alpha.1` 与 `0.1.6-alpha.2` 已逐版本核对：把两个版本**全部 51 个 `dsh-client-*` 发布包**按文件哈希逐文件比对，只有 `dsh-client-ui-agent-preset`（hero chip 的 seat store）与 `dsh-client-ui-cordis`（会话选择器改为按视图）不同，本插件依赖的 layout/sidebar/sidebar-right/conversation/workspace/settings 产物逐字节相同。同一 `0.1.6` 发布线内的后续 alpha/beta/rc/正式版允许带警告运行，但版本门、公开能力和精确 DOM 结构探测必须继续 fail closed；跨到 `0.1.7` 之前、或收录低于 `0.1.6-alpha.1` 的版本，都必须重新读取源码并调整范围，禁止无上界范围或跨发布线猜测。
 
 `scripts/check-compat.js --installed` 比较 `dsh --version`。运行时 Host 从 CLI entry 解析实际 `@deepseek-ai/dsh/package.json` 并在 `GET /dsh-mobile-compat/status` 返回版本；route 先通过 DSH `connection.requestRejection(req)` 的 trusted-host 与签名浏览器 cookie 认证，Client fetch 显式使用 `credentials: 'same-origin'`。Client 只用 `connection.generation.getSnapshot()/subscribe()` 作为连接就绪/重试触发器，release version 始终来自插件状态接口；跨发布线版本必须保持 inert。
 
@@ -36,7 +36,21 @@ UI 只向 `shell.overlay` 注册 additive list entry：`{ name: 'shell.overlay',
 
 header clearance 必须落在 session-header Slot 内实际 header 元素的**第一行**（`[CONV] > :first-child:not(:last-child) > :first-child > :first-child`）：`renderSlot` anchor 是 `display:contents`，对 anchor 本身设置 padding 无效；给整块 header 加 padding 会把下方的 `对话/轨迹` 标签行一起右推（实测 375px 下推 44px）。header 自身保留原生 gutter，第一行额外 38px 即可得到 ~58px 净空。
 
-悬浮 toggle 保持 44×44 命中盒（`top/left: max(4px/10px, safe-area)`），可视 chip 用 `::after { inset: 4px }` 收成 36px，焦点环也移到 chip 上，因此不会在视觉上压过 header 第一行（chip y8..44 与 y50 起的标签行不重叠，命中盒 y4..48 仍在标签行之上）。结构不符时卸载所有增强、保留原生布局，并输出一次诊断。
+悬浮 toggle 保持 44×44 命中盒，但**可视部分必须读作 DSH 自己的标题栏控件**：28×28 的 `::after` 圆角 28px 裸底（无边框/底色/阴影，仅 `hover` 时填 `--dsw-alias-interactive-bg-hover`）、图标 15px、墨色 `--dsw-alias-label-secondary`，位置 `top: 10px`（会话 header 第一行）与 `left: 12px`（命中盒 12..56，其中 28×28 可视框落在 20..48，与手机 header 自身的 20px 左留白、标题栏第一个元素同一条竖线）。图标用与右栏入口**同一个 token**（`IconPanelLeftOutline16`）并由 primitives 的 `size: 15` 声明尺寸，不用 CSS 覆盖宽度。**对齐判据是墨迹**：实测（320/390/457/568/578/844 一致）右侧 `[data-sidebar-right-expand]` 的 44px 盒距右边 12px、其 15px 图标墨迹距右边 26.5px；两个 SVG 在 15px 盒内都是满幅墨迹，所以可视框位置就是墨迹位置，`left: 12px` 才与右侧镜像（曾按「可视框距边 12px」写成 `left: 4px`，盒子对齐了但墨迹差 4px，用户一眼看出不齐）。`getBoundingClientRect` 量的是盒，量墨迹要栅格化 SVG。抽屉打开时入口隐藏：抽屉标题行右侧 DSH 自带的「收起侧边栏」就是关闭入口，避免两个关闭键。结构不符时卸载所有增强、保留原生布局，并输出一次诊断。
+
+### 会话标题栏 strip
+
+手机上 `[class*='titleRow'] [class*='titleCluster']` 的子节点（`nav.crumbs`、`div.headerActions`）被搬进一个 `[data-dsh-mobile-title-strip]` 包装节点，包装节点**插在原第一个子节点的位置**，`headerUtilities` / `headerCorner` 两个兄弟保持原样：
+
+- CSS：`height: 28px`（与 header 第一行等高，整行仍 44px，标题栏不增高）、`flex: 1 1 auto; min-width: 0`、`overflow-x: auto; overflow-y: hidden`、`flex-wrap: nowrap`、`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`、`touch-action: pan-x`。滑块必须隐藏且**不占布局**（回归断言 `offsetHeight - clientHeight === 0`）。
+- 拖动由 JS 提供（`scrollTitleStrip()`）：pointerdown/move/up/cancel，位移超过 6px 才判定轴向，只有 x 轴且未到边界时才写 `scrollLeft` 并 `setPointerCapture`；边界外的手势让给 DSH 自己的滑动。手势结束后 350ms 内吞掉一次 click，避免拖完误触底下的按钮。
+- 注册与移除监听器必须使用**同一组选项值**（`{ passive: true }` / `{ passive: false }` / `{ capture: true }`）：`removeEventListener` 只比较 capture 语义，传 `true` 当第三参无法移除 `{ passive: true }` 注册的监听器。
+- `installTitleStrip()` 在 mutation 后判断「子节点是否全部在 strip 内」，不满足就 dispose 再重新收纳（标题栏 owner 会重建/追加子节点）；disposer 把子节点按原位置还原并 `wrapper.remove()`，插件停用后不留残余 DOM。顺序是先清 `disposeStrip` 再重新挂，避免同一个 wrapper 被 dispose 两次。
+- 标题节点（`wSkVaW_crumbCurrent` 一类）会把自己左移到负坐标来显示末尾，因此判断控件是否可达必须用 `左侧边界 - maxScroll .. 右侧边界 + maxScroll`，只看右边界会误判。
+
+### Composer 与附件条
+
+44px 命中下限只对 `role≠group` 的按钮生效：`[data-composer-card]` / `[data-conversation-scroll]` / shell 首列 / `aria-modal` dialog 四处规则，以及 `[data-composer-seat]` 规则，都带 `:not(:is([role='group'], [role='group'] *))`。待发送附件条是 composer 里唯一的 `role=group`，DSH 自己已为触屏适配它（coarse-pointer 媒体查询把 18px 删除键设为常显、缩略图 64px、箭头 24px），一刀切放大就会把删除键顶成一块盖住照片的 44px 方块。条内小圆钮的命中区用 `::after` 不可见 44px 靶区实现，视觉尺寸保持原生。回归里真实粘贴一张图片挂载附件条来断言「条内不出现 44px、操作行仍 ≥44px」。
 
 Workspace patch 还需验证 `[data-slot=sidebar.workspaces]` 的 WorkspaceBrowser root、header、含 `button[aria-expanded]` 的 search Slot 及其相邻 action cluster，通过后添加 `data-dsh-mobile-workspaces-compatible`。所有 owner、结构和版本映射维护在 `compatibility.json#contracts`。
 

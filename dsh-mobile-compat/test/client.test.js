@@ -435,13 +435,26 @@ test('attribute-only shell changes deactivate and recover compatibility effects'
 })
 
 test('later same-line versions activate only after runtime capability checks', async () => {
-  const harness = makeHarness({ version: '0.1.6-alpha.2' })
+  // alpha.2 is source-verified now; alpha.3 stands in for "same line, not individually verified".
+  const harness = makeHarness({ version: '0.1.6-alpha.3' })
   const applied = applyPlugin(harness)
   await flushCompatibility()
 
   assert.notEqual(harness.getStyle(), null)
   assert.notEqual(applied.slot(), null)
   assert.equal(harness.warnings.some((warning) => /has not been individually verified/.test(warning)), true)
+
+  for (const dispose of applied.fiberDisposers.reverse()) dispose()
+})
+
+test('the second source-verified version activates without a warning', async () => {
+  const harness = makeHarness({ version: '0.1.6-alpha.2' })
+  const applied = applyPlugin(harness)
+  await flushCompatibility()
+
+  assert.notEqual(harness.getStyle(), null)
+  assert.notEqual(applied.slot(), null)
+  assert.equal(harness.warnings.some((warning) => /has not been individually verified/.test(warning)), false)
 
   for (const dispose of applied.fiberDisposers.reverse()) dispose()
 })

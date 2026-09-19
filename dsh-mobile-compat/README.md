@@ -4,19 +4,22 @@
 
 ## 功能
 
-- 手机视口下把三栏 Shell 重排为全宽 Conversation，Sidebar 变成带遮罩的抽屉。
+- 手机视口下把三栏 Shell 重排为全宽 Conversation，Sidebar 变成带遮罩的**全屏**抽屉（与右栏在 <768px 自动全屏的形态一致；横屏大屏上仍保留抽屉宽度）。
 - 让 SidebarRoot 填满抽屉，修复 Workspace 搜索与操作区在触控布局下被裁切的问题。
-- 在 `shell.overlay` 提供 44px 的 Sidebar 入口；抽屉内所有增强命中区至少 44px。
+- 在 `shell.overlay` 提供 44px 的 Sidebar 入口，外观与位置按手机 header 自身的 20px 留白来做：28×28 裸图标框、图标 15px，与右侧栏入口距各自边缘的距离一致、同一行；抽屉内所有增强命中区至少 44px。
+- 手机会话标题栏保留标题与两侧所有操作入口（任务 / 日程 / 智能体预设 / 终端、模式、智能体团队、更多菜单）：它们在一条横向可滑动的 strip 里，滑块隐藏、不占高度，标题栏总高度与原生一致；拖动 strip 即可够到右侧被挡住的部分，拖动后松手不会误触底下的按钮。
 - 抽屉打开时把焦点移入 Sidebar、隔离被覆盖的 Conversation/Rightbar、双向约束 Tab、支持 Escape，关闭后恢复入口焦点；出现其他 modal 时暂停这套隔离。
 - 把 Settings 两列弹窗重排为 `100dvh` 全屏界面，Section 导航改为横向滚动标签。
-- 缩小 Conversation/Composer 的横向留白，约束代码与媒体溢出；Composer 文本编辑器字号至少 16px（避免 iOS 聚焦时缩放）。
+- 缩小 Conversation/Composer 的横向留白，约束代码与媒体溢出；Composer 文本编辑器字号至少 16px（避免 iOS 聚焦时缩放）。Composer 操作行（附件、模式、模型、发送）保持 44px 触控尺寸，但**待发送附件的缩略图条保持 DSH 原生尺寸**（缩略图 64px、右上角删除键 18px），放大命中区用不可见靶区实现，不改变外观。
 - 可逆地补充 `viewport-fit=cover`，并使用 `dvh`、安全区与 reduced-motion 能力。
-- 手机上右侧栏保留为零宽 grid 轨道，并让它的原生浮层在其中全屏显示：不再对整列 `display:none`，因此手机右栏仍可打开，也不清空桌面的右栏宽度偏好。
+- 手机上右侧栏保留为零宽 grid 轨道，并让它的原生浮层在其中全屏显示：不再对整列 `display:none`，因此手机右栏仍可打开，也不清空桌面的右栏宽度偏好。右侧栏面板在手机上补齐安全区、44px 控制条与内容列惯性滚动。
+- 抽屉入口与右栏面板互斥：点左侧入口时，若右栏面板正开着就先收起它再打开抽屉；右栏原本关着时不会去碰它（面板自己的收起键是**对称切换**，盲点一下反而会把它打开、进而全屏盖住抽屉）。
+- 用可见视口高度（`visualViewport`）约束 `aria-modal` 对话框与 `role=menu`/`listbox` 弹层，避免 iOS 软键盘把它们底部吞掉。
 - 每次激活都会停用上一代插件遗留的悬浮层（标记 `data-dsh-mobile-orphan` 后隐藏并停止接收点击），避免长时间打开或反复热更新后留下多余的入口和点不动的遮挡层。
 
 ## 要求
 
-- DeepSeek Harness Web `>=0.1.6-alpha.1 <0.1.7`；`0.1.6-alpha.1` 已逐版本核对。同线后续 alpha/beta/rc/正式版允许带警告运行，并继续由公开能力与精确 DOM 结构检查 fail closed；跨到 `0.1.7`、低于 `0.1.6-alpha.1` 或落在其他发布线时拒绝运行。
+- DeepSeek Harness Web `>=0.1.6-alpha.1 <0.1.7`；`0.1.6-alpha.1` 与 `0.1.6-alpha.2` 已逐版本核对（两者的客户端产物逐文件比对只差 `agent-preset` 与 `cordis` 两个包）。同线后续 alpha/beta/rc/正式版允许带警告运行，并继续由公开能力与精确 DOM 结构检查 fail closed；跨到 `0.1.7`、低于 `0.1.6-alpha.1` 或落在其他发布线时拒绝运行。
 - 浏览器需要支持 `:has()`：建议 iOS Safari 15.4 或同等能力的 Chromium。
 - Node.js 20 或更高版本（仅安装与发布检查需要）。
 
@@ -24,7 +27,7 @@
 
 ```bash
 dsh plugin --profile web add dsh-mobile-compat        # 安装
-dsh plugin --profile web add dsh-mobile-compat@0.3.2  # 升级到指定版本
+dsh plugin --profile web add dsh-mobile-compat@0.3.6  # 升级到指定版本
 dsh plugin --profile web remove dsh-mobile-compat     # 卸载
 ```
 

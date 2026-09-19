@@ -6,7 +6,7 @@ const manifest = JSON.parse(await readFile(new URL('package.json', packageRoot),
 const declaration = manifest.dshCompatibility
 const matrix = JSON.parse(await readFile(new URL('compatibility.json', packageRoot), 'utf8'))
 const expectedRange = '>=0.1.6-alpha.1 <0.1.7'
-const expectedVerifiedVersions = ['0.1.6-alpha.1']
+const expectedVerifiedVersions = ['0.1.6-alpha.1', '0.1.6-alpha.2']
 const releaseLine = '0.1.6'
 const minimumAlpha = 1
 

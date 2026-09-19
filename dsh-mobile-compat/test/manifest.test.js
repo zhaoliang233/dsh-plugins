@@ -34,7 +34,7 @@ test('compatibility matrix declares the verified 0.1.6 release line', () => {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
     range: '>=0.1.6-alpha.1 <0.1.7',
-    verifiedVersions: ['0.1.6-alpha.1'],
+    verifiedVersions: ['0.1.6-alpha.1', '0.1.6-alpha.2'],
     matrix: './compatibility.json',
     futureVersionsRequireCapabilityChecks: true
   })
@@ -42,13 +42,13 @@ test('compatibility matrix declares the verified 0.1.6 release line', () => {
   assert.equal(matrix.policy, 'compatible-release-line')
   assert.equal(matrix.range, '>=0.1.6-alpha.1 <0.1.7')
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
-  assert.deepEqual(matrix.verifiedVersions, ['0.1.6-alpha.1'])
+  assert.deepEqual(matrix.verifiedVersions, ['0.1.6-alpha.1', '0.1.6-alpha.2'])
   assert.equal(matrix.futureVersionsRequireCapabilityChecks, true)
-  assert.deepEqual(matrix.versions, [
-    { version: '0.1.6-alpha.1', status: 'source-verified' }
-  ])
-  assert.equal(matrix.contracts.structural.some((entry) => entry.id === 'app-frame-columns'), true)
-  assert.equal(matrix.contracts.structural.some((entry) => entry.id === 'workspace-header-controls'), true)
+  assert.deepEqual(matrix.versions.map((entry) => entry.version), ['0.1.6-alpha.1', '0.1.6-alpha.2'])
+  assert.equal(matrix.versions.every((entry) => entry.status === 'source-verified'), true)
+  for (const id of ['app-frame-columns', 'workspace-header-controls', 'right-panel-chrome', 'right-panel-overlay-stacking', 'composer-dock-inline-cards', 'modal-and-popover-viewport']) {
+    assert.equal(matrix.contracts.structural.some((entry) => entry.id === id), true, id)
+  }
 
   assert.match(readme, />=0\.1\.6-alpha\.1 <0\.1\.7/)
   assert.match(readme, /0\.1\.6-alpha\.1/)
@@ -58,7 +58,7 @@ test('compatibility matrix declares the verified 0.1.6 release line', () => {
 
 test('client source declares release-line, connection, and structure gates', () => {
   assert.match(client, /DSH_COMPATIBILITY_RANGE = '>=0\.1\.6-alpha\.1 <0\.1\.7'/)
-  assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.1\.6-alpha\.1'\]\)/)
+  assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.1\.6-alpha\.1', '0\.1\.6-alpha\.2'\]\)/)
   assert.match(host, /readDshPackage/)
   assert.match(host, /\/dsh-mobile-compat\/status/)
   assert.match(client, /connection\?\.generation/)
