@@ -10,10 +10,7 @@ import { parse } from 'yaml'
 import { LocalPluginManagerError, errorMessage } from './errors.js'
 import {
   DEFAULT_LOCK_WAIT_MS,
-  MANAGED_BEGIN,
-  MANAGED_END,
   PATCH_CUSTOM_TAGS,
-  migrateManagedBlock,
   nextPatchText,
   pruneRowOverrides,
   readPatchText,
@@ -22,17 +19,14 @@ import {
 } from './patch-writer.js'
 
 export { LocalPluginManagerError } from './errors.js'
-export { MANAGED_BEGIN, MANAGED_END } from './patch-writer.js'
 
 export const PLUGIN_NAME = 'dsh-local-plugin-manager'
 export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
 export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.1.6-alpha.2'])
 export const DEFAULT_PROFILE = 'web'
 
-// state.json v1 记录 `disabled` 包名列表并把它投影成受管区块；v2 起禁用状态的真源是
-// profile patch 的覆盖项本身，state.json 只保留卸载墓碑。
+// state.json 只保留卸载墓碑；禁用状态的真源是 profile patch 的覆盖项本身。
 const STATE_VERSION = 2
-const LEGACY_STATE_VERSION = 1
 export const MAX_DESCRIPTION_LENGTH = 200
 const MAX_COMMAND_OUTPUT = 32 * 1024
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
@@ -52,7 +46,7 @@ function uniqueStrings(values) {
 // package.json#description is the single source for the list copy, but the plugin author
 // owns its shape: collapse it to one bounded line so the DTO stays display-ready and the
 // client never receives control characters, newlines, or an empty string.
-export function normalizeDescription(value) {
+function normalizeDescription(value) {
   if (typeof value !== 'string') return undefined
   const text = value
     .replace(/[\u0000-\u0008\u000b\u000e-\u001f\u007f-\u009f]/gu, '')
@@ -80,7 +74,7 @@ export function resolveDshHome(env = process.env, home = homedir()) {
   return resolve(configured || join(home, '.dsh'))
 }
 
-export function resolveProfileDir(dshHome, profile = DEFAULT_PROFILE) {
+function resolveProfileDir(dshHome, profile = DEFAULT_PROFILE) {
   if (profile === '' || profile === '.' || profile === '..' || profile === 'node_modules' || /[\\/\0]/u.test(profile)) {
     throw new LocalPluginManagerError('invalid-profile', `无效的 DSH profile：${JSON.stringify(profile)}`)
   }
@@ -97,7 +91,7 @@ async function readJsonFile(path, label) {
   try {
     const value = JSON.parse(text)
     if (!isRecord(value)) throw new Error('根节点不是对象')
-    return { text, value }
+    return value
   } catch (error) {
     throw new LocalPluginManagerError('invalid-json', `${label}不是有效 JSON：${errorMessage(error)}`, 500)
   }
@@ -236,9 +230,9 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
     }
   }
 
-  let packageFile
+  let manifest
   try {
-    packageFile = await readJsonFile(join(sourcePath, 'package.json'), `${name} 的 package.json`)
+    manifest = await readJsonFile(join(sourcePath, 'package.json'), `${name} 的 package.json`)
   } catch (error) {
     return {
       name,
@@ -255,7 +249,6 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
     }
   }
 
-  const manifest = packageFile.value
   const description = normalizeDescription(manifest.description)
   const declaredPatch = manifest.dsh?.bundle?.patch
   const hasClient = isRecord(manifest.dsh?.client)
@@ -328,25 +321,13 @@ async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
 }
 
 function defaultState() {
-  return { version: STATE_VERSION, legacyDisabled: [], pendingRemovals: [] }
+  return { version: STATE_VERSION, pendingRemovals: [] }
 }
 
-// v1 的 `disabled` 包名列表不再参与状态推导：禁用状态现在就存在 profile patch 的覆盖项里。
-// 读到的旧列表只作为一次性迁移输入返回（见 LocalPluginProfile#migrateState）。
+// 只接受当前 schema：旧格式（`disabled` 包名列表与受管区块）不再兼容，读到就直接 fail closed，
+// 而不是按猜测重写用户的 patch。
 function validateState(value, label) {
-  if (!isRecord(value) || !Array.isArray(value.pendingRemovals)) {
-    throw new LocalPluginManagerError('invalid-state', `${label}格式不受支持，管理器不会自动覆盖。`, 409)
-  }
-  let legacyDisabled = []
-  if (value.version === LEGACY_STATE_VERSION) {
-    if (!Array.isArray(value.disabled)) {
-      throw new LocalPluginManagerError('invalid-state', `${label}格式不受支持，管理器不会自动覆盖。`, 409)
-    }
-    legacyDisabled = uniqueStrings(value.disabled.filter((name) => typeof name === 'string' && PACKAGE_NAME_RE.test(name)))
-    if (legacyDisabled.length !== value.disabled.length) {
-      throw new LocalPluginManagerError('invalid-state', `${label}包含无效的 disabled 包名。`, 409)
-    }
-  } else if (value.version !== STATE_VERSION) {
+  if (!isRecord(value) || value.version !== STATE_VERSION || !Array.isArray(value.pendingRemovals)) {
     throw new LocalPluginManagerError('invalid-state', `${label}格式不受支持，管理器不会自动覆盖。`, 409)
   }
   const pendingRemovals = []
@@ -368,13 +349,12 @@ function validateState(value, label) {
     }
     pendingRemovals.push({ name: item.name, rowIds, processMarker: item.processMarker })
   }
-  return { version: STATE_VERSION, legacyDisabled, pendingRemovals }
+  return { version: STATE_VERSION, pendingRemovals }
 }
 
 function cloneState(state) {
   return {
     version: STATE_VERSION,
-    legacyDisabled: [],
     pendingRemovals: state.pendingRemovals.map((item) => ({
       name: item.name,
       rowIds: [...item.rowIds],
@@ -433,12 +413,10 @@ function publicPlugin(plugin, snapshot) {
     path: plugin.path,
     enabled: status === 'enabled',
     status,
-    hasClient: plugin.hasClient,
     manageable: plugin.manageable,
     reason: plugin.reason,
     self: plugin.name === PLUGIN_NAME,
     externalControl: homeKeepsDisabled || homeForcesEnabled,
-    rowIds: plugin.rowIds,
     canEnable: plugin.manageable && plugin.name !== PLUGIN_NAME && !homeKeepsDisabled,
     canDisable: plugin.manageable && plugin.name !== PLUGIN_NAME && !homeForcesEnabled,
     canUninstall: plugin.manageable && plugin.name !== PLUGIN_NAME && (snapshot.patchReferences.get(plugin.name)?.length ?? 0) === 0,
@@ -452,7 +430,7 @@ async function locateDshPackage(cliPath) {
   for (let depth = 0; depth < 5; depth += 1) {
     const packagePath = join(directory, 'package.json')
     try {
-      const { value } = await readJsonFile(packagePath, '@deepseek-ai/dsh package.json')
+      const value = await readJsonFile(packagePath, '@deepseek-ai/dsh package.json')
       if (value.name === '@deepseek-ai/dsh') {
         return { cliPath: resolvedCli, packageDir: directory, version: value.version }
       }
@@ -552,8 +530,7 @@ export class LocalPluginProfile {
   }
 
   async snapshot() {
-    const manifestFile = await readJsonFile(join(this.profileDir, 'package.json'), 'profile package.json')
-    const manifest = manifestFile.value
+    const manifest = await readJsonFile(join(this.profileDir, 'package.json'), 'profile package.json')
     const dependencies = isRecord(manifest.dependencies) ? manifest.dependencies : {}
     const bundleValues = manifest.dsh?.profile?.bundles
     if (!Array.isArray(bundleValues) || !bundleValues.every((value) => typeof value === 'string')) {
@@ -576,17 +553,11 @@ export class LocalPluginProfile {
     const references = collectInsertedPackageReferences([...profileRows, ...homeRows])
 
     return {
-      manifest,
-      manifestText: manifestFile.text,
       dependencies,
       profileBundles,
       plugins,
       patchText,
-      profileRows,
-      homeRows,
-      homePatchText,
       state: stateFile.value,
-      stateText: stateFile.text,
       profileDisabled: patchDisabledValues(profileRows),
       homeDisabled: patchDisabledValues(homeRows),
       patchReferences: references
@@ -614,9 +585,8 @@ export class LocalPluginProfile {
   async applyRows(rows, enabled) {
     return withProfileWriteLock(this.profileDir, async () => {
       const current = await readPatchText(this.profileDir, this.patchPath)
-      const migrated = migrateManagedBlock(current)
-      const next = nextPatchText(migrated.text, rows, enabled, this.patchPath)
-      if (!next.changed && !migrated.migrated) return { changed: false }
+      const next = nextPatchText(current, rows, enabled, this.patchPath)
+      if (!next.changed) return { changed: false }
       await writePatchText(this.profileDir, next.text)
       return { changed: true, text: next.text }
     }, { waitMs: this.lockWaitMs })
@@ -648,15 +618,7 @@ export class LocalPluginProfile {
     const snapshot = await this.snapshot()
     const installed = new Map(snapshot.plugins.map((plugin) => [plugin.name, plugin]))
 
-    // 一次性迁移：删掉旧版受管区块的标记行，区块内的条目原地成为普通覆盖项。
-    // v1 state 记录的禁用项此时已经在这些条目里；只有被手工删掉时才需要补写。
     const disableRows = []
-    for (const name of snapshot.state.legacyDisabled) {
-      if (name === PLUGIN_NAME) continue
-      const plugin = installed.get(name)
-      if (plugin?.manageable === true) disableRows.push(...plugin.rows)
-    }
-
     const pending = []
     const pruneRowIds = []
     for (const item of snapshot.state.pendingRemovals) {
@@ -677,8 +639,7 @@ export class LocalPluginProfile {
       pruneRowIds.push(...item.rowIds)
     }
 
-    const needsMigration = snapshot.patchText.includes(MANAGED_BEGIN) || snapshot.patchText.includes(MANAGED_END)
-    if (needsMigration || disableRows.length > 0) await this.applyRows(disableRows, false)
+    if (disableRows.length > 0) await this.applyRows(disableRows, false)
     if (pruneRowIds.length > 0) await this.pruneRows(uniqueStrings(pruneRowIds))
     await this.writeState({ pendingRemovals: pending })
   }
@@ -687,7 +648,6 @@ export class LocalPluginProfile {
     const snapshot = await this.snapshot()
     return {
       profile: this.profile,
-      busy: this.busy,
       plugins: snapshot.plugins.map((plugin) => publicPlugin(plugin, snapshot))
     }
   }
@@ -750,7 +710,7 @@ export class LocalPluginProfile {
   async repairRemovedBundle(name) {
     return withProfileWriteLock(this.profileDir, async () => {
       const path = join(this.profileDir, 'package.json')
-      const { value: manifest } = await readJsonFile(path, 'profile package.json')
+      const manifest = await readJsonFile(path, 'profile package.json')
       const dependencies = isRecord(manifest.dependencies) ? manifest.dependencies : {}
       const bundles = manifest.dsh?.profile?.bundles
       if (dependencies[name] !== undefined || !Array.isArray(bundles) || !bundles.includes(name)) return false

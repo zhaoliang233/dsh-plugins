@@ -14,7 +14,7 @@ export const STATUS_PATH = '/dsh-local-plugin-manager/status'
 export const ACTION_PATH = '/dsh-local-plugin-manager/action'
 export const CLIENT_HEADER = 'x-dsh-local-plugin-manager-client'
 export const CSRF_HEADER = 'x-dsh-local-plugin-manager-csrf'
-export const MAX_BODY_BYTES = 16 * 1024
+const MAX_BODY_BYTES = 16 * 1024
 
 function requestHeader(req, name) {
   const value = req.headers[name]
@@ -93,9 +93,7 @@ export async function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
  */
 export async function observeLoaderEntryState(ctx, plugin, disabled, options = {}) {
   const loader = ctx.get('loader')
-  if (loader === undefined || typeof loader.entries !== 'function') {
-    return { applied: false, matched: 0, observable: false }
-  }
+  if (loader === undefined || typeof loader.entries !== 'function') return { applied: false }
   const entryIds = new Set(plugin.rowIds.map((rowId) => `include:${rowId}`))
   const timeoutMs = Number.isSafeInteger(options.timeoutMs) && options.timeoutMs >= 0 ? options.timeoutMs : 1500
   const pollMs = Number.isSafeInteger(options.pollMs) && options.pollMs > 0 ? options.pollMs : 150
@@ -106,8 +104,8 @@ export async function observeLoaderEntryState(ctx, plugin, disabled, options = {
       if (entryIds.has(entry.id)) matched.push(entry)
     }
     const settled = matched.length > 0 && matched.every((entry) => disabled ? entry.fiber === undefined : entry.fiber !== undefined)
-    if (settled) return { applied: true, matched: matched.length, observable: true }
-    if (Date.now() >= deadline) return { applied: false, matched: matched.length, observable: true }
+    if (settled) return { applied: true }
+    if (Date.now() >= deadline) return { applied: false }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, pollMs))
   }
 }

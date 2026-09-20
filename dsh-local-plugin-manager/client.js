@@ -7,11 +7,14 @@ window.__ModuleLoader__.load({
 
     const React = require('react')
     const {
+      Button,
       IconLoadingOutline16,
       IconRefreshOutline16,
       IconTrashOutline16,
       IconWarningOutline16,
-      Modal
+      Modal,
+      Switch,
+      Tag
     } = require('@deepseek-ai/dsh-client-ui-primitives')
 
     const STATUS_PATH = '/dsh-local-plugin-manager/status'
@@ -36,7 +39,6 @@ window.__ModuleLoader__.load({
 .dlpm-notice{display:flex;align-items:center;gap:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
 .dlpm-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap}
 .dlpm-notice-copy{min-width:0;flex:1}
-.dlpm-refresh-action{display:inline-flex;align-items:center;gap:5px;flex:none;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}
 .dlpm-list{display:flex;flex-direction:column;min-width:0;border-top:1px solid var(--dsw-alias-border-l2)}
 .dlpm-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;min-height:78px;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .dlpm-copy{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -44,30 +46,19 @@ window.__ModuleLoader__.load({
 .dlpm-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:22px}
 .dlpm-description{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;padding:4px 9px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 7%,transparent);color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;overflow-wrap:anywhere}
 .dlpm-description.missing{background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-.dlpm-badge{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:17px;white-space:nowrap}
-.dlpm-badge.off{color:var(--dsw-alias-label-secondary)}
-.dlpm-badge.warn{color:var(--dsw-alias-state-warn-primary)}
+.dlpm-tag{flex:none}
 .dlpm-meta{display:flex;align-items:center;gap:6px;min-width:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .dlpm-version{flex:none;white-space:nowrap;font-variant-numeric:tabular-nums}
 .dlpm-path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dlpm-reason{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-state-warn-primary);font-size:12px;line-height:18px}
 .dlpm-actions{display:flex;align-items:center;gap:7px;min-width:75px;justify-content:flex-end}
-.dlpm-switch{position:relative;display:inline-flex;align-items:center;width:36px;height:20px;flex:none;padding:0;border:0;border-radius:10px;background:var(--dsw-alias-border-l2);cursor:pointer;transition:background-color .15s ease}
-.dlpm-switch[aria-checked=true]{background:var(--dsw-alias-brand-primary)}
-.dlpm-switch::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 2px rgba(0,0,0,.22);transition:transform .15s ease}
-.dlpm-switch[aria-checked=true]::after{transform:translateX(16px)}
-.dlpm-switch:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
-.dlpm-switch:disabled{opacity:.42;cursor:not-allowed}
 .dlpm-empty,.dlpm-loading{padding:34px 0;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
 .dlpm-loading{display:flex;align-items:center;justify-content:center;gap:8px}
-.dlpm-dialog{width:min(480px,calc(100vw - 32px));border-radius:8px}
+.dlpm-dialog{width:min(480px,calc(100vw - 32px))}
 .dlpm-confirm{display:flex;flex-direction:column;gap:8px;min-width:0}
 .dlpm-confirm-name{font-size:14px;font-weight:500;line-height:22px;overflow-wrap:anywhere}
 .dlpm-confirm-path{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-.dlpm-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.dlpm-button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}
-.dlpm-button.danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:white}
-.dlpm-button:disabled{opacity:.5;cursor:not-allowed}
+.dlpm-danger-button{--dsw-alias-button-primary-fill:var(--dsw-alias-state-error-primary);--dsw-alias-button-primary-hover:var(--dsw-alias-state-error-primary)}
 @media(max-width:600px){.dlpm-row{grid-template-columns:minmax(0,1fr);gap:8px}.dlpm-actions{justify-content:flex-start}.dlpm-path{max-width:100%}}
 `
 
@@ -78,6 +69,13 @@ window.__ModuleLoader__.load({
     function statusLabel(plugin) {
       if (plugin.status === 'partial') return '部分启用'
       return plugin.enabled ? '已启用' : '已禁用'
+    }
+
+    // 徽标只挑官方 Tag 的语义档位：身份描边，已启用 success、已禁用 quiet（无底色、更弱）、
+    // 部分启用 warning，四者一眼可分。档位名写错时官方样式不会命中，徽标会静默失去配色。
+    function statusTone(plugin) {
+      if (plugin.status === 'partial') return 'warning'
+      return plugin.enabled ? 'success' : 'quiet'
     }
 
     function controlReason(plugin, enable) {
@@ -135,7 +133,6 @@ window.__ModuleLoader__.load({
           setView({
             kind: 'ready',
             profile: body.profile,
-            dshVersion: body.dshVersion,
             plugins: Array.isArray(body.plugins) ? body.plugins : []
           })
         } catch (reason) {
@@ -186,7 +183,6 @@ window.__ModuleLoader__.load({
             setView((current) => ({
               kind: 'ready',
               profile: body.snapshot.profile || current.profile,
-              dshVersion: current.dshVersion,
               plugins: body.snapshot.plugins
             }))
           } else {
@@ -214,18 +210,19 @@ window.__ModuleLoader__.load({
 
       const plugins = view.kind === 'ready' ? view.plugins : []
       const confirmBusy = confirmTarget !== null && busyName === confirmTarget.name
+      // Modal renders `footer` itself, so the buttons only need the official variants:
+      // outline for cancel, primary plus the danger token override for uninstall.
       const confirmFooter = confirmTarget === null ? undefined : React.createElement(
-        'div',
-        { className: 'dlpm-footer' },
-        React.createElement('button', {
-          type: 'button',
-          className: 'dlpm-button',
+        React.Fragment,
+        null,
+        React.createElement(Button, {
+          variant: 'outline',
           disabled: confirmBusy,
           onClick: () => setConfirmTarget(null)
         }, '取消'),
-        React.createElement('button', {
-          type: 'button',
-          className: 'dlpm-button danger',
+        React.createElement(Button, {
+          variant: 'primary',
+          className: 'dlpm-danger-button',
           disabled: confirmBusy,
           onClick: () => { void perform('uninstall', confirmTarget) }
         }, confirmBusy ? '正在卸载…' : '卸载')
@@ -239,11 +236,12 @@ window.__ModuleLoader__.load({
       } else if (view.kind === 'failed' || view.kind === 'unavailable') {
         content = React.createElement(React.Fragment, null,
           React.createElement('p', { className: 'dlpm-error' }, view.error),
-          React.createElement('button', {
-            type: 'button',
-            className: 'dlpm-refresh-action',
+          React.createElement(Button, {
+            variant: 'outline',
+            size: 'sm',
+            icon: React.createElement(IconRefreshOutline16, { size: 16 }),
             onClick: () => { void loadPlugins() }
-          }, React.createElement(IconRefreshOutline16, { size: 16 }), '重试'))
+          }, '重试'))
       } else if (plugins.length === 0) {
         content = React.createElement('div', { className: 'dlpm-empty' }, '当前 profile 没有已安装的本地链接插件')
       } else {
@@ -263,9 +261,10 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'dlpm-copy' },
               React.createElement('div', { className: 'dlpm-name-line' },
                 React.createElement('span', { className: 'dlpm-name', title: plugin.name }, plugin.name),
-                plugin.self && React.createElement('span', { className: 'dlpm-badge' }, '当前管理器'),
-                React.createElement('span', {
-                  className: `dlpm-badge ${plugin.status === 'partial' ? 'warn' : plugin.enabled ? '' : 'off'}`
+                plugin.self && React.createElement(Tag, { tone: 'outline', className: 'dlpm-tag' }, '当前管理器'),
+                React.createElement(Tag, {
+                  tone: statusTone(plugin),
+                  className: 'dlpm-tag'
                 }, statusLabel(plugin))
               ),
               React.createElement('div', {
@@ -279,15 +278,12 @@ window.__ModuleLoader__.load({
               reason && React.createElement('span', { className: 'dlpm-reason', title: reason }, reason)
             ),
             React.createElement('div', { className: 'dlpm-actions' },
-              React.createElement('button', {
-                type: 'button',
-                role: 'switch',
-                className: 'dlpm-switch',
-                'aria-checked': plugin.enabled,
-                'aria-label': `${plugin.enabled ? '禁用' : '启用'} ${plugin.name}`,
-                title: controlReason(plugin, switchWillEnable),
+              React.createElement(Switch, {
+                checked: plugin.enabled,
+                label: `${plugin.enabled ? '禁用' : '启用'} ${plugin.name}`,
                 disabled: switchDisabled,
-                onClick: () => { void perform(plugin.enabled ? 'disable' : 'enable', plugin) }
+                title: controlReason(plugin, switchWillEnable),
+                onChange: (next) => { void perform(next ? 'enable' : 'disable', plugin) }
               }),
               React.createElement('button', {
                 type: 'button',
@@ -330,11 +326,12 @@ window.__ModuleLoader__.load({
           notice && React.createElement('div', { className: 'dlpm-notice', role: 'status' },
             React.createElement(IconWarningOutline16, { size: 16 }),
             React.createElement('span', { className: 'dlpm-notice-copy' }, notice.text),
-            notice.refresh && React.createElement('button', {
-              type: 'button',
-              className: 'dlpm-refresh-action',
+            notice.refresh && React.createElement(Button, {
+              variant: 'outline',
+              size: 'sm',
+              icon: React.createElement(IconRefreshOutline16, { size: 16 }),
               onClick: () => window.location.reload()
-            }, React.createElement(IconRefreshOutline16, { size: 16 }), '刷新页面')
+            }, '刷新页面')
           ),
           error && React.createElement('p', { className: 'dlpm-error', role: 'alert' }, error),
           content

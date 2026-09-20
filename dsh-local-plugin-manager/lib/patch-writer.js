@@ -22,7 +22,7 @@ import { YAMLSeq, isMap, isSeq, parseDocument } from 'yaml'
 
 import { LocalPluginManagerError, errorMessage } from './errors.js'
 
-export const PROFILE_PATCH_FILE = 'cordis.patch.yml'
+const PROFILE_PATCH_FILE = 'cordis.patch.yml'
 
 // 写锁锚点：官方 plugin-manager 用 profile 的 package.json 作为整个 profile 的写锁，
 // 所有 profile 文件改动（patch、package.json、pnpm-workspace.yaml）都在同一把锁内完成。
@@ -33,7 +33,7 @@ const LOCK_ANCHOR_FILE = 'package.json'
 export const DEFAULT_LOCK_WAIT_MS = 120_000
 
 // 官方写入 patch 时固定使用 0o600；沿用同一权限位，避免两边写入来回改变文件模式。
-export const PROFILE_PATCH_MODE = 0o600
+const PROFILE_PATCH_MODE = 0o600
 
 const EMPTY_PATCH = '[]\n'
 
@@ -44,26 +44,6 @@ const JS_TAG = {
 
 /** 解析 profile / bundle patch 时使用的自定义标签：`!!js` 表达式按原样保留。 */
 export const PATCH_CUSTOM_TAGS = Object.freeze([JS_TAG])
-
-// 旧版本（0.1.5 及更早）把自己生成的覆盖项包在这对标记之间。标记本身只是注释，
-// 因此迁移只需删掉标记行，区块内的条目原地保留为普通顶层覆盖项。
-export const MANAGED_BEGIN = '# >>> dsh-local-plugin-manager (managed)'
-export const MANAGED_END = '# <<< dsh-local-plugin-manager (managed)'
-const MANAGED_HINT = '# Generated from .dsh-local-plugin-manager/state.json. Use the Settings UI to change it.'
-
-function markerLine(text) {
-  return new RegExp(`^[\\t ]*${text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}[\\t ]*\\r?\\n?`, 'gmu')
-}
-
-/** 去掉旧版受管区块的标记行（含已失效的生成提示），保留区块内的条目与其他字节。 */
-export function migrateManagedBlock(text) {
-  if (!text.includes('dsh-local-plugin-manager (managed)')) return { text, migrated: false }
-  const next = text
-    .replace(markerLine(MANAGED_BEGIN), '')
-    .replace(markerLine(MANAGED_END), '')
-    .replace(markerLine(MANAGED_HINT), '')
-  return { text: next, migrated: next !== text }
-}
 
 /** 读取 profile patch 文本；文件不存在时按官方语义返回空序列。 */
 export async function readPatchText(profileDir, label = PROFILE_PATCH_FILE) {

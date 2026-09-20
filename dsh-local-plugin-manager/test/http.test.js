@@ -68,19 +68,14 @@ test('observes the Loader row without writing to it', async () => {
 
   // 行已经停用：立刻得到肯定结论，且没有碰 Loader。
   visible = false
-  assert.deepEqual(await observeLoaderEntryState(ctx, target, true), { applied: true, matched: 1, observable: true })
+  assert.deepEqual(await observeLoaderEntryState(ctx, target, true), { applied: true })
 
   // 行仍在运行：观察超时后报告「尚未生效」，由调用方提示需要重启。
   visible = true
-  const pending = await observeLoaderEntryState(ctx, target, true, { timeoutMs: 30, pollMs: 10 })
-  assert.deepEqual(pending, { applied: false, matched: 1, observable: true })
+  assert.deepEqual(await observeLoaderEntryState(ctx, target, true, { timeoutMs: 30, pollMs: 10 }), { applied: false })
 
-  // 没有 loader 服务时明确报告「不可观察」，而不是假装已生效。
-  assert.deepEqual(await observeLoaderEntryState({ get: () => undefined }, target, true), {
-    applied: false,
-    matched: 0,
-    observable: false
-  })
+  // 没有 loader 服务时同样只能报告「尚未生效」，而不是假装已生效。
+  assert.deepEqual(await observeLoaderEntryState({ get: () => undefined }, target, true), { applied: false })
 })
 
 test('reads only bounded JSON objects', async () => {

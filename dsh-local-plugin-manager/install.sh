@@ -31,8 +31,18 @@ if ! is_compatible_dsh_version "$NORMALIZED_DSH_VERSION"; then
   echo "错误: 支持的 DSH 范围为 $DSH_COMPATIBILITY_RANGE，当前为 $ACTUAL_DSH_VERSION。" >&2
   exit 1
 fi
-if [[ "$NORMALIZED_DSH_VERSION" != "0.1.6-alpha.1" ]]; then
-  echo "警告: DSH $ACTUAL_DSH_VERSION 位于兼容发布线内，但尚未列入逐版本验证清单；安装后请检查本地插件页。" >&2
+# 逐版本验证清单：必须与 lib/profile-manager.js 的 VERIFIED_DSH_VERSIONS 逐字一致，
+# test/manifest.test.js 会核对两处与 package.json#dshCompatibility 不漂移。
+VERIFIED_DSH_VERSIONS=("0.1.6-alpha.2")
+is_verified_dsh_version() {
+  local candidate="$1" known
+  for known in "${VERIFIED_DSH_VERSIONS[@]}"; do
+    [[ "$known" == "$candidate" ]] && return 0
+  done
+  return 1
+}
+if ! is_verified_dsh_version "$NORMALIZED_DSH_VERSION"; then
+  printf '警告: DSH %s 位于兼容发布线内，但尚未列入逐版本验证清单（%s）；运行时能力检查继续 fail closed，安装后请检查本地插件页。\n' "$ACTUAL_DSH_VERSION" "${VERIFIED_DSH_VERSIONS[*]}" >&2
 fi
 
 echo "== dsh-local-plugin-manager 本地安装 =="

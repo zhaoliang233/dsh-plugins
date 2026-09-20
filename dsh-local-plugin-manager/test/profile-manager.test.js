@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { MANAGED_BEGIN, MANAGED_END, migrateManagedBlock, nextPatchText, pruneRowOverrides } from '../lib/patch-writer.js'
+import { nextPatchText, pruneRowOverrides } from '../lib/patch-writer.js'
 import {
   DSH_COMPATIBILITY_RANGE,
   MAX_DESCRIPTION_LENGTH,
@@ -148,20 +148,6 @@ test('refuses a patch that is not a top-level sequence', () => {
   )
 })
 
-test('migrates the legacy managed block into plain top-level overrides', () => {
-  const legacy = `${FIGMA_PATCH}${MANAGED_BEGIN}\n# Generated from .dsh-local-plugin-manager/state.json. Use the Settings UI to change it.\n# package: dsh-demo-local\n- id: "dsh-demo-local"\n  disabled: true\n${MANAGED_END}\n`
-  const migrated = migrateManagedBlock(legacy)
-  assert.equal(migrated.migrated, true)
-  assert.equal(migrated.text.includes(MANAGED_BEGIN), false)
-  assert.equal(migrated.text.includes(MANAGED_END), false)
-  assert.equal(migrated.text.includes('# Generated from'), false)
-  // 区块内的条目原地保留为普通覆盖项，禁用状态因此不会丢失。
-  assert.equal(migrated.text.includes('- id: "dsh-demo-local"\n  disabled: true'), true)
-  assert.equal(migrated.text.includes('mcp-figma-desktop'), true)
-
-  assert.deepEqual(migrateManagedBlock(FIGMA_PATCH), { text: FIGMA_PATCH, migrated: false })
-})
-
 test('prunes a stale override, keeping any other configuration on that entry', () => {
   const both = pruneRowOverrides('- id: dsh-demo-local\n  disabled: true\n', ['dsh-demo-local'])
   assert.equal(both.changed, true)
@@ -185,8 +171,8 @@ test('lists link bundles and protects source paths as server-owned facts', async
   assert.equal(plugin.path.startsWith(await realpath(fixture.root)), true)
   assert.equal(plugin.manageable, true)
   assert.equal(plugin.enabled, true)
-  assert.equal(plugin.hasClient, true)
-  assert.deepEqual(plugin.rowIds, ['dsh-demo-local'])
+  assert.equal(plugin.status, 'enabled')
+  assert.equal(plugin.canDisable, true)
 })
 
 test('publishes one bounded single-line description per plugin', async (t) => {
@@ -282,35 +268,19 @@ test('refuses corrupt state without changing the profile patch', async (t) => {
   assert.equal(await fixture.readPatch(), FIGMA_PATCH)
 })
 
-test('carries a v1 disabled list into explicit overrides and rewrites the state as v2', async (t) => {
+test('refuses a legacy v1 state file instead of guessing what it meant', async (t) => {
   const fixture = await createFixture()
   t.after(() => fixture.cleanup())
   const stateDir = join(fixture.profileDir, '.dsh-local-plugin-manager')
   await mkdir(stateDir, { recursive: true })
-  // v1 会同时写出受管区块；这里模拟区块已被手工删除，只剩 state 记录了禁用意图。
+  // v1 用 `disabled` 包名列表记账，本版只认 v2 卸载墓碑：读到旧 schema 直接 fail closed，
+  // 不按猜测重写用户的 patch。
   await writeFile(join(stateDir, 'state.json'), `${JSON.stringify({ version: 1, disabled: ['dsh-demo-local'], pendingRemovals: [] }, null, 2)}\n`)
-
-  await fixture.profile.initialize()
-  assert.equal(pluginByName(await fixture.profile.list()).enabled, false)
-  const patch = await fixture.readPatch()
-  assert.equal(patch.includes('- id: dsh-demo-local\n  disabled: true'), true)
-  assert.equal(patch.includes('mcp-figma-desktop'), true)
-
-  const state = JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8'))
-  assert.equal(state.version, 2)
-  assert.equal('disabled' in state, false)
-})
-
-test('migrates a legacy managed block on startup without losing the disabled row', async (t) => {
-  const legacy = `${FIGMA_PATCH}${MANAGED_BEGIN}\n# package: dsh-demo-local\n- id: "dsh-demo-local"\n  disabled: true\n${MANAGED_END}\n`
-  const fixture = await createFixture({ profilePatch: legacy })
-  t.after(() => fixture.cleanup())
-  await fixture.profile.initialize()
-  const patch = await fixture.readPatch()
-  assert.equal(patch.includes(MANAGED_BEGIN), false)
-  assert.equal(patch.includes(MANAGED_END), false)
-  assert.equal(patch.includes('mcp-figma-desktop'), true)
-  assert.equal(pluginByName(await fixture.profile.list()).enabled, false)
+  await assert.rejects(
+    fixture.profile.initialize(),
+    (error) => error instanceof LocalPluginManagerError && error.code === 'invalid-state'
+  )
+  assert.equal(await fixture.readPatch(), FIGMA_PATCH)
 })
 
 test('merges with a concurrent profile patch edit instead of overwriting it', async (t) => {

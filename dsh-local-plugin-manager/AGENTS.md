@@ -9,7 +9,7 @@
 ## Host
 
 - `lib/errors.js`：共享错误类型 `LocalPluginManagerError`（`code` + HTTP `status`），供两个模块复用而不产生循环 import。
-- `lib/patch-writer.js`：**profile patch 事务**。行覆盖语义、profile 写锁、原子提交、旧格式迁移与陈旧覆盖项修剪。
+- `lib/patch-writer.js`：**profile patch 事务**。行覆盖语义、profile 写锁、原子提交与陈旧覆盖项修剪。
 - `lib/profile-manager.js`：profile 枚举、bundle patch 分析、state.json、官方 CLI 卸载与回滚。
 - `lib/index.js`：Cordis 入口、运行版本门、loopback/同源/CSRF HTTP 路由、Loader 状态只读观察。
 - `GET /dsh-local-plugin-manager/status`：返回当前 profile、本地插件 DTO 和每次 Host 运行随机生成的 CSRF token。
@@ -48,7 +48,7 @@ state 文件 `<profile>/.dsh-local-plugin-manager/state.json` 只保留卸载墓
 { "version": 2, "pendingRemovals": [] }
 ```
 
-v1（`{ version: 1, disabled: [...], pendingRemovals: [] }`）仍可读：`initialize()` 把 `disabled` 里的包补写成显式覆盖项（正常情况它们已经在受管区块里），并顺手把旧标记行删掉后写成 v2。旧标记只是注释，区块内的条目原地保留为普通覆盖项，因此禁用状态不会丢失。
+只认这一个 schema：0.1.3/0.1.5 用过的 v1（`{ version: 1, disabled: [...], pendingRemovals: [] }`）与它在 profile patch 里写的受管区块标记都不再兼容，读到 v1 直接以 `invalid-state` fail closed（状态里没有墓碑，删掉 `state.json` 即恢复；禁用意图本身在 profile patch 的覆盖项里，不会丢）。这段迁移是刻意删掉的：旧文件表达的禁用意图已经在覆盖项里，继续替它猜语义只会多出第二种记账。
 
 ## 卸载
 
@@ -67,7 +67,7 @@ plugin --profile web remove <server-derived-name> --config.minimumReleaseAge=0
 ## Client
 
 - `client.js` 是手写 lazy-CJS bundle，无 JSX/TypeScript/import；`exports.inject = ['slots']`；`package.json#dsh.client.inject` 依赖 `@deepseek-ai/dsh-client-ui-settings-plugins`。
-- 注册 `settings.plugins.tab`：`id: 'local-plugins'`、`order: 20`、`label: '本地插件'`。开关用 `role=switch`，刷新与卸载用官方 primitives 图标（`IconRefreshOutline16`/`IconTrashOutline16`），永久卸载必须经过 Modal 确认；管理器自身行禁用开关和卸载按钮。Client 只显示 Host DTO，不自行推导路径、bundle 或 patch 所有权。
+- 注册 `settings.plugins.tab`：`id: 'local-plugins'`、`order: 20`、`label: '本地插件'`。控件与标记一律用官方 primitives：行开关是 `Switch`（`checked`/`onChange`/`label`/`disabled`/`title`），确认弹窗与「重试 / 刷新页面」是 `Button`（取消 `outline`，卸载 `primary` + 只覆盖按钮色 token 的 `.dlpm-danger-button`），行徽标是 `Tag`（身份 `outline`、已启用 `success`、已禁用 `quiet`、部分启用 `warning`；只借 `.dlpm-tag` 做 `flex:none` 布局），图标用 `IconRefreshOutline16`/`IconTrashOutline16`，永久卸载必须经过 Modal 确认；管理器自身行禁用开关和卸载按钮。**不要为这些控件自绘外观 CSS 或 `role=switch` 按钮**：几何、调色板、焦点环与危险色都随 primitives 走，自绘一套只会在官方换皮肤后留下不会跟着变的第二套外观（`test/client.test.js` 拦 `dlpm-switch`/`dlpm-button`/`dlpm-badge` 之类的残留）。Client 只显示 Host DTO，不自行推导路径、bundle 或 patch 所有权。
 - 只使用当前 Inspect 公布的主题 token；样式和网络请求必须随组件/插件卸载清理。注入的 `<style>` 按引用计数共享并必须打 `data-plugin="dsh-local-plugin-manager"`（未打标签的样式会被别的 bundle 认领、热更新时误删；机制见根 `AGENTS.md`）。client HMR 重载只丢弃 fiber 而不跑旧 disposer，所以 `apply` 在元素仍在但文本过期时会重写样式文本。mutation 用同步 `actionRef` 单飞，开始时中止并递增 epoch 使旧 status GET 失效，防止旧快照覆盖 mutation 响应。
 - 每行在名称与版本/路径之间渲染 DTO 的 `description`：最多两行（`-webkit-line-clamp:2`），`title` 给全文。层级固定为名称（14/500/primary）> 说明（13/`label-secondary`，配 `color-mix` 7% 自混底板，浅色深色主题都不写死颜色）> 版本与路径（12/`label-tertiary`，纯元信息）；缺失占位「未提供说明」不画底板并小一档，避免空说明行假装成重点。
 
@@ -77,7 +77,7 @@ status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 t
 
 ## 版本规则
 
-按已核对契约的兼容发布线维护，不为每个非破坏性 prerelease 建独立代码分支（范围与验证版本见「边界」）。跨发布线前必须重新检查 Profile、CLI、Loader、webServer 和 Settings Slot，再同步更新 `DSH_COMPATIBILITY_RANGE`、验证清单、manifest、安装脚本、README 与测试。
+按已核对契约的兼容发布线维护，不为每个非破坏性 prerelease 建独立代码分支（范围与验证版本见「边界」）。跨发布线前必须重新检查 Profile、CLI、Loader、webServer 和 Settings Slot，再同步更新 `DSH_COMPATIBILITY_RANGE`、验证清单、manifest、安装脚本、README 与测试。`install.sh` 的 `VERIFIED_DSH_VERSIONS` 必须与 `lib/profile-manager.js` 的清单逐字一致：0.1.6 换验证版本时漏改过这一处，真机安装因此每次打一条假告警，现由 `test/manifest.test.js` 守卫。
 
 ## 验证
 
@@ -87,7 +87,7 @@ npm run verify
 ./install.sh
 ```
 
-真实 GUI 至少覆盖：第三个 tab 顺序、当前 profile 的全部 link 插件、每个插件的说明行与缺失占位、长说明的两行截断、源码路径截断、self 保护、禁用/启用后 Host fiber 与页面刷新、卸载确认、卸载后 profile manifest/lock、Figma patch 原样保留、重启后 tombstone 清理，以及非 loopback/跨源 action 拒绝。
+真实 GUI 至少覆盖：第三个 tab 顺序、当前 profile 的全部 link 插件、每个插件的说明行与缺失占位、长说明的两行截断、源码路径截断、self 保护、开关/徽标/弹窗按钮的官方 primitives 外观（开关为官方胶囊、禁用态半透明、焦点环可见；徽标为官方胶囊 Tag，当前管理器描边 / 已启用 success / 已禁用 quiet / 部分启用 warning 四档可区分；弹窗按钮为官方胶囊并排，卸载为官方危险色）、禁用/启用后 Host fiber 与页面刷新、卸载确认、卸载后 profile manifest/lock、Figma patch 原样保留、重启后 tombstone 清理，以及非 loopback/跨源 action 拒绝。
 
 **与官方插件页并存**也要覆盖（这是本包唯一容易踩的坑）：在管理器的 tab 里禁用，再去侧边栏官方「插件」页看该行是否为禁用、能否就地启用；反向再走一遍，并确认 `cordis.patch.yml` 里该行始终只有一条覆盖项。自动化侧的做法见下：把真实 profile 复制到临时目录，用该插件的 `setEnabled()` 与从官方包里提取的 `writePluginEnabled` 往返改写（`test/profile-manager.test.js` 里的若干用例已覆盖覆盖项定位与迁移，GUI 步骤无法被单测替代）。
 

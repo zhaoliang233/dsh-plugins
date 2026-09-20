@@ -43,3 +43,17 @@ test('declares one compatible-release-line dual Host and Settings-tab bundle', (
   assert.equal(installScript.includes('0\\.1\\.6-(alpha|beta|rc)'), true)
   assert.equal(patch, '- insert:\n    - id: dsh-local-plugin-manager\n      name: dsh-local-plugin-manager\n      config:\n        profile: web\n')
 })
+
+test('安装脚本的兼容范围与逐版本验证清单必须与宿主、manifest 同源', () => {
+  // 这两处漂移过一次：install.sh 只认 0.1.6-alpha.1，而宿主清单里是 0.1.6-alpha.2，
+  // 真机安装因此每次都打一条“尚未列入逐版本验证清单”的假告警。
+  const range = /DSH_COMPATIBILITY_RANGE="([^"]+)"/u.exec(installScript)
+  assert.notEqual(range, null, 'install.sh 必须声明兼容范围')
+  assert.equal(range[1], DSH_COMPATIBILITY_RANGE, 'install.sh 与宿主的兼容范围必须逐字一致')
+
+  const list = /VERIFIED_DSH_VERSIONS=\(([^)]*)\)/u.exec(installScript)
+  assert.notEqual(list, null, 'install.sh 必须声明逐版本验证清单')
+  const versions = [...list[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1])
+  assert.equal(versions.length > 0, true, '逐版本验证清单不得为空')
+  assert.deepEqual(versions, [...VERIFIED_DSH_VERSIONS], 'install.sh、宿主与 package.json 的清单必须一致')
+})
