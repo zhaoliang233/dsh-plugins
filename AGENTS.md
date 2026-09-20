@@ -91,8 +91,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 
 **禁止按进程名杀进程。** 2026-09-19 事故：agent 为清理自己的无头 Chrome，反复执行 `Get-Process chrome | Stop-Process -Force`，**11 次杀掉用户正在使用的浏览器**（`Stop-Process -Force` 走 `TerminateProcess`，Crashpad/WER 全无痕迹，所以第一轮排查还误判为「没有崩溃」）。`taskkill /IM`、`pkill -f chrome`、`Stop-Process -Name <同名>` 同理禁止。
 
-- **浏览器测试只走** `tools/browser-test-chrome.ps1`（启动，profile 固定 `%TEMP%\dmc-test-chrome`）与 `tools/browser-test-chrome-stop.ps1`（停止）。停止脚本按**命令行包含 `%TEMP%\dmc-test-chrome`** 精确匹配，默认不删除 profile 目录，并打印 `chrome processes left untouched: N` 作为「未触碰用户进程」的证据。
-- 同类规则适用于一切共享资源：只结束**本会话创建、且能按命令行/端口/锁文件证明归属**的进程；不能证明归属时改用隔离资源（独立端口、独立 `DSH_HOME`、独立 profile）。
+- 同类规则适用于一切共享资源：只结束**本会话创建、且能按命令行/端口/锁文件证明归属**的进程；不能证明归属时改用隔离资源（独立端口、独立 `DSH_HOME`、独立 profile），而不是"清理"别人的进程。
 - 隔离验证用 `dsh --profile web --port <非 3080> --no-open` 起受管 background job，验证后停止；用户自己的 `127.0.0.1:3080` 永不触碰。
 - **禁止用 `git checkout-index` / `git checkout -- <path>` / `git restore` 处理行尾或索引问题**：它们会用索引内容**覆盖工作区的未提交改动**（2026-09-19 实际发生过，一次操作清空了整个会话的未提交成果，且无法从 git/npm 恢复）。行尾统一靠 `.gitattributes`（`* text=auto eol=lf`）在**下一次 checkout 时**生效；要立即改写工作区行尾，必须先提交或备份，再单独确认。
 
