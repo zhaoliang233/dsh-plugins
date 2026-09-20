@@ -2,6 +2,19 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.1.7] - 2026-09-20
+
+### 变更
+
+- **设置页控件改用 DSH 官方 primitives**：行开关改用官方 `Switch`，确认弹窗与「重试 / 刷新页面」改用官方 `Button`（取消描边、卸载用官方危险色 token），行徽标改用官方 `Tag`（当前管理器 `outline`、已启用 `success`、已禁用 `quiet`、部分启用 `warning`）；插件不再自带这些控件的外观，弹窗圆角回到官方 `Modal` 的 24px。
+- **`install.sh` 的逐版本验证清单与宿主同源**：此前硬编码 `0.1.6-alpha.1`，对 `0.1.6-alpha.2` 的真机安装每次都打「尚未列入逐版本验证清单」的假告警；现在两处共用同一份清单，并由 manifest 测试守卫不漂移。
+
+### 移除
+
+- 不再兼容 `0.1.3` / `0.1.5` 的 `state.json` v1 与 profile patch 受管区块标记：读到旧格式直接以 `invalid-state` fail closed（删掉 `state.json` 即恢复；禁用状态本身只由 profile patch 的覆盖项表达）。启动迁移与标记清理代码一并删除，避免继续替旧文件猜语义。
+- Host 侧无人读取的字段与导出：status DTO 的 `hasClient` / `rowIds` / `busy`，`snapshot()` 的 6 个返回字段，`observeLoaderEntryState()` 的 `matched` / `observable`，以及 5 个只在本模块内使用的导出。
+- 客户端自绘控件样式 `.dlpm-switch`、`.dlpm-button`、`.dlpm-refresh-action`、`.dlpm-footer`、`.dlpm-badge`（含与基类同色的空规则 `.dlpm-badge.off`），只保留 `.dlpm-tag` 一条布局类。
+
 ## [0.1.6] - 2026-09-18
 
 > `0.1.5` 与 DSH `0.1.6-alpha.2` 起自带的插件管理页（侧边栏「插件」）在同一个 profile patch 上各写一份记账，会互相回滚开关状态；本版把写入对齐到官方实现后两者可并存。仍在使用 `0.1.5` 的 profile 请显式升级到本版。
