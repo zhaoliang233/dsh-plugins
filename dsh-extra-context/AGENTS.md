@@ -24,6 +24,9 @@
 | `agent.inject(UserMessage)` 是官方「补模型可见上下文」通道，空闲时不唤醒 driver | `dsh-agent/lib/types/runtime-types.d.ts`；`dsh-user-approval`、`dsh-cordis-host-runner` 同款用法 |
 | **开关一律用壳层自己的 `Switch`**：`Switch({ checked, onChange, label, disabled, title, className })` → `<button role="switch" aria-checked>`（36×20、开启态 `--dsw-alias-brand-primary` 轨道、视觉由 `aria-checked` 驱动、`disabled` 时 `opacity:.5`）；它在 primitives 静态 seed 里，`require('@deepseek-ai/dsh-client-ui-primitives').Switch` 直接可用 | `dsh-client-ui-primitives/lib/types/Switch.d.ts`、`lib/Switch.module.css`、`lib/index.js:1786`（0.1.6-alpha.2 实测） |
 | `PromptSection.interpolate: false` 让 `renderPrompt()` 原样取 `section.text`，不做 `{{variable}}` 插值 | `dsh-system-prompt/lib/index.js:115`；`renderPrompt()` 是 `assemble()` 的唯一渲染口（`dsh-agent-loop/lib/index.js:1014`） |
+| **压缩摘要是一次独立的模型调用**：`purpose: "compaction"`，消息 = 被压缩区间的回放（**含 surface 节点 0 的 system prompt**）+ 末尾追加的固定英文指令（含 `Write concise English engineering prose`） | `dsh-compaction-basic/lib/index.js` 的 `summarizeWithLlm()`、`buildSummarizationInput()`、`COMPACTION_INSTRUCTION` |
+| `ctx.llm.stream()` 是 `llm/stream` **waterfall**；监听器拿到的 `options` 就是终段 `adapterStream(options, prepared)` 闭包里的同一个对象（摘要调用里未冻结），**就地改 `options.messages` 可影响真正发出去的请求**；`next(...)` 的入参不会被采纳 | `dsh-llm/lib/index.js:2332`（waterfall）、`:2248`（`adapterStream` 读 `resolvedOptions.messages`）；内置先例 `dsh-session-checkpoint-policy/lib/index.js` 的 `ctx.on("llm/stream", …)` |
+| **surface 节点 0（system prompt）受保护**：覆盖节点 0 的替换必须本身是 `system/message` 且只覆盖该节点，所以压缩区间（形如 `replace(9..N)`）不含它——额外上下文在压缩后仍在请求里 | `dsh-session/lib/index.js:381-391`（`assertSystemHeadRewrite`）、`:426-435`（`applySurfacePlan`） |
 | 浏览器 `__ModuleLoader__` 静态 seed 共 **9** 个键：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-store`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-ui-primitives`、`@deepseek-ai/dsh-client-ui-dockkit` | `dsh-web-frontend/dist/assets/index-*.js` 的 seed 映射 |
 
 ## 关键实现事实
@@ -74,10 +77,32 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 > 壳层哪天支持在 slot 选项里声明 `icon`，这段补丁就该整块删掉——它不是能力，是权宜。**改前先回读 `dsh-client-ui-settings-general` 的 `navIcon`/`rows` 两处源码。**
 
+### 5. 压缩摘要的写作语言必须被拉回用户的额外上下文
+
+**症状（用户实测反馈）**：某次会话被自动压缩后，模型的过程性回复（“Now I'll replace the row rendering…”）连续几个回合变成英文，最终答复仍是中文 + `✅`。用户据此判断“额外上下文在压缩之后不生效了”。
+
+**逐项核对后的真相**（`dsh 技能与 MCP 管理插件` 会话，`~/.dsh/sessions/…/session-c8b57ddd…`）：
+
+| 结论 | 证据 |
+|---|---|
+| 额外上下文**没有丢** | 压缩事件 `compaction/prune`/`compaction/start` 的替换区间是 `replace(9..3422)`，起点是第一条 user 消息；surface 节点 0（system prompt）受 `assertSystemHeadRewrite` 保护，不在区间内。重放整个会话的 surface 后可确认：压缩后每个请求仍是 `[system(含额外上下文), checkpoint, 最新 user]` |
+| 额外上下文**仍在生效** | 压缩后 8 个回合的最终答复**全部**以 `✅` 结尾，而 `✅` 在整个压缩后上下文里只可能来自 system prompt 的额外上下文（摘要正文 0 次、checkpoint 前言 0 次、此后没有子代理完成通知） |
+| 变英文的是**过程性回复**，不是最终答复 | 逐回合统计助手文本块：压缩前 turn 1–13 全中文（0 英文）；压缩后 turn 14 起 8/9 为英文，turn 15–19 仍有 1–6 条英文，turn 20 起恢复中文 |
+| 直接原因：**摘要本身是英文** | `dsh-compaction-basic` 的 `COMPACTION_INSTRUCTION` 最后写着 `- Write concise English engineering prose.`，并且它是摘要请求里**最后一条 user 消息**；压缩用这一次调用把整段会话换成一个英文 checkpoint，checkpoint 随后成为 system prompt 之后最近的上下文。实测该会话摘要有 0 个中文字符 |
+
+**做法**：在 `llm/stream` 上只对 `purpose === 'compaction'` 的请求，把用户的额外上下文原文**追加**为一条 user 消息（排在 DSH 那条英文指令之后），并写清两件事——摘要沿用额外上下文要求的输出语言、摘要不是给用户的回复（额外上下文里给回复用的装饰不得搬进摘要）。要点：
+
+- 只改 `options.messages`（`summarizeWithLlm()` 新建、未冻结的那个对象），**不写 session**：这条消息只存在于那一次模型请求里，会话记录与界面上都看不到，无需清理逻辑。
+- 异常一律吞掉后放行原请求：压缩失败、摘要变差的代价远大于缺一条补充说明。冻结的 `options`、非数组 `messages`、`purpose` 缺失都必须原样放行（`test/host.test.js` 有守卫，注入缺陷必红）。
+- 同一份文本此前就在 system prompt 里，这里只是换到更靠后的位置，不制造“新旧两套要求并存”（这正是当年移除 `/context-refresh` 的理由，别把它做回来）。
+- 进 `ctx.inject(['llm'])` 而不是顶层 `inject`：`llm` 缺失时整块跳过，section / 设置 / 状态接口照常。
+
+**验证**（见「验证现状」）：桩模型服务下确认真实 DSH 发出去的压缩请求最后一条就是这个补充指令、其它请求不受影响；真实路由 A/B 下确认摘要语言确实由这一行决定（带它 = 中文摘要，去掉它 = 英文摘要）。
+
 ## 文件职责
 
 - `lib/rules.js`：纯逻辑（规范化 / 过滤 / 渲染 / 预算）。**不对用户文本做任何改写**——`{{…}}` 由 section 的 `interpolate: false` 原样放行，不再用“把 `{{` 拆成零宽字符”的老 hack。只依赖 Node 内置，可在 `node --test` 下独立验证。分段的形状是 `{ id, enabled, text }`：`label`（分段名称）与 `order` 字段都已随功能移除，规范化只挑已知字段，老数据里的残留键一律丢弃；顺序即数组顺序。
-- `lib/index.js`：Cordis 入口。版本门 → 装配 section / settings 命名空间 / 状态路由。其余导出仅为测试与兼容检查可见。设置 schema 只声明 `enabled` / `segments[{id,enabled,text}]` / `maxBytes`。
+- `lib/index.js`：Cordis 入口。版本门 → 装配 section / settings 命名空间 / 状态路由 / **压缩摘要补充指令（`llm/stream`，见实现事实 5）**。其余导出仅为测试与兼容检查可见。设置 schema 只声明 `enabled` / `segments[{id,enabled,text}]` / `maxBytes`。
 - `client.js`：单文件 CJS 惰性 bundle（无构建步骤，逻辑分层靠函数分区）。`apply()` 做三件事：绑定设置命名空间、注入插件样式表、注册两个插槽（`settings.section` id `extra-context` order 25；`settings.action` id `extra-context-nav-icon` order 25，仅作导航图标补丁的挂载点）。客户端**不**做 schema 校验（bundle 里拿不到 schemastery，`dsh-client-ui-settings` 也不导出 `Schema`）；宿主是权威，组件对任何字段都防御性读取。界面上两个开关（动作行右侧的总开关、每行行首的启停）**都用官方 `Switch`**，插件样式只负责定位（`.dec-master{…margin-left:auto}` / `.dec-row-switch{flex:none}`），不给它写尺寸或配色。
 
 ## 运行期行为
@@ -88,6 +113,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 | 设置命名空间 | `extra-context`，`applies: 'live'`，写入 `$DSH_HOME/settings.yaml` |
 | 状态路由 | `GET /dsh-extra-context/status`，要求 `x-dsh-extra-context-client: 1` 且同源；`connection.requestRejection` 可用时先做鉴权判断 |
 | 设置页导航图标 | 由 `settings.action` 挂载点 + `patchSettingsNavIcon()` 在设置面板打开期间绘制 `IconContextInjectionOutline16`；面板关闭即回滚成壳层齿轮（见实现事实 4） |
+| 压缩摘要请求 | `purpose === 'compaction'` 的 `llm/stream` 请求末尾会多一条 `source.kind = 'plugin'`、`plugin = 'dsh-extra-context'` 的 user 消息（额外上下文原文 + 语言/装饰两条说明）。它只存在于这次模型请求里，**不进会话记录**（见实现事实 5） |
 
 全部副作用都走 `ctx.effect` / ctx 服务的 disposer，`stop` 或卸载后不残留 section、工具与路由。
 
@@ -134,21 +160,24 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 - **呈现用字符数、判断用字节数**（用户反馈“字符统计跟我看到的字数不一致”）：UTF-8 一个汉字 3 字节，把字节数标成“字”会大出约 2.7 倍（实测那条 67 字的规则显示成 183）。`characterCount()`（`Intl.Segmenter` 字素簇，emoji/组合字符算一个可见字符）**只用于界面呈现**（规则行「N 个字符」、预览「约 N 个字符 · 约 N tokens」）；`byteLength()`（UTF-8 字节）**只用于预算与上限**（`overBudget` 必须字节口径，宿主上限 `maxBytes` 就是字节，换成字符数会“看着没超、实际已超”）。新增任何“给用户看的体积数字”时先问：这是字节还是字符？
 - **计数单位全界面统一为「字符」**（用户反馈：行内写「N 字」、预览写「约 N 个字符」，同一份数字两种叫法）：行内是精确字素计数，不写“约”；“约”只留给预览里的 token 估算。测试同时断言"行内数字 == 实际字符数"与"整页不得出现裸露的 `N 字`"（注入回 `N 字` → 变红）。
 - **预览是本地渲染的单一数据源**：`previewText()` 必须与宿主 `renderExtraContext()` 口径一致（含前置说明与前后标记），空内容时**不得**渲染包裹结构；曾让预览在“本地/宿主”两份数据间切换，导致勾选后预览显示旧值（`test/client.test.js` 有跨端一致性断言守着两边固定文字）。
+- **压缩摘要的写作语言由 DSH 决定、由本插件拉回**（用户实测反馈，见实现事实 5）：`dsh-compaction-basic` 的最后一条指令固定要求英文摘要，所以压缩后的 checkpoint 默认是英文。插件会把用户的额外上下文原文追加到那次请求的最末尾。副作用要说清：①摘要语言从此跟随额外上下文——**想让它保持英文，把额外上下文里的语言要求去掉即可**；②只影响摘要请求，不改写 DSH 的指令本身；③那条消息不进会话记录。若哪天 DSH 自己也按会话语言写摘要，这段钩子就该删掉。
 - **预览卡片只有两段：内容（`.dec-preview-text`）与消耗（`.dec-preview-cost`）**，卡片外只有区块级「预览」标题。位置与优先级的说明（「它写在每次对话的最前面，优先于其他说明」）属于**页面级文案**，写在标题下方的 `.dec-intro-line` 里——用户明确要求从卡片里移出来，别再往卡片里塞第三段（旧的 `.dec-preview-note` 元素与它的样式都已删除，测试有"卡片恰好两段"与"该句只能出现在标题下方的说明里"两条断言守着）。
 
 ## 验证现状
 
 ```bash
 npm run check       # node --check ×4 + bash -n ×2（bash 不在 PATH 时本机跑不通，CI 用 ubuntu）
-npm test            # 68 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
+npm test            # 73 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
                     #        落位、形态与禁用策略）、label 移除、写入时机与重试、预览口径、
                     #        状态路由鉴权、字段级合并、错误边界、图标对齐与字数口径、
-                    #        导航图标补丁、样式表注入与引用计数、Windows 装载路径（file URL）
+                    #        导航图标补丁、样式表注入与引用计数、Windows 装载路径（file URL）、
+                    #        压缩摘要补充指令（纯函数 / 只认 compaction / 脏输入放行 / 热更新）
 npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象而非数组，本机跑不通，见下）
 ```
 
 - `test/host.test.js`：用伪 Cordis ctx 验证版本门、DSH 定位、规范化/渲染/预算、settings 注册与热更新、组合层与用户层优先级、删除语义。
 - `test/client.test.js`：以 stub `__ModuleLoader__` + stub React/primitives 加载 bundle，验证 `apply` 的命名空间绑定（`namespace` + `decode` 契约）、slot 注册、组件渲染成元素树、样式表打标、失焦写入、写入失败与重试、预览口径。
+- **压缩摘要补充指令的四条护栏**（实现事实 5，逐条**注入缺陷验证过**）：①去掉 `purpose` 筛选 → 「其它 purpose 不得被改动」用例红；②把追加改成替换 `options.messages` → 「DSH 英文摘要指令必须还在原位」用例红；③去掉 try/catch → 「冻结 options 必须原样放行」用例红；④把 `llmCtx.on('llm/stream')` 换成别的钩子 → 契约锚点用例红。
 - **Windows 装载路径的两条护栏**（真实缺陷：`import(绝对路径)` 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，见实现事实 1）：①`test/host.test.js` 里"装载 schemastery 必须经 file URL"用**假 DSH 根 + 桩 schemastery** 走 `applyCompatibleRuntime`，装载失败时 `state.registers` 为 0 → 必红（已在 Windows 上注入缺陷验证过）；②`test/manifest.test.js` 断言宿主源码必须写成 `await import(pathToFileURL(resolved).href)`。另外 `REAL_DSH_MANIFEST` 的探测已补 Windows 分支（原先只跑 POSIX 的 `command -v dsh`，于是依赖它的"真实 schemastery 全链路"用例在 Windows 上被整体 skip —— 这正是缺陷溜到用户机器上的原因）；伪造 DSH 根的目录软链在 Windows 用 `junction`（`symlink(..., 'dir')` 需要开发者模式，EPERM）。
 - **已在真实部署验证**：`GET /dsh-extra-context/status`、设置页分区、设置写盘、预览与消耗提示，以及“新建会话自动带上最新上下文”（用真实子代理逐字核对过 system prompt 内容）。
 - **导航图标补丁在真实浏览器里量过**（固定场景已固化进工作区工具）：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context` 用壳层原样抽取的导航 CSS + 真实 bundle（极简 React 垫片挂到真 DOM，保证 ref/`outerHTML`/`getComputedStyle` 都是真的）搭出与设置面板同构的 `nav button` 结构，并自动探测本插件的补丁契约（`data-dec-nav-icon` / `var(--dec-nav-icon-mask)` / 用 `display:none` 隐藏原 svg），契约与代码不同源时直接报错。量测结果：补丁行与壳层原生行的 `labelOffsetLeft/Top` 相同（36/9），原 svg `display:none`、`::before` 为 16×16 且 `mask-image` 是 data URI，壳层其他行保持齿轮且无任何 dataset 痕迹。**这不是实机设置页**，实机观感仍需用户刷新页面目视确认。
@@ -162,3 +191,4 @@ npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象�
 3. **分区在、但「+ 添加上下文」和右侧总开关灰掉点不动（其余控件可点）** → 客户端只按 `disabled: busy || !writable` 禁这两个动作控件（每行的启停开关与 `textarea` 刻意不禁用），所以必然是"宿主没给可写"或"busy 卡住"。查状态接口：`GET /dsh-extra-context/status`（带 `x-dsh-extra-context-client: 1`，浏览器同源请求才过鉴权；命令行 curl 会拿到 401）看 `writable`，`?debug=1` 看 `scopePresent` 与 `providerNamespaces` 里有没有 `extra-context`。`scopePresent:false` = settings 命名空间没注册成功——Windows 上最常见的原因是 schemastery 装载失败（见实现事实 1），也可能是 `settings` 服务缺失/`register()` 抛错（Host 日志有 `dsh-extra-context:` 前缀告警）。
 4. 文本没进提示词 → 检查是否 `enabled=false`、分段是否启用且非空、是否有 preset 注册了同名 section。
 5. 改了设置但当前会话没变 → **预期行为**（见「已知边界」）。若新开的对话也没变，再查预览里是不是你想要的内容、是否有 preset 注册了同名 section。
+6. **压缩之后模型改用英文写过程性回复** → 先看会话记录里 `compaction/summary` 那段摘要的语言。摘要若是英文，说明补充指令没生效：查 Host 日志有没有 `dsh-extra-context:` 的 warn（追加失败会打 `cannot attach the extra context to a compaction request`），再确认 `llm` 服务存在（本钩子进 `ctx.inject(['llm'])`，缺服务时整块跳过）。

@@ -22,7 +22,7 @@ import {
   readDshPackage,
   renderExtraContext
 } from '../lib/index.js'
-import { DEFAULT_MAX_BYTES, byteLength, createSegmentId, estimateTokens } from '../lib/rules.js'
+import { DEFAULT_MAX_BYTES, byteLength, createSegmentId, estimateTokens, renderCompactionNote } from '../lib/rules.js'
 
 /**
  * 真实 DSH 安装的 package.json 绝对路径。
@@ -287,6 +287,16 @@ function createFakeCtx() {
     get: () => undefined,
     inject(names, callback) {
       state.injections.push(names)
+      if (names.includes('llm')) {
+        callback({
+          on(event, listener) {
+            if (event === 'llm/stream') state.llmStreamListener = listener
+            return () => {
+              state.llmStreamListener = null
+            }
+          }
+        })
+      }
       if (names.includes('settings')) {
         callback({
           settings: {
@@ -372,6 +382,38 @@ function createFakeCtx() {
 function sectionText(state) {
   assert.notEqual(state.section, null)
   return typeof state.section.text === 'function' ? state.section.text() : state.section.text
+}
+
+/**
+ * 走一遍插件注册的 `llm/stream` 监听器，返回 { options, downstream, returned }。
+ *
+ * `downstream` 是终段（真实宿主里是 `adapterStream`）看到的那份 options；
+ * 插件是就地改 `options.messages` 生效的，所以断言必须看这个引用，
+ * 而不是监听器自己的入参副本。
+ */
+function runLlmStream(state, options) {
+  assert.equal(typeof state.llmStreamListener, 'function', '插件必须注册 llm/stream 监听器')
+  let downstream = null
+  const returned = state.llmStreamListener(options, () => {
+    downstream = options
+    return 'downstream-stream'
+  })
+  return { downstream, returned }
+}
+
+/** 与真实摘要请求同形的最小 options（最后一条 user 消息就是 DSH 的英文摘要指令）。 */
+function compactionOptions(extra = {}) {
+  return {
+    provider: 'louhu',
+    model: 'deepseek-flash',
+    purpose: 'compaction',
+    sessionId: 'session-1',
+    messages: [
+      { role: 'system', content: [{ type: 'text', text: 'prompt' }] },
+      { role: 'user', content: [{ type: 'text', text: 'Write concise English engineering prose.' }] }
+    ],
+    ...extra
+  }
 }
 test('装配注册全局 section，并跟随设置热更新', async () => {
   const { ctx, state } = createFakeCtx()
@@ -748,4 +790,130 @@ test('F2 回归：用户文本里的 {{…}} 必须原样保留，且 section �
   assert.equal(source.includes('interpolate: false'), true, '源码必须显式声明 interpolate: false')
   const bundle = await readFile(new URL('../client.js', import.meta.url), 'utf8')
   assert.equal(bundle.includes('\\u200b'), false, '客户端预览不得再中和 {{')
+})
+
+test('压缩摘要补充指令：纯函数只拼生效分段，关掉或空内容时不产出', () => {
+  assert.equal(renderCompactionNote({ segments: [] }), '', '没有分段时不得产出补充指令')
+  assert.equal(renderCompactionNote({ segments: [{ id: 'a', enabled: true, text: '   ' }] }), '', '空白分段不算生效内容')
+  assert.equal(renderCompactionNote({ enabled: false, segments: [{ id: 'a', enabled: true, text: '用中文' }] }), '', '总开关关掉时不得产出')
+
+  const note = renderCompactionNote({
+    segments: [
+      { id: 'a', enabled: true, text: '所有展示内容用中文' },
+      { id: 'b', enabled: false, text: '这条被停用' },
+      { id: 'c', enabled: true, text: '回答末尾加 ✅' }
+    ]
+  })
+  assert.equal(note.includes('所有展示内容用中文'), true, '启用分段的原文必须逐字进入补充指令')
+  assert.equal(note.includes('回答末尾加 ✅'), true, '多段按顺序拼接')
+  assert.equal(note.includes('这条被停用'), false, '停用分段不得进入补充指令')
+  // 摘要不是给用户的回复：给回复用的装饰必须显式排除，否则摘要末尾会多出一个 ✅。
+  assert.equal(note.includes('not a reply'), true, '必须声明摘要不是对用户的回复')
+  assert.equal(note.includes('same language'), true, '必须显式要求沿用额外上下文规定的输出语言')
+  assert.equal(note.includes('--- 用户额外上下文开始 ---'), true, '用户文本必须有明确的边界标记')
+})
+
+test('压缩摘要补充指令：只在 purpose=compaction 的请求末尾追加一条 user 消息', async () => {
+  const { ctx, state } = createFakeCtx()
+  await createRuntime({
+    ctx,
+    schema: { fake: true },
+    initial: { segments: [{ id: 'a', enabled: true, text: '所有展示给我看的部分都必须使用中文' }] },
+    log: () => {}
+  })
+  assert.equal(state.injections.some((names) => names.includes('llm')), true, '必须按可选服务注入 llm')
+
+  const options = compactionOptions()
+  const before = options.messages.length
+  const { downstream, returned } = runLlmStream(state, options)
+  assert.equal(returned, 'downstream-stream', '必须把下游流的返回值原样返回')
+  assert.equal(downstream, options, '必须放行同一份 options')
+  assert.equal(options.messages.length, before + 1, '压缩请求必须恰好追加一条消息')
+
+  const last = options.messages.at(-1)
+  assert.equal(last.role, 'user', '追加的必须是 user 消息（摘要请求里最后一条 user 消息优先级最高）')
+  assert.equal(last.content[0].type, 'text')
+  assert.equal(last.content[0].text.includes('所有展示给我看的部分都必须使用中文'), true, '必须携带用户原文')
+  assert.equal(last.source.plugin, 'dsh-extra-context', '来源必须可追溯到本插件')
+  assert.equal(typeof last.id, 'string', '消息必须带稳定 id（适配器与遥测按它读）')
+  // DSH 自己的英文摘要指令必须还在原位：我们是"追加一条更靠后的要求"，不是改写它。
+  assert.equal(options.messages[before - 1].content[0].text.includes('Write concise English engineering prose.'), true)
+  assert.equal(options.messages.filter((m) => m.content[0].text.includes('所有展示给我看的部分')).length, 1, '不得重复追加')
+})
+
+test('压缩摘要补充指令：其它 purpose、关掉开关、脏 options 都必须原样放行且不抛错', async () => {
+  const { ctx, state } = createFakeCtx()
+  await createRuntime({
+    ctx,
+    schema: { fake: true },
+    initial: { segments: [{ id: 'a', enabled: true, text: '用中文' }] },
+    log: () => {}
+  })
+
+  // 1) 其它 purpose（例如会话标题）不得被改动
+  const title = compactionOptions({ purpose: 'session-title' })
+  const titleBefore = title.messages.length
+  runLlmStream(state, title)
+  assert.equal(title.messages.length, titleBefore, 'session-title 请求不得被追加内容')
+
+  // 2) 总开关关掉后不得追加（热生效：走的是同一份内存快照）
+  const off = createFakeCtx()
+  await createRuntime({ ctx: off.ctx, schema: { fake: true }, initial: { enabled: false, segments: [{ id: 'a', enabled: true, text: '用中文' }] }, log: () => {} })
+  const offOptions = compactionOptions()
+  runLlmStream(off.state, offOptions)
+  assert.equal(offOptions.messages.length, 2, '关闭时不得追加内容')
+
+  // 3) 空分段：没有生效文本时不得追加
+  const empty = createFakeCtx()
+  await createRuntime({ ctx: empty.ctx, schema: { fake: true }, initial: { segments: [] }, log: () => {} })
+  const emptyOptions = compactionOptions()
+  runLlmStream(empty.state, emptyOptions)
+  assert.equal(emptyOptions.messages.length, 2, '没有生效文本时不得追加内容')
+
+  // 4) 脏输入：任何一种形状异常都必须放行，绝不能把压缩请求弄失败
+  const dirty = [null, undefined, {}, { purpose: 'compaction' }, { purpose: 'compaction', messages: null }]
+  for (const bad of dirty) {
+    let downstreamSeen = null
+    state.llmStreamListener(bad, () => {
+      downstreamSeen = bad
+      return 'ok'
+    })
+    assert.equal(downstreamSeen, bad, `脏输入 ${JSON.stringify(bad)} 必须原样放行`)
+  }
+
+  // 5) 冻结的 options（真实宿主里 buildRequest 会 Object.freeze）：赋值抛错必须被吞掉，
+  //    仍然放行下游 —— 压缩失败或摘要变差的代价远大于缺一条补充说明。
+  const frozen = Object.freeze(compactionOptions())
+  const frozenResult = runLlmStream(state, frozen)
+  assert.equal(frozenResult.downstream, frozen, '冻结对象也必须放行')
+  assert.equal(frozen.messages.length, 2, '冻结对象无法被改写，只能放行原请求')
+})
+
+test('压缩摘要补充指令：设置热更新后立即使用新文本', async () => {
+  const { ctx, state } = createFakeCtx()
+  await createRuntime({
+    ctx,
+    schema: { fake: true },
+    initial: { segments: [{ id: 'a', enabled: true, text: '旧规则' }] },
+    log: () => {}
+  })
+
+  const first = compactionOptions()
+  runLlmStream(state, first)
+  assert.equal(first.messages.at(-1).content[0].text.includes('旧规则'), true)
+
+  state.watcher?.({ segments: [{ id: 'a', enabled: true, text: '新规则' }] }, {})
+  const second = compactionOptions()
+  runLlmStream(state, second)
+  assert.equal(second.messages.at(-1).content[0].text.includes('新规则'), true, '必须用最新设置')
+  assert.equal(second.messages.at(-1).content[0].text.includes('旧规则'), false, '不得残留旧文本')
+})
+
+test('压缩摘要补充指令：源码必须把监听器注册在 llm/stream 上（契约锚点）', async () => {
+  // 这条护栏的理由：机制靠"排在 DSH 英文摘要指令之后"生效，一旦有人把监听器
+  // 换成别的钩子（或换成替换 messages 而不是追加），用例 2 会变红；这里再固定住
+  // 契约名，避免改名后静默失效。
+  const source = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.equal(source.includes("llmCtx.on('llm/stream'"), true, '必须注册在 llm/stream 上')
+  assert.equal(source.includes('COMPACTION_PURPOSE'), true, '必须按 purpose 精确筛选')
 })

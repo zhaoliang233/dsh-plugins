@@ -13,6 +13,7 @@
 - **无需保存**：输入时不受打扰，离开输入框即写入；总开关、每行的启停开关与增删都是点了即生效。
 - **设置页实时编辑**：设置 → **额外上下文**。文本写入 `$DSH_HOME/settings.yaml` 的 `extra-context:` 段，热生效，不需要重启。左侧菜单这一行有自己的图标（`IconContextInjectionOutline16`），不会和「设置」本身的齿轮撞脸。
 - **常显预览与消耗**：预览区只有两块——最终会附加到对话里的完整文本，以及它的体积与大致 token 量；内容偏长时给出一句精简建议。它写在每次对话最前面、优先于其他说明，这一点写在页面标题下方的说明里。
+- **长会话被压缩后照样生效**：会话过长时 DSH 会自动压缩，用一次单独的模型调用把历史写成摘要。那次调用的写作要求固定是英文，摘要于是变成英文，压缩之后的对话基调也跟着跑偏（过程性回复改用英文，最终答复仍是中文）。本插件会在那次调用末尾附上一条「以用户的额外上下文为准」的指令，摘要继续按你要求的语言书写。
 - **降级可用**：部署里没有 settings 服务时，插件仍按组合层配置生效（仅当前进程），并在设置页给出提示。
 
 ## 什么时候生效（重要）
@@ -41,7 +42,7 @@ system prompt 在**会话启动时组装并固化**，之后的改动不会追�
 
 ```bash
 dsh plugin --profile web add dsh-extra-context        # 安装
-dsh plugin --profile web add dsh-extra-context@0.1.4  # 升级到指定版本
+dsh plugin --profile web add dsh-extra-context@0.1.5  # 升级到指定版本
 dsh plugin --profile web remove dsh-extra-context     # 卸载
 ```
 
@@ -62,6 +63,7 @@ dsh plugin --profile web remove dsh-extra-context     # 卸载
 
 - 这段文本出现在每一次模型请求里，会持续占用上下文：请精简，并留意预览里的消耗提示与偏长提醒。
 - 如果某个 agent preset 注册了同名 section（`deployment:extra-context`），会按 DSH 的遮蔽规则覆盖本插件的文本；本插件自身不注册任何 agent 级 section。
+- 压缩摘要的语言跟随你的额外上下文：想让它保持英文，把额外上下文里的语言要求去掉即可。这条钩子只作用在「压缩摘要」这一次模型调用上，不改写 DSH 自己的指令，也不会往会话里插消息。
 - 插件不会写入或修改 DSH 源码、不会改动 profile 的用户 patch 层，全部副作用都是可逆的。
 
 技术细节（契约、机制、排查）见 [`AGENTS.md`](./AGENTS.md)。

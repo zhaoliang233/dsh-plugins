@@ -157,6 +157,50 @@ export function renderExtraContext(value) {
   return parts.join('\n\n')
 }
 
+/** 压缩摘要请求的 purpose 标记：`dsh-compaction-basic` 的摘要调用专用。 */
+export const COMPACTION_PURPOSE = 'compaction'
+
+/**
+ * 摘要请求补充指令的框话（英文，与 DSH 自己的摘要指令同语言，避免指令语言混排）。
+ *
+ * 只写两件事：用户额外上下文对本次摘要同样适用（尤其是输出语言），
+ * 以及"摘要不是给用户的回复"——额外上下文里给回复用的装饰（如结尾标记）
+ * 不该被搬进摘要正文。
+ */
+const COMPACTION_NOTE_HEADING = [
+  'Additional instruction from the dsh-extra-context plugin for this summarization call:',
+  'the extra context delimited below was configured by the user for every session, so it applies to this checkpoint as well.',
+  '- Write the checkpoint in the same language that extra context requires for text the user reads.',
+  '- Keep exactly the Markdown structure and the writing rules given above.',
+  '- Do not carry decorations the extra context asks for in replies to the user (a closing marker, for example): this summary is background context, not a reply.'
+].join('\n')
+
+/**
+ * 压缩摘要请求末尾要追加的补充指令。
+ *
+ * 压缩会用一次独立的模型调用把整段会话压成 checkpoint。那次调用的**最后一条
+ * user 消息**是 DSH 固定的英文指令（`dsh-compaction-basic` 的
+ * `COMPACTION_INSTRUCTION`，含 "Write concise English engineering prose"），
+ * 而 checkpoint 随后替换掉整段会话，成为系统提示词之后最近的上下文——
+ * 用户的中文额外上下文虽然仍在（按节点 0 受保护，见 AGENTS.md），
+ * 但摘要的语言由那条英文指令决定，模型接下来几轮的过程性回复会跟着变英文。
+ *
+ * 这里把用户的额外上下文原文重排到**最后**：与 system prompt 里那份同源同文，
+ * 只是位置更靠后、优先级更高，因此不会制造"两套要求并存"。
+ * @param {unknown} value 设置值
+ * @returns {string} 空串表示本次摘要请求不需要补充指令
+ */
+export function renderCompactionNote(value) {
+  const settings = normalizeSettings(value)
+  if (!settings.enabled) return ''
+  const segments = effectiveSegments(settings)
+  if (segments.length === 0) return ''
+  const parts = [COMPACTION_NOTE_HEADING, '--- 用户额外上下文开始 ---']
+  for (const segment of segments) parts.push(segment.text.trim())
+  parts.push('--- 用户额外上下文结束 ---')
+  return parts.join('\n\n')
+}
+
 /**
  * 组装设置页需要的状态视图：生效文本、分段明细、预算用量。
  * @param {unknown} value 设置值

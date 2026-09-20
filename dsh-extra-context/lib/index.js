@@ -19,8 +19,10 @@ import { homedir } from 'node:os'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { randomUUID } from 'node:crypto'
 
 import {
+  COMPACTION_PURPOSE,
   DEFAULT_SETTINGS,
   PLUGIN_NAME,
   SETTINGS_NAMESPACE,
@@ -30,6 +32,7 @@ import {
   byteLength,
   effectiveSegments,
   normalizeSettings,
+  renderCompactionNote,
   renderExtraContext
 } from './rules.js'
 
@@ -254,6 +257,24 @@ function messageOf(error) {
 }
 
 /**
+ * 构造追加给压缩摘要请求的用户消息。
+ *
+ * 形状照抄 DSH 的 `createUserMessage()`（`@deepseek-ai/dsh-llm` 的
+ * `createMessage`）：带稳定 id 与 `source`，适配器与遥测都按这两处读。
+ * 本插件不引入 `@deepseek-ai/*` 依赖，所以只复刻形状、不 import 那个辅助函数。
+ * @param {string} text
+ * @returns {object}
+ */
+function createCompactionNoteMessage(text) {
+  return {
+    id: randomUUID(),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: PLUGIN_NAME }
+  }
+}
+
+/**
  * 组装插件运行时。
  * @param {{ ctx: any, schema: any, initial: object, log: (level: string, message: string) => void }} input
  * @returns {Promise<() => Promise<void>>}
@@ -336,6 +357,49 @@ async function createRuntime(input) {
   }
 
   let settingsService = null
+
+  /**
+   * 压缩摘要请求的补充指令（用户实测反馈：压缩之后模型的过程性回复变成英文）。
+   *
+   * 压缩用一次独立的模型调用把整段会话压成 checkpoint；那次调用的**最后一条
+   * user 消息**是 DSH 固定的英文指令（`dsh-compaction-basic` 的
+   * "Write concise English engineering prose"），而 checkpoint 随后替换掉整段
+   * 会话，成为系统提示词之后最近的上下文。用户的中文额外上下文本身没丢
+   * （system prompt 的节点 0 受 surface 保护，压缩区间不含它；压缩后每个回合的
+   * 最终答复仍带 ✅ 就是它在生效的证据），但那条英文指令决定了摘要的语言，
+   * 模型接下来几轮的过程性回复就跟着摘要变成英文。
+   *
+   * 这里在 `llm/stream` 上只对 `purpose === 'compaction'` 的请求追加一条 user
+   * 消息（排在 DSH 指令之后），把用户的额外上下文原文重排到最靠后的位置。
+   * 同一份文本此前在 system prompt 里，这次只是位置更靠后、优先级更高，
+   * 因此不制造"两套要求并存"。
+   *
+   * 三条刻意的边界：
+   * - 只改这次请求的 `options.messages`，不写 session：这条消息不会进入会话记录，
+   *   界面上看不到，也不需要专门的清理逻辑。
+   * - 任何异常都吞掉并放行原请求（压缩失败或摘要变差的代价远大于缺一条补充说明）。
+   * - 不进顶层 `inject`：`llm` 缺失时整块跳过，插件其余能力（section / 设置 / 状态接口）照常。
+   */
+  ctx.inject(['llm'], (llmCtx) => {
+    llmCtx.on('llm/stream', (options, next) => {
+      try {
+        // 只认摘要调用；session-title 等其它 purpose 一律不动。
+        if (options?.purpose === COMPACTION_PURPOSE && Array.isArray(options.messages)) {
+          const note = renderCompactionNote(current)
+          if (note !== '') {
+            // 追加而不是替换：只有排在 DSH 那条英文指令之后才可能覆盖它。
+            // `options` 是 summarizer 每次新建的普通对象（未冻结），而 `llm/stream`
+            // 的 waterfall 终段读的就是同一个对象，所以就地改字段即可生效。
+            options.messages = [...options.messages, createCompactionNoteMessage(note)]
+            log('info', `extra context attached to a compaction summary request (${String(byteLength(note))} bytes)`)
+          }
+        }
+      } catch (error) {
+        log('warn', `cannot attach the extra context to a compaction request: ${messageOf(error)}`)
+      }
+      return next()
+    })
+  })
 
   ctx.inject(['settings'], (settingsCtx) => {
     const settings = settingsCtx.settings
