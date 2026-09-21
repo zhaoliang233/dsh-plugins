@@ -62,7 +62,7 @@
       {
         "id": "app-frame-columns",
         "owner": "packages/client/ui-layout/src/client/AppFrame.tsx",
-        "expectation": "The data-shell-overlay parent has the Sidebar column, Center column, Rightbar column (data-rightbar-col), and overlay as its first four host children; the three columns contain the direct sidebar, main, and rightbar Slot seats. Within the main seat, ConversationRoot is reached through single-child display:contents Slot anchors (0.1.6: main.conversation), and its last direct child holds a direct data-conversation-scroll element.",
+        "expectation": "The data-shell-overlay parent has the Sidebar column, Center column, Rightbar column (data-rightbar-col), and overlay as its first four host children; the three columns contain the direct sidebar, main, and rightbar Slot seats. The rail seat must already have its first occupant. Within the main seat, ConversationRoot is reached through single-child display:contents Slot anchors (0.1.6: main.conversation), and its last direct child holds a direct data-conversation-scroll element; that chain is optional, because the main seat can also host a non-conversation page (the plugin manager renders a SECTION there), in which case only the conversation-scoped marker is withheld and the shell-level adaptation stays active.",
         "runtimeMarker": "data-dsh-mobile-shell-compatible",
         "versions": [
           "0.1.6-alpha.1",
@@ -128,7 +128,7 @@
       {
         "id": "right-panel-chrome",
         "owner": "packages/client/ui-sidebar-right/src/client/shell/ExpandButton.tsx and shell/StripChrome.tsx",
-        "expectation": "The session-header expand control is [data-sidebar-right-expand]: a 28x28 control drawing IconPanelLeftOutline16 at 15px, whose 44px touch box ends 12px from the right edge (header 28px right padding minus headerCorner's margin-right:-16px), leaving the glyph ink 26.5px from that edge; the phone layer gives it a 44px box and mirrors its glyph from the left edge. The panel's chrome strip and pane body carry no data attribute, so they are anchored by the class suffixes [class*='stripChrome'] and [class*='paneBody']; a miss simply falls back to DSH's own rendering.",
+        "expectation": "The session-header expand control is [data-sidebar-right-expand]: a 28x28 control drawing IconPanelLeftOutline16 at 15px, whose 44px touch box ends 12px from the right edge (header 28px right padding minus headerCorner's margin-right:-16px), leaving the glyph ink 26.5px from that edge; the phone layer gives it a 44px box and mirrors its glyph from the left edge. The panel is a dockkit surface: the tab strip carries data-dockkit-strip, the pane chrome data-dockkit-strip-chrome, and the strip's own controls (data-dockkit-add-tab, data-dockkit-split-button) are its direct children, so the 44px hit box is limited to those; a tab's close control (data-dockkit-tab-close) is absolutely anchored at top/right 4px inside the 28px pill and keeps DSH's native 20x20. Only the pane body lacks a data attribute and is anchored by the class suffix [class*='paneBody']; a miss on either simply falls back to DSH's own rendering.",
         "versions": [
           "0.1.6-alpha.1",
           "0.1.6-alpha.2"

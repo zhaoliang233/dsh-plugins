@@ -80,7 +80,12 @@ async function evaluate(expression) {
     awaitPromise: true,
     returnByValue: true
   })
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text)
+  if (result.exceptionDetails) {
+    const detail = result.exceptionDetails.exception?.description || result.exceptionDetails.text
+    // Carry the failing expression: a bare "Illegal invocation" says nothing about which probe ran.
+    const head = expression.trim().split('\n').slice(0, 3).join(' ').slice(0, 160)
+    throw new Error(`${detail}\n  at: ${head}`)
+  }
   return result.result.value
 }
 
@@ -254,6 +259,10 @@ async function shellMetrics() {
       const rightEdge = band.right + maxScroll
       const boxes = stripControls.map((node) => node.getBoundingClientRect())
       const reachable = (box) => box.right <= rightEdge + 1 && box.left >= leftEdge - 1
+      // A control nested inside the crumbs container is clipped by DSH's own overflow there — the
+      // identical mask-and-clip runs on desktop, so a clipped crumb is native behaviour rather than
+      // a strip failure. Only the controls the strip itself lays out must stay reachable.
+      const stripOwned = stripControls.filter((node) => node.closest("[class*='crumbs']") === null)
       return {
         rowHeight: headerRow ? Math.round(headerRow.getBoundingClientRect().height) : null,
         height: Math.round(band.height),
@@ -263,13 +272,13 @@ async function shellMetrics() {
         scrollable: maxScroll > 0,
         inlineActions: boxes.filter((box) => box.top >= band.top - 0.5 && box.bottom <= band.bottom + 0.5).length,
         clippedActions: boxes.filter((box) => box.top < band.top || box.bottom > band.bottom).length,
-        actionsOutOfReach: boxes.filter((box) => !reachable(box)).length,
+        actionsOutOfReach: stripOwned.filter((node) => !reachable(node.getBoundingClientRect())).length,
+        controlsNestedInCrumbs: stripControls.length - stripOwned.length,
         containsNativeActions: strip.querySelector("[class*='headerActions'], [class*='headerUtilities']") !== null
       }
     })() : null
     const nativeExpand = document.querySelector('[data-sidebar-right-expand]')
     return {
-      inner: { width: innerWidth, height: innerHeight, clientWidth: document.documentElement.clientWidth },
       titleStrip: stripInfo,
       composerButtons: [...(composer?.querySelectorAll('button') ?? [])].filter(visible).map((node) => {
         const box = node.getBoundingClientRect()
@@ -368,19 +377,48 @@ async function openSettings() {
   })()`)
   assert(clicked, 'settings trigger not found')
   await waitFor(`Boolean(document.querySelector("div[role='dialog'][aria-modal='true']:has(> nav:first-child)"))`)
-  await delay(150)
+  // Wait for the actions row as well: probing while the shell is still mounting is what produced
+  // the intermittent "Illegal invocation" from a detached node.
+  await waitFor(`(() => {
+    const dialog = document.querySelector("div[role='dialog'][aria-modal='true']:has(> nav:first-child)")
+    const nav = dialog?.querySelector('nav')
+    const content = nav?.nextElementSibling
+    return Boolean(content && content.children.length > 0 && content.children[0].querySelector('button'))
+  })()`)
+  await delay(400)
   return evaluate(`(() => {
     const panel = document.querySelector("div[role='dialog'][aria-modal='true']:has(> nav:first-child)")
-    const nav = panel?.querySelector(':scope > nav:first-child')
-    const content = nav?.nextElementSibling
-    const rect = (node) => node ? (() => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height } })() : null
+    const nav = panel ? panel.querySelector('nav') : null
+    const content = nav ? nav.nextElementSibling : null
+    const rows = content ? Array.from(content.children) : []
+    const actions = rows.length > 0 ? rows[0] : null
+    const scroller = rows.length > 1 ? rows[rows.length - 1] : null
+    const rect = (node) => {
+      if (!node || typeof node.getBoundingClientRect !== 'function') return null
+      const r = node.getBoundingClientRect()
+      return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right }
+    }
+    const tabs = nav ? Array.from(nav.children).pop() : null
+    const actionButtons = actions ? Array.from(actions.querySelectorAll('button')) : []
+    const closeButton = actionButtons.length > 0 ? actionButtons[actionButtons.length - 1] : null
+    const actionButton = actionButtons.length > 0 ? actionButtons[0] : null
     return {
       panel: rect(panel),
       nav: rect(nav),
       content: rect(content),
+      // The phone layout folds the content container and orders the three rows itself: actions on
+      // top, tabs below, scroller last. The folded container has no box of its own, so width and
+      // height assertions belong to the scroller.
+      actions: rect(actions),
+      actionsJustify: actions ? getComputedStyle(actions).justifyContent : null,
+      actionButtons: actionButtons.length,
+      actionButton: rect(actionButton),
+      scroller: rect(scroller),
+      containerDisplay: content ? getComputedStyle(content).display : null,
+      closeButton: rect(closeButton),
       direction: panel ? getComputedStyle(panel).flexDirection : null,
       radius: panel ? getComputedStyle(panel).borderRadius : null,
-      navDirection: nav?.lastElementChild ? getComputedStyle(nav.lastElementChild).flexDirection : null,
+      navDirection: tabs ? getComputedStyle(tabs).flexDirection : null,
       outerSidebarRole: document.querySelector('[data-shell-overlay]')?.parentElement?.children[0]?.getAttribute('role') ?? null
     }
   })()`)
@@ -567,8 +605,8 @@ try {
     if (!pasted) throw new Error(`${label}: could not mount the attachment rail for measurement`)
     await delay(400)
     const railMetrics = await shellMetrics()
-    report.viewports[label].attachmentRail = railMetrics.composerButtons.filter((button) => button.inRail)
     const railButtons = railMetrics.composerButtons.filter((button) => button.inRail)
+    report.viewports[label].attachmentRail = railButtons
     assert(railButtons.length > 0, `${label} no attachment rail control to measure`, railMetrics.composerButtons)
     const leaked = railButtons.filter((button) => button.width === 44 || button.height === 44)
     assert(leaked.length === 0, `${label} the 44px floor leaked into the attachment rail`, leaked)
@@ -648,6 +686,27 @@ try {
   })()`)
   assert(focusedInside, 'focus did not move inside Sidebar')
 
+  // Tapping a session row must also take the drawer away: session rows are tree rows under a
+  // workspace, and moving between two sessions reuses the same conversation occupant, so nothing
+  // about the main seat changes — the tap itself has to be recognised. The row that is already
+  // selected counts too, which is the case users hit first.
+  await closeSidebar()
+  for (const variant of ['selected', 'other']) {
+    await openSidebar()
+    const wanted = variant === 'selected' ? 'true' : 'false'
+    const tapped = await evaluate(`(() => {
+      const row = [...document.querySelectorAll("[class*='sessionRow']")]
+        .find((node) => node.getAttribute('aria-selected') === '${wanted}')
+      row?.click()
+      return row ? (row.textContent || '').trim().slice(0, 18) : null
+    })()`)
+    assert(tapped !== null, `no ${variant} session row to tap`)
+    await waitFor(`document.querySelector('[data-shell-overlay]')?.parentElement?.hasAttribute('data-sidebar-collapsed') === true`, 8000)
+    report.sessionRowTap = { ...(report.sessionRowTap || {}), [variant]: tapped }
+  }
+  await openSidebar()
+  await closeSidebar()
+
   // Panel handoff: the right panel is a fullscreen z-index 40 overlay while the drawer is z-index
   // 30, so opening the drawer must first take the panel off the screen — and opening the drawer
   // while the panel is CLOSED must not touch the panel's symmetric toggle, which would open it
@@ -682,9 +741,80 @@ try {
     await closeSidebar()
   }
 
+  // The right panel's dockkit strip: the 44px hit box belongs to the strip's own controls (new
+  // tab) and to the pane chrome, never to a control INSIDE a tab. A tab's close control is
+  // anchored at top/right 4px inside the 28px pill, so a 44px box slides its glyph 12px down and
+  // 12px left, out of the pill — the reported "drifting close icon". A real file tab is opened so
+  // the control exists to measure.
+  await waitFor(`Boolean(document.querySelector('[data-sidebar-right-expand]'))`)
+  const expandForStrip = await evaluate(`(() => {
+    const button = document.querySelector('[data-sidebar-right-expand]')
+    button?.click()
+    return Boolean(button)
+  })()`)
+  assert(expandForStrip, 'the right panel entry is missing, so the strip cannot be measured')
+  await waitFor(`Boolean(document.querySelector('[data-sidebar-right-panel][data-sidebar-right-open]'))`)
+  // The panel may already hold a closable tab (the surface state survives), so only the start
+  // page needs an entry clicked; the label match falls back to the start page's first entry so a
+  // non-Chinese locale still lands on a real tab.
+  const openedFileTab = await evaluate(`(() => {
+    if (document.querySelector('[data-dockkit-tab-close]')) return true
+    const host = document.querySelector('[data-sidebar-right-panel]')
+    const buttons = [...(host?.querySelectorAll('button') || [])]
+    const entry = buttons.find((node) => /工作区文件|Workspace files/i.test(node.textContent || ''))
+      || host?.querySelector("[class*='paneBody'] button")
+    entry?.click()
+    return Boolean(entry)
+  })()`)
+  assert(openedFileTab, 'the right panel has no closable tab and no workspace-files entry to open one')
+  await waitFor(`Boolean(document.querySelector('[data-dockkit-tab-close]'))`)
+  await delay(300)
+  const strip = await evaluate(`(() => {
+    const box = (node) => {
+      const r = node.getBoundingClientRect()
+      return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), right: +r.right.toFixed(1) }
+    }
+    const tab = document.querySelector("[data-dockkit-tab][role='tab']")
+    const close = document.querySelector('[data-dockkit-tab-close]')
+    const tabBox = tab ? box(tab) : null
+    const closeBox = close ? box(close) : null
+    const iconBox = close?.querySelector('svg') ? box(close.querySelector('svg')) : null
+    const style = close ? getComputedStyle(close) : null
+    const chromeIcon = document.querySelector('[data-dockkit-strip-chrome] svg')
+    return {
+      tabBox,
+      closeBox,
+      closeSize: style ? { w: style.width, h: style.height, top: style.top, right: style.right, position: style.position } : null,
+      offsetInTab: tabBox && closeBox ? { top: +(closeBox.y - tabBox.y).toFixed(1), right: +(tabBox.right - closeBox.right).toFixed(1) } : null,
+      // The glyph must sit in the middle of its control, the way DSH draws it.
+      iconCentered: Boolean(iconBox && closeBox
+        && Math.abs((iconBox.x + iconBox.w / 2) - (closeBox.x + closeBox.w / 2)) <= 0.6
+        && Math.abs((iconBox.y + iconBox.h / 2) - (closeBox.y + closeBox.h / 2)) <= 0.6),
+      stripControls: [...document.querySelectorAll('[data-dockkit-strip] > button, [data-dockkit-strip] [data-dockkit-strip-chrome] button')]
+        .map((node) => ({ label: node.getAttribute('aria-label'), ...box(node) })),
+      chromeIcon: chromeIcon ? getComputedStyle(chromeIcon).width : null
+    }
+  })()`)
+  report.rightPanelStrip = strip
+  assert(strip.closeBox !== null, 'the right panel tab has no close control to measure', strip)
+  assert(strip.closeSize.w === '20px' && strip.closeSize.h === '20px', 'the tab close control left DSH native 20x20', strip.closeSize)
+  assert(strip.closeSize.position === 'absolute' && strip.closeSize.top === '4px' && strip.closeSize.right === '4px', 'the tab close control lost its native anchor', strip.closeSize)
+  assert(Math.abs(strip.offsetInTab.top - 4) <= 0.6 && Math.abs(strip.offsetInTab.right - 4) <= 0.6, 'the tab close control drifted inside its tab', strip.offsetInTab)
+  assert(strip.iconCentered, 'the tab close glyph is not centred in its control', strip)
+  assert(strip.stripControls.length > 0, 'no strip-level control to measure', strip)
+  assert(strip.stripControls.every((node) => node.w >= 44 && node.h >= 44), 'a strip-level control lost its 44px touch target', strip.stripControls)
+  assert(strip.chromeIcon === '15px', 'the pane chrome glyph is not the native 15px', strip.chromeIcon)
+  await screenshot('right-panel-strip-390x844')
+  const collapsedPanel = await evaluate(`(() => {
+    const button = document.querySelector('[data-sidebar-right-toggle]')
+    button?.click()
+    return Boolean(button)
+  })()`)
+  if (collapsedPanel) await waitFor(`!document.querySelector('[data-sidebar-right-panel][data-sidebar-right-open]')`)
+
   // Now the same click order with the panel CLOSED: the drawer must open and the panel must stay
   // closed. A blind click on the symmetric toggle used to open the panel right over the drawer.
-  const panelClosed = await openSidebar()
+  await openSidebar()
   const noPanel = await evaluate(`(() => {
     const frame = document.querySelector('[data-shell-overlay]')?.parentElement
     const box = frame?.children[0]?.getBoundingClientRect()
@@ -882,14 +1012,48 @@ try {
   assert(desktop1024.sidebarPosition !== 'absolute', 'mobile drawer positioning leaked at 1024px', desktop1024)
   assert(desktop1024.toggleDisplay === 'none', 'plugin toggle leaked at 1024px', desktop1024)
 
+  // The title strip is a phone-only rewrite of the header row. A wide pointer viewport must keep
+  // DSH's own cluster: wrapping it in an unstyled div folded the title and the control clusters
+  // onto two rows on the desktop.
+  const desktopHeader = await evaluate(`(() => {
+    const conv = document.querySelector('[data-dsh-mobile-conversation-compatible]')
+    const cluster = conv?.querySelector("[class*='titleCluster']")
+    const row = conv?.querySelector("[class*='titleRow']")
+    return {
+      hasStrip: Boolean(document.querySelector('[data-dsh-mobile-title-strip]')),
+      clusterHeight: cluster ? Math.round(cluster.getBoundingClientRect().height) : null,
+      rowHeight: row ? Math.round(row.getBoundingClientRect().height) : null,
+      clusterChildren: cluster ? [...cluster.children].map((node) => (node.getAttribute('class') || node.tagName).slice(0, 24)) : null
+    }
+  })()`)
+  report.desktopHeader = desktopHeader
+  assert(!desktopHeader.hasStrip, 'the phone title strip was installed on a desktop viewport', desktopHeader)
+  assert(desktopHeader.clusterChildren !== null, 'the desktop header has no title cluster to measure', desktopHeader)
+  assert(desktopHeader.clusterHeight !== null && desktopHeader.clusterHeight <= 30, 'the desktop header row grew past one line', desktopHeader)
+
   await setViewport(390, 844, true)
   const mobileSettings = await openSettings()
   report.settings['390x844'] = mobileSettings
   assert(Math.abs(mobileSettings.panel.width - 390) <= 1 && Math.abs(mobileSettings.panel.height - 844) <= 1, 'mobile Settings is not full viewport', mobileSettings)
   assert(mobileSettings.direction === 'column' && mobileSettings.radius === '0px', 'mobile Settings shell is not mobile layout', mobileSettings)
-  assert(Math.abs(mobileSettings.nav.width - 390) <= 1 && Math.abs(mobileSettings.content.width - 390) <= 1, 'mobile Settings children are squeezed', mobileSettings)
+  assert(Math.abs(mobileSettings.nav.width - 390) <= 1 && Math.abs(mobileSettings.scroller.width - 390) <= 1, 'mobile Settings children are squeezed', mobileSettings)
   assert(mobileSettings.navDirection === 'row', 'mobile Settings navigation is not horizontal', mobileSettings)
   assert(mobileSettings.outerSidebarRole === null, 'Drawer modal semantics were not suspended for nested Settings', mobileSettings)
+  // Phone order: actions row (open config file / close) on top, tabs below it, content last. The
+  // close control then sits in the top corner within thumb reach instead of under the tab row.
+  assert(mobileSettings.containerDisplay === 'contents', 'mobile Settings did not fold its content container', mobileSettings)
+  assert(mobileSettings.actions && mobileSettings.nav && mobileSettings.scroller, 'mobile Settings rows are missing', mobileSettings)
+  assert(mobileSettings.actions.y < mobileSettings.nav.y, 'the actions row is not above the settings tabs', mobileSettings)
+  assert(mobileSettings.nav.y < mobileSettings.scroller.y, 'the settings tabs are not above the content', mobileSettings)
+  assert(mobileSettings.actions.height >= 44, 'the actions row is below the touch minimum', mobileSettings.actions)
+  assert(mobileSettings.actionButtons >= 2, 'the actions row lost its controls', mobileSettings)
+  assert(mobileSettings.closeButton && mobileSettings.closeButton.y < mobileSettings.nav.y, 'the close control is not on the top row', mobileSettings)
+  // Action left, close right — and the secondary action stays a compact control instead of being
+  // puffed up to the 44px floor next to the close button.
+  assert(mobileSettings.actionsJustify === 'space-between', 'the settings actions are not split across the row', mobileSettings)
+  assert(mobileSettings.actionButton && mobileSettings.actionButton.x <= 20, 'the settings action is not against the left edge', mobileSettings.actionButton)
+  assert(mobileSettings.closeButton && Math.abs(mobileSettings.panel.right - mobileSettings.closeButton.right) <= 16, 'the close control is not against the right edge', mobileSettings.closeButton)
+  assert(mobileSettings.actionButton && mobileSettings.actionButton.height <= 32, 'the settings action is still oversized', mobileSettings.actionButton)
   await screenshot('settings-mobile-390x844')
   await closeSettings()
   await closeSidebar()
@@ -903,6 +1067,77 @@ try {
   assert(desktopSettings.navDirection !== 'row', 'desktop Settings navigation was overridden', desktopSettings)
   await screenshot('settings-desktop-1280x800')
   await closeSettings()
+
+  // The plugin manager replaces the conversation inside the main seat. That is still the same
+  // shell: the phone layer must keep its drawer, style and column maths instead of tearing itself
+  // down and leaving DSH's desktop columns (280px rail + a squeezed content column) on a phone.
+  await setViewport(390, 844, true)
+  await openSidebar()
+  const pluginEntry = await evaluate(`(() => {
+    const frame = document.querySelector('[data-shell-overlay]')?.parentElement
+    const button = [...(frame?.children?.[0]?.querySelectorAll('button') || [])]
+      .find((node) => /^(插件|Plugins)$/.test((node.textContent || '').trim()))
+    button?.click()
+    return Boolean(button)
+  })()`)
+  assert(pluginEntry, 'the sidebar plugin entry is missing, so the non-conversation page cannot be probed')
+  // The row swaps what the main seat shows; the fullscreen phone drawer has to get out of the way
+  // by itself instead of hiding the page it just opened.
+  await waitFor(`document.querySelector('[data-shell-overlay]')?.parentElement?.hasAttribute('data-sidebar-collapsed') === true`, 8000)
+  await waitFor(`Boolean(document.querySelector('[data-shell-overlay]')?.parentElement?.children?.[1]?.querySelector("[data-slot='main'] > section, [data-slot='main'] > div:not([data-slot='main.conversation'])"))`, 15000)
+  await delay(600)
+  const pageShell = await evaluate(`(() => {
+    const frame = document.querySelector('[data-shell-overlay]')?.parentElement
+    const center = frame?.children?.[1]
+    const box = center?.getBoundingClientRect()
+    const toggle = document.querySelector('.dmc-sidebar-toggle')
+    const rect = (node) => { const r = node.getBoundingClientRect(); return { w: +r.width.toFixed(1), h: +r.height.toFixed(1) } }
+    const switches = [...document.querySelectorAll("[role='switch']")]
+    return {
+      bodyMarker: document.body.hasAttribute('data-dsh-mobile-compat'),
+      shellMarker: frame?.hasAttribute('data-dsh-mobile-shell-compatible') ?? null,
+      conversationMarker: Boolean(document.querySelector('[data-dsh-mobile-conversation-compatible]')),
+      stylePresent: Boolean(document.getElementById('dsh-mobile-compat-style')),
+      grid: frame ? getComputedStyle(frame).gridTemplateColumns : null,
+      center: box ? { x: Math.round(box.x), w: Math.round(box.width) } : null,
+      toggleDisplay: toggle ? getComputedStyle(toggle).display : null,
+      innerWidth,
+      switches: switches.map((node) => ({
+        label: (node.getAttribute('aria-label') || '').slice(0, 24),
+        ...rect(node),
+        target: { w: getComputedStyle(node, '::after').width, h: getComputedStyle(node, '::after').height }
+      }))
+    }
+  })()`)
+  report.pluginManagerPage = pageShell
+  assert(pageShell.bodyMarker, 'the non-conversation page lost the body marker', pageShell)
+  assert(pageShell.shellMarker, 'the non-conversation page lost the shell marker', pageShell)
+  assert(pageShell.stylePresent, 'the non-conversation page lost the plugin stylesheet', pageShell)
+  assert(!pageShell.conversationMarker, 'the non-conversation page kept a conversation marker', pageShell)
+  assert(pageShell.grid === `0px ${pageShell.innerWidth}px 0px`, 'the non-conversation page fell back to DSH desktop columns', pageShell)
+  assert(pageShell.center && Math.abs(pageShell.center.w - pageShell.innerWidth) <= 1, 'the non-conversation page content is squeezed', pageShell.center)
+  assert(pageShell.toggleDisplay === 'flex', 'the drawer entry disappeared on the non-conversation page', pageShell)
+  // A switch is a fixed 36x20 capsule: the 44px floor must never reach it, only its invisible target.
+  assert(pageShell.switches.length > 0, 'the plugin manager page exposes no switch to measure', pageShell)
+  for (const control of pageShell.switches) {
+    assert(control.w < 44 && control.h < 44, `a switch was squared off by the 44px floor (${control.label})`, control)
+    assert(control.target.w === '44px' && control.target.h === '44px', `a switch has no 44px touch target (${control.label})`, control)
+  }
+  await screenshot('plugin-manager-mobile-390x844')
+
+  // Back to a conversation: the conversation-scoped marker returns on the next probe. The drawer
+  // closed itself when the panel row was tapped, so reopen it before reaching for a session row.
+  await openSidebar()
+  const backToConversation = await evaluate(`(() => {
+    const frame = document.querySelector('[data-shell-overlay]')?.parentElement
+    const rows = [...(frame?.children?.[0]?.querySelectorAll("[class*='sessionRow']") || [])]
+    const row = rows.find((node) => !/^\s*(新会话|New session)/i.test(node.textContent || ''))
+    row?.click()
+    return Boolean(row)
+  })()`)
+  assert(backToConversation, 'no session row to return to after the non-conversation page')
+  await waitFor(`Boolean(document.querySelector('[data-dsh-mobile-conversation-compatible]'))`, 15000)
+  await closeSidebar()
 
   await delay(300)
   const actionable = diagnostics.filter((entry) => {

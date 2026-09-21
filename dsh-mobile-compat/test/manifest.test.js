@@ -59,6 +59,17 @@ test('compatibility matrix declares the verified 0.1.6 release line', () => {
 test('client source declares release-line, connection, and structure gates', () => {
   assert.match(client, /DSH_COMPATIBILITY_RANGE = '>=0\.1\.6-alpha\.1 <0\.1\.7'/)
   assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.1\.6-alpha\.1', '0\.1\.6-alpha\.2'\]\)/)
+  // classifyDshVersion() derives the gate from DSH_RELEASE_LINE / DSH_MINIMUM_ALPHA, so those two
+  // constants must still produce the declared range: a release-line bump that only edits the
+  // range (or only the client constants) would otherwise pass every other gate.
+  const releaseLine = /DSH_RELEASE_LINE = '([^']+)'/.exec(client)?.[1]
+  const minimumAlpha = /DSH_MINIMUM_ALPHA = (\d+)/.exec(client)?.[1]
+  assert.equal(releaseLine !== undefined && minimumAlpha !== undefined, true, 'client.js must declare DSH_RELEASE_LINE and DSH_MINIMUM_ALPHA')
+  const [lowerBound, upperBound] = manifest.dshCompatibility.range.split(' ')
+  assert.equal(lowerBound, `>=${releaseLine}-alpha.${minimumAlpha}`)
+  const [major, minor, patch] = releaseLine.split('.')
+  assert.equal(upperBound, `<${major}.${minor}.${Number(patch) + 1}`)
+  assert.equal(Number(minimumAlpha) >= 1, true, 'the verified line must start at alpha.1 or later')
   assert.match(host, /readDshPackage/)
   assert.match(host, /\/dsh-mobile-compat\/status/)
   assert.match(client, /connection\?\.generation/)
@@ -72,6 +83,14 @@ test('client source declares release-line, connection, and structure gates', () 
   assert.doesNotMatch(client, /closeDetails\s*\(/)
   assert.doesNotMatch(client, /closeRightbar\s*\(/)
   assert.doesNotMatch(client, /data-composer-input/)
+})
+
+test('the 44px touch floor stays off fixed-shape controls', () => {
+  // Two controls are fixed shapes rather than glyph buttons: the attachment rail (a thumbnail row)
+  // and a switch (a 36x20 capsule with a 16px thumb). Squaring either one off is a visible defect,
+  // so every 44px floor excludes them and they grow an invisible target instead.
+  assert.equal((client.match(/\[role='group'\], \[role='group'\] \*, \[role='switch'\]/g) || []).length, 5, 'every 44px floor must exclude role=group and role=switch')
+  assert.match(client, /\[role='switch'\]::after/)
 })
 
 test('client probes the 0.1.6 sidebar/main/rightbar seats, not the retired conversation/details seats', () => {

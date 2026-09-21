@@ -12,7 +12,7 @@ npm publish --dry-run      # 跑 prepublishOnly 并构造包，不上传
 ## 打 tag
 
 ```bash
-git tag dsh-mobile-compat-v0.3.2
+git tag dsh-mobile-compat-v0.3.2        # 换成本次发布的版本，必须与 package.json#version 完全一致
 git push origin dsh-mobile-compat-v0.3.2
 ```
 

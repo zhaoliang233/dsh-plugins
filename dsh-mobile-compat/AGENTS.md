@@ -30,15 +30,17 @@ UI 只向 `shell.overlay` 注册 additive list entry：`{ name: 'shell.overlay',
 2. frame 的前四个 host children 是 Sidebar column、Center column、Rightbar column 与 overlay；
 3. 三列分别有 direct `sidebar`、`main`、`rightbar` Slot seat；
 4. Sidebar seat 有 first occupant；
-5. `main` seat 的 occupant 链（0.1.6 为 `main` seat → `main.conversation` Slot anchor → ConversationRoot）经只含单个 element child 的 `display:contents` Slot anchor 下探到 ConversationRoot，其最后一个 direct child 内有 direct `[data-conversation-scroll]`。
+5. `main` seat 的 occupant 链（0.1.6 为 `main` seat → `main.conversation` Slot anchor → ConversationRoot）经只含单个 element child 的 `display:contents` Slot anchor 下探到 ConversationRoot，其最后一个 direct child 内有 direct `[data-conversation-scroll]`。**第 5 条是可选的**：main seat 也可以承载非会话页面 —— 点侧栏「插件」进入的 plugin manager 就是一个 `SECTION.X_2TxG_page` —— 那时只缺少 conversation 级标记，shell 级适配必须照常工作。
 
-通过后才添加 `data-dsh-mobile-shell-compatible`，并在精确 ConversationRoot 上添加 `data-dsh-mobile-conversation-compatible`，再激活 style、viewport、Locale 和 Slot。safe-area top 与 toggle header clearance 只使用该 marker，不再用会误命中 body wrapper 的 `:has(> [data-conversation-scroll])`。
+1–4 满足即添加 `data-dsh-mobile-shell-compatible` 并激活 style、viewport、Locale 和 Slot；第 5 条也成立时才把 `data-dsh-mobile-conversation-compatible` 加到 ConversationRoot 上（会话页消失时移除该标记，shell 级适配不停）。把第 5 条当成必需要会踩坑：进入 plugin manager 时探测判 pending → 插件整个退场 → 手机上退回 DSH 桌面三列（280px 侧栏 + 110px 内容列），实测就是这个形态被用户报出来。结构 1–4 不符时卸载所有增强、保留原生布局，并输出一次诊断。
 
 header clearance 必须落在 session-header Slot 内实际 header 元素的**第一行**（`[CONV] > :first-child:not(:last-child) > :first-child > :first-child`）：`renderSlot` anchor 是 `display:contents`，对 anchor 本身设置 padding 无效；给整块 header 加 padding 会把下方的 `对话/轨迹` 标签行一起右推（实测 375px 下推 44px）。header 自身保留原生 gutter，第一行额外 38px 即可得到 ~58px 净空。
 
 悬浮 toggle 保持 44×44 命中盒，但**可视部分必须读作 DSH 自己的标题栏控件**：28×28 的 `::after` 圆角 28px 裸底（无边框/底色/阴影，仅 `hover` 时填 `--dsw-alias-interactive-bg-hover`）、图标 15px、墨色 `--dsw-alias-label-secondary`，位置 `top: 10px`（会话 header 第一行）与 `left: 12px`（命中盒 12..56，其中 28×28 可视框落在 20..48，与手机 header 自身的 20px 左留白、标题栏第一个元素同一条竖线）。图标用与右栏入口**同一个 token**（`IconPanelLeftOutline16`）并由 primitives 的 `size: 15` 声明尺寸，不用 CSS 覆盖宽度。**对齐判据是墨迹**：实测（320/390/457/568/578/844 一致）右侧 `[data-sidebar-right-expand]` 的 44px 盒距右边 12px、其 15px 图标墨迹距右边 26.5px；两个 SVG 在 15px 盒内都是满幅墨迹，所以可视框位置就是墨迹位置，`left: 12px` 才与右侧镜像（曾按「可视框距边 12px」写成 `left: 4px`，盒子对齐了但墨迹差 4px，用户一眼看出不齐）。`getBoundingClientRect` 量的是盒，量墨迹要栅格化 SVG。抽屉打开时入口隐藏：抽屉标题行右侧 DSH 自带的「收起侧边栏」就是关闭入口，避免两个关闭键。结构不符时卸载所有增强、保留原生布局，并输出一次诊断。
 
 ### 会话标题栏 strip
+
+**只在移动媒体查询内安装**（`window.matchMedia(MOBILE_QUERY)`；进出断点都要重新 sync）。包装节点是一个没有样式的 `<div>`，一旦在宽屏 pointer 视口里装上去，它就把标题与操作簇从一行折成两行——PC 端必须完全保持 DSH 原生 header。回归断言：桌面视口下不存在 `[data-dsh-mobile-title-strip]`，且 `titleCluster` 高度 ≤30px（单行）。
 
 手机上 `[class*='titleRow'] [class*='titleCluster']` 的子节点（`nav.crumbs`、`div.headerActions`）被搬进一个 `[data-dsh-mobile-title-strip]` 包装节点，包装节点**插在原第一个子节点的位置**，`headerUtilities` / `headerCorner` 两个兄弟保持原样：
 
@@ -48,9 +50,22 @@ header clearance 必须落在 session-header Slot 内实际 header 元素的**�
 - `installTitleStrip()` 在 mutation 后判断「子节点是否全部在 strip 内」，不满足就 dispose 再重新收纳（标题栏 owner 会重建/追加子节点）；disposer 把子节点按原位置还原并 `wrapper.remove()`，插件停用后不留残余 DOM。顺序是先清 `disposeStrip` 再重新挂，避免同一个 wrapper 被 dispose 两次。
 - 标题节点（`wSkVaW_crumbCurrent` 一类）会把自己左移到负坐标来显示末尾，因此判断控件是否可达必须用 `左侧边界 - maxScroll .. 右侧边界 + maxScroll`，只看右边界会误判。
 
-### Composer 与附件条
+### 设置页（手机）
 
-44px 命中下限只对 `role≠group` 的按钮生效：`[data-composer-card]` / `[data-conversation-scroll]` / shell 首列 / `aria-modal` dialog 四处规则，以及 `[data-composer-seat]` 规则，都带 `:not(:is([role='group'], [role='group'] *))`。待发送附件条是 composer 里唯一的 `role=group`，DSH 自己已为触屏适配它（coarse-pointer 媒体查询把 18px 删除键设为常显、缩略图 64px、箭头 24px），一刀切放大就会把删除键顶成一块盖住照片的 44px 方块。条内小圆钮的命中区用 `::after` 不可见 44px 靶区实现，视觉尺寸保持原生。回归里真实粘贴一张图片挂载附件条来断言「条内不出现 44px、操作行仍 ≥44px」。
+手机上把 DSH 的设置弹窗改造成全屏单列：`width: 100vw / height: 100dvh`、直角、`flex-direction: column`；导航标题视觉隐藏、tabs 变成一条可横向滚动的 chips 行；关闭键与导航按钮 44px 起；内容区加安全区 padding 并自己滚动。DSH 自己不给设置页做移动适配（实测禁用插件样式后仍是 800px、`flex-direction: row` 的桌面弹窗）。
+
+**行序是插件重排的**：DSH 的 DOM 是 `dialog > nav(标题+tabs)` + `dialog > div(操作行「打开配置文件/关闭」+ 滚动内容)`，而手机上要的是「操作行 → tabs → 内容」。做法是把内容容器 `display: contents` 折叠，让它那两个子项直接成为 dialog 的列项，再用 `order`（操作行 1 / nav 2 / 滚动内容 3）排出来；纯 CSS，无 DOM 突变。**折进去的容器自身没有盒子**（0×0），所以宽度、可滚动性这类断言必须落在滚动内容上，不是那个容器。桌面用 `@media` 排除在外（回归断言 1280px 下仍是 800px 宽、`row`、容器未被折叠）。
+
+**操作行内部**：`header` 是 `space-between`，但「打开配置文件」在自己的 flex 行里、被 DSH 用一个很大的 `margin-left` 推到右侧，所以那条行要显式 `margin-left: 0` 才会落到左端（右侧留给关闭键）。那个次级动作是 `header > .actions > div > button`（**不是 header 的直接子**）——选择器写 `> :first-child > :first-child button`；它的 44px 会被触控下限撑得和关闭键一样重，这里显式收回 DSH 原生的 28px 高 + 12px 字，并用 `::after` 补 44px 靶区。
+
+### Composer、附件条与开关
+
+44px 命中下限只对**字形按钮**生效：`[data-composer-card]` / `[data-conversation-scroll]` / shell 首列 / `aria-modal` dialog 四处规则，以及 `[data-composer-seat]` 规则，都带 `:not(:is([role='group'], [role='group'] *, [role='switch']))`。两类控件是**固定形状**，撑大即破形，因此一并豁免：
+
+- 待发送附件条（composer 里唯一的 `role=group`）：DSH 自己已为触屏适配它（coarse-pointer 媒体查询把 18px 删除键设为常显、缩略图 64px、箭头 24px），一刀切放大就会把删除键顶成一块盖住照片的 44px 方块；
+- 开关（primitives 的 `Switch` 渲染成 `button[role=switch]`，DSH 自己的 `Switch.module.css` 是 36×20 胶囊 + 16px thumb）：`min-width/min-height: 44px` 会把它压成正方形方块、圆点被挤出原位（用户实测报过「设置页开关变成这样」）。
+
+两者的命中区用 `::after` 不可见 44px 靶区实现，视觉尺寸保持原生；开关在原样式里本就是 `position: relative`，靶区直接锚在胶囊上。回归里真实粘贴一张图片挂载附件条（断言条内不出现 44px、操作行仍 ≥44px），并在内实例的 plugin manager 页断言每个 `[role='switch']` 仍 <44px 且靶区恰为 44×44。
 
 Workspace patch 还需验证 `[data-slot=sidebar.workspaces]` 的 WorkspaceBrowser root、header、含 `button[aria-expanded]` 的 search Slot 及其相邻 action cluster，通过后添加 `data-dsh-mobile-workspaces-compatible`。所有 owner、结构和版本映射维护在 `compatibility.json#contracts`。
 
@@ -61,6 +76,7 @@ Workspace patch 还需验证 `[data-slot=sidebar.workspaces]` 的 WorkspaceBrows
 - AppFrame：`data-shell-overlay`、`data-sidebar-collapsed`、`data-side`；
 - runtime markers：`data-dsh-mobile-shell-compatible`、`data-dsh-mobile-workspaces-compatible`、`data-dsh-mobile-conversation-compatible`；
 - Shell seats：`data-slot=sidebar`、`data-slot=main`、`data-slot=rightbar`、`data-slot=sidebar.workspaces` 及版本锁定 direct occupants；
+- 右栏 dockkit 面板（0.1.6 内唯一宿主）：`data-sidebar-right-panel`、`data-sidebar-right-open`、`data-sidebar-right-toggle`、`data-sidebar-right-expand`、`data-dockkit-strip`、`data-dockkit-strip-chrome`（回归断言另外读 `data-dockkit-tab-close`）；pane body 没有 data 属性，只能按 class 后缀 `[class*='paneBody']` 锚定（不匹配时静默回落到原生渲染）；
 - Conversation 外层：`data-conversation-scroll`、`data-composer-seat`、`data-composer-card`，以及 Composer 的 `[role=textbox][aria-multiline=true]` 可访问语义；
 - Settings：`role=dialog`、`aria-modal=true`、direct `nav`。
 
@@ -73,7 +89,22 @@ AppFrame position、SidebarRoot inline width、Workspace header/search/action �
 - document 中出现任一可见且非 Drawer 自身的 `aria-modal` dialog（含 Settings 和 shell.overlay modal）时，暂停 Drawer dialog semantics 与 Tab/Escape trap，避免 competing modal 冲突。
 - 从 mobile query 离开到 DSH narrow 区间（901-1023px）时，若 Drawer 仍开就调用一次 `toggleSidebar()` 清除 `narrowExpanded`；直接进入 >=1024px 时只清理移动端 ARIA/inert/focus trap，不调用 toggle、不改桌面偏好。
 - 移动端只把第三列（Rightbar column）的 grid track 置 0，**禁止**对整列设置 `display:none`：0.1.6 的右侧栏面板是该列内的绝对定位浮层（fullscreen 时 `position:fixed; inset:0`，`<768px` 自动全屏），隐藏整列会把已打开的右侧栏压成 0×0，手机上根本显示不出来。
-- 触控命中区至少 44x44；Workspace search/action 容器要同步扩展，不能只放大 button。
+- 触控命中区至少 44x44；Workspace search/action 容器要同步扩展，不能只放大 button。唯一的例外是**绝对定位在 pill 内部的 tab 控件**，见下节。
+- 侧栏里任何**导航离开当前页**的点击都要让抽屉自己收起来（抽屉是全屏表面，不收就等于把刚打开的页面盖住）。两条判据共用一个 `collapse()`，带 400ms 冷却窗——否则一次同时命中两条的点击会 toggle 两次、把抽屉又打开：
+  1. **点击导航行本身**：`[class*='newSession']`（新会话）、`[class*='panelRow']`（对话/插件面板行）、`[class*='sessionRow']`（会话行）。会话行是工作区下的 `role=treeitem` **div**，而**两个会话之间切换会复用同一个 conversation occupant、main seat 的 childList 不变**，所以"只看 seat"永远抓不到它（用户报的「点工作区的对话没反应」就是这个）；点击目标是行内 button 时（行自己的「…」菜单，锚在行上的浮层）不收起。
+  2. **main seat 的 childList 变化**：覆盖"点击后不替换被点行、而是换 seat"的路径（例如在会话里新建会话）。
+
+  实测七类（真实触摸、每类独立加载页面）：会话行（普通/当前选中/另一条）✓ 收起、新会话 ✓ 收起、面板行 ✓ 收起、行内「操作」按钮 ✗ 不动、点「工作区」标题 ✗ 不动。回归断言：点「插件」行后、点会话行（选中态与未选中态各一次）后 `data-sidebar-collapsed` 必须变 true。
+
+## 右栏 dockkit strip 的 44px 边界
+
+0.1.6 的右侧栏是 dockkit 面板，44px 命中盒**只给 strip 级控件**：`[data-dockkit-strip] > button`（新建标签、分屏）与 `[data-dockkit-strip] [data-dockkit-strip-chrome] button`（面板 chrome 的全屏 / 收起），并把 strip 与 chrome 容器同步撑到 44px（`[data-dockkit-strip]{min-height:44px}` 覆盖 dockkit 自己的 `height:28px`，容器与按钮一起长高才不会互相盖住）。
+
+**tab 内部的按钮一律保持 DSH 原生尺寸**：`data-dockkit-tab-close` 是 `position:absolute; top:4px; right:4px` 的 20×20，放大到 44px 会保持绝对锚点、把图标相对 pill **向左下各推 12px**（实测图标中心从距 tab 顶 14px 变成 26px、距右 14px 变成 26px，页面上的形态就是「关闭图标漂移到 pill 左下角」）。tab 的上下文菜单同样渲染在 tab 内部，放大按钮会破坏菜单行高。CSS 因此不能用 `[data-dockkit-strip] button` 这种后代万能选择器。
+
+chrome 图标不再单独放大（曾写成 18px）：DSH 的 `iconButton` 是 28px 盒 + 15px 图标，撑到 44px 盒后仍保持 15px，才与 shell.overlay 的抽屉入口（同样 44px 盒 + 15px 图标）一致。
+
+回归断言（390×844，打开一个真实文件 tab）：关闭键仍 20×20 且 `absolute; top:4px; right:4px`、相对 tab 偏移仍是 `top:4 / right:4`、图标居中于控件（≤0.6px）、每个 strip 级控件 ≥44×44、chrome 图标为 15px。
 
 ## 生命周期
 

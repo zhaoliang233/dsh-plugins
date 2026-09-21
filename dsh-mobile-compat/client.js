@@ -41,7 +41,6 @@ window.__ModuleLoader__.load({
     const MOBILE_CSS = `
 body[${BODY_ATTRIBUTE}] {
   --dmc-mobile-control-size: 44px;
-  --dmc-mobile-edge: 10px;
 }
 
 .dmc-layer {
@@ -64,7 +63,7 @@ body[${BODY_ATTRIBUTE}] {
   display: none;
 }
 
-@media (max-width: 720px), (pointer: coarse) and (max-width: 900px) {
+@media ${MOBILE_QUERY} {
   html:has(> body[${BODY_ATTRIBUTE}]),
   body[${BODY_ATTRIBUTE}],
   body[${BODY_ATTRIBUTE}] #root {
@@ -161,9 +160,7 @@ body[${BODY_ATTRIBUTE}] {
      with no drawn scrollbar (a drawn one would add height and invite mis-taps);
      scrollTitleStrip() below supplies the drag. */
   body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='headerActions'],
-  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='headerUtilities'],
-  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [data-slot='conversation.session.header.actions'],
-  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [data-slot='conversation.session.header.utilities'] {
+  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='headerUtilities'] {
     flex: 0 0 auto;
     flex-wrap: nowrap;
     align-items: center;
@@ -173,12 +170,6 @@ body[${BODY_ATTRIBUTE}] {
      current session matters, so the ancestor segments go while the current title stays. */
   body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] nav[class*='crumbs'] > [class*='crumbSeg']:has([class*='crumb']:not([class*='crumbCurrent'])) {
     display: none !important;
-  }
-
-  body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] > [class*='titleRow'] {
-    position: relative;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
   }
 
   body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] [class*='titleRow'] [class*='titleCluster'] {
@@ -202,10 +193,8 @@ body[${BODY_ATTRIBUTE}] {
     overflow-y: hidden;
     flex-wrap: nowrap;
     scrollbar-width: none;
-    -ms-overflow-style: none;
     overscroll-behavior-x: contain;
     touch-action: pan-x;
-    -webkit-overflow-scrolling: touch;
   }
 
   [data-dsh-mobile-title-strip]::-webkit-scrollbar {
@@ -221,10 +210,6 @@ body[${BODY_ATTRIBUTE}] {
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
-  }
-
-  .dmc-layer {
-    display: block;
   }
 
   /* 0.3.6: the entry reads as DSH's own header chrome. A 44px hit box holds a 28px visual box
@@ -253,10 +238,6 @@ body[${BODY_ATTRIBUTE}] {
     cursor: pointer;
     pointer-events: auto;
     touch-action: manipulation;
-  }
-
-  .dmc-sidebar-toggle svg {
-    display: block;
   }
 
   /* The visual box inside the 44px hit box: bare glyph, no border or fill, hover only. */
@@ -313,8 +294,8 @@ body[${BODY_ATTRIBUTE}] {
   /* Reserve the floating toggle's lane on the header's FIRST row only. The
      conversation view tabs row below it keeps DSH's native gutter instead of
      being indented by the whole reserve. The header keeps its own 20px gutter,
-     so 38px here yields ~58px of clearance: the toggle's 36px visual chip ends
-     at x50 and its 44px hit box at x54, leaving a visible gap. */
+     so 38px here yields ~58px of clearance: the toggle's 28px visual box ends
+     at x48 and its 44px hit box at x56, leaving a visible gap. */
   body[${BODY_ATTRIBUTE}] [${CONVERSATION_ATTRIBUTE}] > :first-child:not(:last-child) > :first-child > :first-child {
     padding-left: calc(38px + env(safe-area-inset-left)) !important;
   }
@@ -339,7 +320,6 @@ body[${BODY_ATTRIBUTE}] {
     max-width: 100%;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    -webkit-overflow-scrolling: touch;
   }
 
   body[${BODY_ATTRIBUTE}] [data-conversation-scroll] :not(pre) > code {
@@ -363,12 +343,18 @@ body[${BODY_ATTRIBUTE}] {
     flex-direction: column !important;
   }
 
+  /* 0.3.7: the phone layout puts the actions row (open config file / close) on TOP and the
+     settings tabs BELOW it — the close control belongs in the top corner within thumb reach, and
+     the tabs then read as the row that switches what is underneath. DSH's DOM has it the other way
+     round (nav holds the tabs, the actions row lives inside the content container), so the
+     container is folded with display:contents and the three rows are ordered explicitly. */
   body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child {
+    order: 2 !important;
     flex: none !important;
     width: 100% !important;
     min-height: 0 !important;
     gap: 8px !important;
-    padding: max(10px, env(safe-area-inset-top)) 8px 0 !important;
+    padding: 0 8px !important;
     border-bottom: 1px solid var(--dsw-alias-border-l2);
   }
 
@@ -390,7 +376,6 @@ body[${BODY_ATTRIBUTE}] {
     overflow-x: auto !important;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
   }
 
   body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child > :last-child::-webkit-scrollbar {
@@ -404,19 +389,50 @@ body[${BODY_ATTRIBUTE}] {
     padding-inline: 12px !important;
   }
 
+  /* Folded so the actions row and the scroller become rows of the dialog itself. */
   body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child + div {
-    flex: 1 1 auto !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
+    display: contents !important;
   }
 
   body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child + div > :first-child {
+    order: 1 !important;
+    flex: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
     min-height: 52px !important;
     height: auto !important;
-    padding: 8px 12px !important;
+    padding: max(10px, env(safe-area-inset-top)) 12px 4px !important;
     align-items: center !important;
+    /* Secondary action on the left, close on the right. */
+    justify-content: space-between !important;
+  }
+
+  /* The secondary action lives in its own flex row inside the header (DSH pushes that row right
+     with a large margin-left); pull it back to the left edge so the row reads "action left, close
+     right". Keep DSH's compact shape — the 44px floor had made it as heavy as the close button —
+     and grow an invisible 44px target instead, like the rail controls and switches. */
+  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child + div > :first-child > :first-child {
+    margin-left: 0 !important;
+    min-height: 0 !important;
+  }
+
+  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child + div > :first-child > :first-child button {
+    position: relative;
+    min-width: 0 !important;
+    min-height: 28px !important;
+    height: 28px !important;
+    padding: 0 10px !important;
+    font-size: 12px !important;
+  }
+
+  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child + div > :first-child > :first-child button::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
   }
 
   body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child + div > :first-child > button:last-child {
@@ -427,36 +443,48 @@ body[${BODY_ATTRIBUTE}] {
   }
 
   body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true']:has(> nav:first-child) > nav:first-child + div > :last-child {
+    order: 3 !important;
+    flex: 1 1 auto !important;
     min-width: 0 !important;
+    min-height: 0 !important;
     padding: 4px 16px calc(16px + env(safe-area-inset-bottom)) !important;
     overflow-y: auto !important;
     overscroll-behavior-y: contain;
   }
 }
 
-@media (max-width: 720px), (pointer: coarse) and (max-width: 900px) {
+@media ${MOBILE_QUERY} {
   body[${BODY_ATTRIBUTE}] button {
     touch-action: manipulation;
   }
 
-  /* The composer's own action row needs the 44px minimum, but its attachment rail must not get
-     it: DSH already renders that rail for touch (its 18px remove button is forced visible under
-     the coarse-pointer media query), and a 44px square on a 64px thumbnail is huge and spills
-     onto the photo. The rail is the only role=group inside the composer card, so it is excluded
-     structurally instead of by locale-dependent label text. Buttons inside it keep their
-     intrinsic size; only the small round controls get an invisible pointer target. */
-  body[${BODY_ATTRIBUTE}] [data-composer-card] button:not(:is([role='group'], [role='group'] *)),
-  body[${BODY_ATTRIBUTE}] [data-conversation-scroll] button:not(:is([role='group'], [role='group'] *)),
-  body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child button:not(:is([role='group'], [role='group'] *)),
-  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true'] button:not(:is([role='group'], [role='group'] *)) {
+  /* The composer's own action row needs the 44px minimum, but two kinds of control must not get
+     it, because they are fixed-size shapes rather than glyph buttons:
+
+     - the attachment rail: DSH already renders that rail for touch (its 18px remove button is
+       forced visible under the coarse-pointer media query), and a 44px square on a 64px
+       thumbnail is huge and spills onto the photo. The rail is the only role=group inside the
+       composer card, so it is excluded structurally instead of by locale-dependent label text;
+     - a switch: primitives draw it as a 36x20 capsule with a 16px thumb (Switch.module.css), so
+       a 44px floor squares it off and drags the thumb out of place. Switches keep their shape and
+       grow an invisible 44px target instead, exactly like the rail controls.
+
+     Buttons inside both keep their intrinsic size; only the small round controls get the
+     invisible pointer target below. */
+  body[${BODY_ATTRIBUTE}] [data-composer-card] button:not(:is([role='group'], [role='group'] *, [role='switch'])),
+  body[${BODY_ATTRIBUTE}] [data-conversation-scroll] button:not(:is([role='group'], [role='group'] *, [role='switch'])),
+  body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > :first-child button:not(:is([role='group'], [role='group'] *, [role='switch'])),
+  body[${BODY_ATTRIBUTE}] div[role='dialog'][aria-modal='true'] button:not(:is([role='group'], [role='group'] *, [role='switch'])) {
     min-width: 44px;
     min-height: 44px;
   }
 
-  /* Small glyph controls inside the rail (thumbnail remove, rail arrows) keep their DSH size and
-     grow only their touch area. */
+  /* Small glyph controls inside the rail (thumbnail remove, rail arrows) and every switch keep
+     their DSH size and grow only their touch area. DSH's own switch stylesheet positions the
+     capsule relatively, so the target anchors to the capsule itself. */
   body[${BODY_ATTRIBUTE}] [data-composer-card] [role='group'] button::after,
-  body[${BODY_ATTRIBUTE}] [data-composer-seat] [role='group'] button::after {
+  body[${BODY_ATTRIBUTE}] [data-composer-seat] [role='group'] button::after,
+  body[${BODY_ATTRIBUTE}] [role='switch']::after {
     content: '';
     position: absolute;
     top: 50%;
@@ -498,40 +526,38 @@ body[${BODY_ATTRIBUTE}] {
 
   /* The composer dock also hosts inline cards (goal bar and similar) whose own chrome is
      36px tall; on a pointer device the tap targets inside must still reach 44px. The attachment
-     rail inside the same seat is excluded for the same reason as above. */
-  body[${BODY_ATTRIBUTE}] [data-composer-seat] button:not(:is([role='group'], [role='group'] *)) {
+     rail and switches inside the same seat are excluded for the same reasons as above. */
+  body[${BODY_ATTRIBUTE}] [data-composer-seat] button:not(:is([role='group'], [role='group'] *, [role='switch'])) {
     min-width: 44px;
     min-height: 44px;
   }
 
-  /* 0.3.3: 0.1.6 renders the right sidebar as a dockkit panel that goes fullscreen below 768px.
-     Its chrome strip and pane body carry no data attribute at all, so those two places — the only
-     ones that need the safe area and a 44px hit box — anchor on class suffixes. When the classes
-     drift the selectors simply stop matching and the panel falls back to DSH's own rendering. */
+  /* 0.3.7: 0.1.6 renders the right sidebar as a dockkit panel that goes fullscreen below 768px.
+     Only the pane body lacks a data attribute, so that single rule anchors on its class suffix;
+     the strip and its chrome are named through dockkit's own data attributes. When either drifts
+     the selectors stop matching and the panel falls back to DSH's own rendering.
+     The dockkit strip has exactly one host in this release: this panel. */
   body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] {
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top);
   }
 
-  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] [class*='stripChrome'] {
+  body[${BODY_ATTRIBUTE}] [data-dockkit-strip],
+  body[${BODY_ATTRIBUTE}] [data-dockkit-strip-chrome] {
     box-sizing: border-box;
     min-height: 44px;
   }
 
-  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] [class*='stripChrome'] button,
-  body[${BODY_ATTRIBUTE}] [data-dockkit-strip] button {
+  /* The 44px hit box belongs to the strip's own controls (new tab, split pane) and to the pane
+     chrome's buttons — never to a button INSIDE a tab. A tab's close control is absolutely
+     anchored (position:absolute; top:4px; right:4px) at DSH's native 20x20: growing the box keeps
+     that anchor, so the glyph slides 12px down out of the pill (a drifting x on a phone). The
+     tab's context menu also renders inside the tab and must keep its own row height. */
+  body[${BODY_ATTRIBUTE}] [data-dockkit-strip] > button,
+  body[${BODY_ATTRIBUTE}] [data-dockkit-strip] [data-dockkit-strip-chrome] button {
     width: 44px !important;
     height: 44px !important;
     min-width: 44px;
-    min-height: 44px;
-  }
-
-  body[${BODY_ATTRIBUTE}] [${RIGHT_PANEL_ATTRIBUTE}] [class*='stripChrome'] svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  body[${BODY_ATTRIBUTE}] [data-dockkit-strip] {
     min-height: 44px;
   }
 
@@ -539,7 +565,6 @@ body[${BODY_ATTRIBUTE}] {
     box-sizing: border-box;
     padding-bottom: env(safe-area-inset-bottom);
     overscroll-behavior-y: contain;
-    -webkit-overflow-scrolling: touch;
   }
 
   /* The session-header expand control is the drawer toggle's counterpart and belongs to the same
@@ -584,7 +609,6 @@ body[${BODY_ATTRIBUTE}] {
       if (style === null) {
         style = document.createElement('style')
         style.id = STYLE_ID
-        style.dataset.owner = PLUGIN_ID
         style.dataset.refs = '0'
         style.textContent = MOBILE_CSS
         document.head.appendChild(style)
@@ -612,6 +636,20 @@ body[${BODY_ATTRIBUTE}] {
         }
         style.remove()
         document.body?.removeAttribute(BODY_ATTRIBUTE)
+      }
+    }
+
+    /** Collapse a burst of DOM events into one microtask run; later calls in the same tick are
+     *  dropped, so observers and media-query listeners can fire as often as they like. */
+    function coalesce(run) {
+      let scheduled = false
+      return () => {
+        if (scheduled) return
+        scheduled = true
+        Promise.resolve().then(() => {
+          scheduled = false
+          run()
+        })
       }
     }
 
@@ -708,6 +746,8 @@ body[${BODY_ATTRIBUTE}] {
     // Slot anchor) > ConversationRoot. Descend through the single-child Slot anchors
     // that render as display:contents until the root whose last direct child holds a
     // direct [data-conversation-scroll] appears, without naming internal slot ids.
+    // Returns null while the seat holds something else — the plugin manager page, for
+    // example — which is a valid shell, just not a conversation.
     function resolveConversationRoot(mainSeat) {
       let candidate = mainSeat?.firstElementChild || null
       for (let depth = 0; depth < 3 && candidate !== null; depth += 1) {
@@ -746,11 +786,14 @@ body[${BODY_ATTRIBUTE}] {
           if ([sidebar, center, rightbar].some(column => column.children.length === 0)) pending = true
           continue
         }
-        const conversationRoot = resolveConversationRoot(mainSeat)
-        if (sidebarSeat.firstElementChild === null || conversationRoot === null) {
+        // Only the rail must already have mounted. The main seat may hold a non-conversation page
+        // (the plugin manager replaces the conversation there): the shell-level adaptation has to
+        // survive that, so the conversation root only gates the conversation-scoped machinery.
+        if (sidebarSeat.firstElementChild === null) {
           pending = true
           continue
         }
+        const conversationRoot = resolveConversationRoot(mainSeat)
 
         let workspacesSeat = null
         const candidate = sidebar.querySelector?.("[data-slot='sidebar.workspaces']") || null
@@ -813,7 +856,7 @@ body[${BODY_ATTRIBUTE}] {
         if (conversationRoot !== snapshot.conversationRoot) {
           conversationRoot?.removeAttribute?.(CONVERSATION_ATTRIBUTE)
           conversationRoot = snapshot.conversationRoot
-          conversationRoot.setAttribute(CONVERSATION_ATTRIBUTE, '')
+          conversationRoot?.setAttribute?.(CONVERSATION_ATTRIBUTE, '')
         }
         if (workspacesSeat !== snapshot.workspacesSeat) {
           workspacesSeat?.removeAttribute?.(WORKSPACES_ATTRIBUTE)
@@ -833,12 +876,10 @@ body[${BODY_ATTRIBUTE}] {
     /** 0.3.4: is the dockkit right panel actually open? Its toggle is symmetric
      *  (actions.toggleExpanded), so clicking it while the panel is closed OPENS it — and the
      *  panel is a fullscreen z-index 40 overlay on a phone, which is how tapping the drawer
-     *  entry used to hide the drawer behind a right panel nobody asked for. */
+     *  entry used to hide the drawer behind a right panel nobody asked for.
+     *  The open marker lives on the panel itself; the toggle carries only its own attribute. */
     function rightPanelOpen(frame) {
-      if (frame === null || frame === undefined) return false
-      if (frame.querySelector?.(`[${RIGHT_PANEL_ATTRIBUTE}][${RIGHT_PANEL_OPEN_ATTRIBUTE}]`)) return true
-      const toggle = frame.querySelector?.(`[${RIGHT_PANEL_TOGGLE_ATTRIBUTE}]`)
-      return toggle?.getAttribute?.(RIGHT_PANEL_OPEN_ATTRIBUTE) === '' || toggle?.getAttribute?.(RIGHT_PANEL_OPEN_ATTRIBUTE) === 'true'
+      return Boolean(frame?.querySelector?.(`[${RIGHT_PANEL_ATTRIBUTE}][${RIGHT_PANEL_OPEN_ATTRIBUTE}]`))
     }
 
     /** Close the right panel only when it is open. Never click the symmetric toggle blindly. */
@@ -858,10 +899,8 @@ body[${BODY_ATTRIBUTE}] {
       const root = document.documentElement || document.body
       if (root === null) return () => {}
 
-      let scheduled = false
       let width = viewport.width
       const publish = () => {
-        scheduled = false
         if (viewport.width !== width) {
           width = viewport.width
           root.style.removeProperty('--dmc-visual-viewport-height')
@@ -869,11 +908,7 @@ body[${BODY_ATTRIBUTE}] {
         }
         root.style.setProperty('--dmc-visual-viewport-height', `${Math.round(viewport.height)}px`)
       }
-      const schedule = () => {
-        if (scheduled) return
-        scheduled = true
-        Promise.resolve().then(publish)
-      }
+      const schedule = coalesce(publish)
       publish()
       viewport.addEventListener('resize', schedule)
       viewport.addEventListener('scroll', schedule)
@@ -1042,7 +1077,12 @@ body[${BODY_ATTRIBUTE}] {
     function installTitleStrip() {
       if (typeof document === 'undefined') return () => {}
       let disposeStrip = null
-      let scheduled = false
+      // The strip is a phone-only rewrite of the header row. A wide pointer viewport keeps DSH's
+      // own layout, so the cluster must not be touched there at all — wrapping it in an unstyled
+      // div folded the title and the control clusters onto two rows on the desktop.
+      const media = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia(MOBILE_QUERY)
+        : null
       // Always drop the current wiring before re-examining the cluster: the unwrap mutates the
       // child list, and a disposer that runs twice would move children out of a live strip.
       const releaseStrip = () => {
@@ -1051,7 +1091,7 @@ body[${BODY_ATTRIBUTE}] {
         dispose?.()
       }
       const sync = () => {
-        const cluster = titleCluster()
+        const cluster = media !== null && !media.matches ? null : titleCluster()
         if (cluster === null) {
           releaseStrip()
           return
@@ -1066,21 +1106,25 @@ body[${BODY_ATTRIBUTE}] {
         releaseStrip()
         disposeStrip = scrollTitleStrip(cluster)
       }
-      const schedule = () => {
-        if (scheduled) return
-        scheduled = true
-        Promise.resolve().then(() => {
-          scheduled = false
-          sync()
-        })
-      }
+      const schedule = coalesce(sync)
       sync()
 
       const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(schedule)
       const observationRoot = document.documentElement || document.body
       observer?.observe(observationRoot, { childList: true, subtree: true })
+      // Crossing the breakpoint rewires too: the wrapper is added on the way into the phone range
+      // and unwrapped again on the way out.
+      const detachMedia = media === null ? null : (() => {
+        if (typeof media.addEventListener === 'function') {
+          media.addEventListener('change', schedule)
+          return () => media.removeEventListener('change', schedule)
+        }
+        media.addListener(schedule)
+        return () => media.removeListener(schedule)
+      })()
       return () => {
         observer?.disconnect()
+        detachMedia?.()
         releaseStrip()
       }
     }
@@ -1282,6 +1326,51 @@ body[${BODY_ATTRIBUTE}] {
           })
         }, [sidebarCollapsed, mobileMode, navigationLabel])
 
+        // The drawer is a fullscreen surface, so anything that navigates away from the page behind
+        // it must take the drawer off the screen by itself. Two rules cooperate, both funneled
+        // through one collapse() with a short cooldown — without the cooldown, one tap that fires
+        // both rules would toggle twice and leave the drawer open again:
+        //
+        // 1. a click on a navigation row: the new-session button, a panels row (conversations /
+        //    plugins), or a session row. Sessions are rows of a tree (`role=treeitem` divs), and
+        //    switching between two sessions reuses the same conversation occupant, so watching the
+        //    seat alone never sees it — that was the reported "tapping a conversation does
+        //    nothing". A button INSIDE such a row (a row's own "…" menu) keeps the drawer: it opens
+        //    a popover anchored to the row rather than navigating.
+        // 2. a child-list change of the main seat, which covers the paths that reuse the clicked
+        //    row instead of the seat (creating a session, for example).
+        React.useEffect(() => {
+          if (sidebarCollapsed || !mobileMode) return undefined
+          const frame = currentFrame(layerRef.current)
+          const mainSeat = frame?.children?.[1]?.querySelector?.("[data-slot='main']")
+          const sidebar = frame?.children?.[0]
+          if (sidebar === undefined || sidebar === null) return undefined
+          let collapsedAt = 0
+          const collapse = () => {
+            const now = Date.now()
+            if (now - collapsedAt < 400) return
+            const current = currentFrame(layerRef.current)
+            if (current === null || current.hasAttribute('data-sidebar-collapsed')) return
+            collapsedAt = now
+            layout.toggleSidebar()
+          }
+          const navigationRows = "[class*='newSession'], [class*='panelRow'], [class*='sessionRow']"
+          const onClick = (event) => {
+            const target = event.target
+            const row = target?.closest?.(navigationRows)
+            if (row === null || row === undefined) return
+            if (target !== row && target.tagName === 'BUTTON' && row.tagName !== 'BUTTON') return
+            collapse()
+          }
+          sidebar.addEventListener('click', onClick)
+          const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(collapse)
+          observer?.observe(mainSeat ?? sidebar, { childList: true })
+          return () => {
+            observer?.disconnect()
+            sidebar.removeEventListener('click', onClick)
+          }
+        }, [sidebarCollapsed, mobileMode])
+
         const label = sidebarCollapsed ? openLabel : closeLabel
         // The same icon token the right panel's own control draws (dsh-client-ui-sidebar-right
         // renders IconPanelLeftOutline16 at size 15), so the pair reads as one icon family —
@@ -1293,7 +1382,6 @@ body[${BODY_ATTRIBUTE}] {
         return React.createElement('div', {
           ref: layerRef,
           className: 'dmc-layer',
-          'data-dsh-mobile-controls': '',
           [LAYER_GENERATION_ATTRIBUTE]: layerGeneration,
           'data-sidebar-open': sidebarCollapsed ? undefined : ''
         },
@@ -1365,7 +1453,6 @@ body[${BODY_ATTRIBUTE}] {
       let requestSequence = 0
       let requestController = null
       let disposed = false
-      let scheduled = false
       let pendingTimer = null
       const warnings = new Set()
 
@@ -1431,14 +1518,10 @@ body[${BODY_ATTRIBUTE}] {
           }
         }
       }
-      const schedule = () => {
-        if (scheduled || disposed) return
-        scheduled = true
-        Promise.resolve().then(() => {
-          scheduled = false
-          sync()
-        })
-      }
+      const schedule = coalesce(() => {
+        if (disposed) return
+        sync()
+      })
       const refreshRuntimeVersion = async () => {
         const sequence = ++requestSequence
         requestController?.abort()

@@ -32,12 +32,15 @@ class FakeElement {
   hasAttribute(name) { return this.attributes.has(name) }
 
   appendChild(child) {
+    // Real DOM moves a node that already has a parent instead of duplicating it.
+    child.parentElement?.removeChild(child)
     child.parentElement = this
     this.children.push(child)
     return child
   }
 
   insertBefore(child, before) {
+    child.parentElement?.removeChild(child)
     child.parentElement = this
     const index = this.children.indexOf(before)
     if (index < 0) this.children.push(child)
@@ -64,8 +67,15 @@ class FakeElement {
     if (selector === 'button[aria-expanded]') return this.tagName === 'BUTTON' && this.hasAttribute('aria-expanded')
     const className = selector.match(/^\.([A-Za-z0-9_-]+)$/)
     if (className) return (this.getAttribute('class') || '').split(/\s+/).includes(className[1])
+    const classContains = selector.match(/^\[class\*='([^']+)'\]$/)
+    if (classContains) return (this.getAttribute('class') || '').includes(classContains[1])
+    const attribute = selector.match(/^\[([A-Za-z-]+)\]$/)
+    if (attribute) return this.hasAttribute(attribute[1])
     return false
   }
+
+  addEventListener() {}
+  removeEventListener() {}
 
   descendants() {
     return this.children.flatMap((child) => [child, ...child.descendants()])
@@ -89,7 +99,30 @@ class FakeElement {
   }
 }
 
-function createShell(valid = true) {
+/** Mount the conversation occupant chain: main seat > (Slot anchor) > ConversationRoot. */
+function mountConversation(mainSeat) {
+  const conversationPanelSeat = mainSeat.appendChild(new FakeElement('div', { 'data-slot': 'main.conversation' }))
+  const conversationRoot = conversationPanelSeat.appendChild(new FakeElement())
+  // 0.1.6 header: ConversationRoot > header > titleRow > titleCluster > (crumbs, headerActions).
+  const header = conversationRoot.appendChild(new FakeElement('header'))
+  const titleRow = header.appendChild(new FakeElement('div', { class: 'fixture_titleRow' }))
+  const titleCluster = titleRow.appendChild(new FakeElement('div', { class: 'fixture_titleCluster' }))
+  titleCluster.appendChild(new FakeElement('nav', { class: 'fixture_crumbs' }))
+  titleCluster.appendChild(new FakeElement('div', { class: 'fixture_headerActions' }))
+  const conversationBody = conversationRoot.appendChild(new FakeElement())
+  conversationBody.appendChild(new FakeElement('div', { 'data-conversation-scroll': '' }))
+  return conversationRoot
+}
+
+/** Mount a non-conversation page — the plugin manager replaces the conversation this way. */
+function mountPage(mainSeat) {
+  const page = mainSeat.appendChild(new FakeElement('section'))
+  page.appendChild(new FakeElement())
+  page.appendChild(new FakeElement())
+  return page
+}
+
+function createShell(valid = true, mainPage = false) {
   const frame = new FakeElement('div', { 'data-sidebar-collapsed': '' })
   const sidebar = frame.appendChild(new FakeElement())
   const center = frame.appendChild(new FakeElement())
@@ -106,23 +139,19 @@ function createShell(valid = true) {
   workspaceHeader.appendChild(new FakeElement())
 
   const mainSeat = center.appendChild(new FakeElement('div', { 'data-slot': 'main' }))
-  const conversationPanelSeat = mainSeat.appendChild(new FakeElement('div', { 'data-slot': 'main.conversation' }))
-  const conversationRoot = conversationPanelSeat.appendChild(new FakeElement())
-  conversationRoot.appendChild(new FakeElement())
-  const conversationBody = conversationRoot.appendChild(new FakeElement())
-  conversationBody.appendChild(new FakeElement('div', { 'data-conversation-scroll': '' }))
+  const conversationRoot = mainPage ? null : mountConversation(mainSeat)
+  if (mainPage) mountPage(mainSeat)
   rightbar.appendChild(new FakeElement('div', { 'data-slot': 'rightbar' }))
 
-  let invalidNode = null
-  if (!valid) invalidNode = frame.insertBefore(new FakeElement(), sidebar)
-  return { frame, sidebar, center, conversationRoot, rightbar, overlay, workspaceSeat, invalidNode }
+  if (!valid) frame.insertBefore(new FakeElement(), sidebar)
+  return { frame, sidebar, center, mainSeat, conversationRoot, rightbar, overlay, workspaceSeat }
 }
 
-function makeHarness({ version = '0.1.6-alpha.1', validStructure = true, connectionCapability = true } = {}) {
+function makeHarness({ version = '0.1.6-alpha.1', validStructure = true, mainPage = false, connectionCapability = true } = {}) {
   let definition
   let runtimeVersion = version
   let currentStyle = null
-  const shell = createShell(validStructure)
+  const shell = createShell(validStructure, mainPage)
   const viewport = new FakeElement('meta', { content: 'width=device-width, initial-scale=1' })
   const body = new FakeElement('body')
   const documentElement = new FakeElement('html')
@@ -261,8 +290,6 @@ function makeHarness({ version = '0.1.6-alpha.1', validStructure = true, connect
     componentEffects,
     componentSubscriptions,
     connection,
-    context,
-    document,
     flushAnimationFrames() {
       for (const callback of animationFrames.splice(0)) callback()
     },
@@ -434,8 +461,64 @@ test('attribute-only shell changes deactivate and recover compatibility effects'
   for (const dispose of applied.fiberDisposers.reverse()) dispose()
 })
 
-test('later same-line versions activate only after runtime capability checks', async () => {
-  // alpha.2 is source-verified now; alpha.3 stands in for "same line, not individually verified".
+test('the title strip is a phone-only rewrite of the header row', async () => {
+  const harness = makeHarness()
+  const applied = applyPlugin(harness)
+  await flushCompatibility()
+
+  const wrappers = () => harness.body.descendants().filter((node) => node.hasAttribute('data-dsh-mobile-title-strip'))
+  const cluster = () => harness.shell.conversationRoot.querySelector("[class*='titleCluster']")
+  const clusterChildren = () => cluster().children.map((node) => (node.hasAttribute('data-dsh-mobile-title-strip') ? 'strip' : (node.getAttribute('class') || node.tagName)))
+
+  // Inside the phone range the cluster's children move into the scrollable strip.
+  assert.equal(wrappers().length, 1)
+  assert.deepEqual(clusterChildren(), ['strip'])
+
+  // Leaving the range unwraps it again: a desktop viewport must keep DSH's own header row, or the
+  // unstyled wrapper folds the title and the control clusters onto two rows.
+  harness.media.matches = false
+  for (const listener of harness.mediaListeners) listener({ matches: false })
+  await flushCompatibility()
+  assert.equal(wrappers().length, 0, 'the title strip survived a change into the desktop range')
+  assert.deepEqual(clusterChildren(), ['fixture_crumbs', 'fixture_headerActions'])
+
+  // Re-entering rewires it.
+  harness.media.matches = true
+  for (const listener of harness.mediaListeners) listener({ matches: true })
+  await flushCompatibility()
+  assert.equal(wrappers().length, 1)
+
+  for (const dispose of applied.fiberDisposers.reverse()) dispose()
+  assert.equal(wrappers().length, 0, 'the title strip survived the plugin being disposed')
+})
+
+test('a non-conversation page in the main seat keeps the shell-level adaptation', async () => {
+  // The plugin manager replaces the conversation inside the main seat. The phone adaptation must
+  // survive that instead of tearing itself down and leaving DSH's desktop columns squeezed into
+  // a 390px viewport; only the conversation-scoped rules wait for the conversation root.
+  const harness = makeHarness({ mainPage: true })
+  const applied = applyPlugin(harness)
+  await flushCompatibility()
+
+  assert.equal(harness.body.hasAttribute('data-dsh-mobile-compat'), true)
+  assert.equal(harness.shell.frame.hasAttribute('data-dsh-mobile-shell-compatible'), true)
+  assert.equal(harness.shell.conversationRoot, null)
+  assert.notEqual(harness.getStyle(), null)
+  assert.notEqual(applied.slot(), null)
+  assert.equal(harness.warnings.some((warning) => /shell structure does not match/.test(warning)), false)
+
+  // The conversation comes back: the next probe hands the marker to the new root.
+  const observer = [...harness.observers][0]
+  for (const child of [...harness.shell.mainSeat.children]) harness.shell.mainSeat.removeChild(child)
+  const root = mountConversation(harness.shell.mainSeat)
+  observer.callback([])
+  await flushCompatibility()
+  assert.equal(root.hasAttribute('data-dsh-mobile-conversation-compatible'), true)
+
+  for (const dispose of applied.fiberDisposers.reverse()) dispose()
+})
+
+test('later same-line versions activate only after runtime capability checks', async () => {  // alpha.2 is source-verified now; alpha.3 stands in for "same line, not individually verified".
   const harness = makeHarness({ version: '0.1.6-alpha.3' })
   const applied = applyPlugin(harness)
   await flushCompatibility()
