@@ -7,10 +7,27 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
-    const {
-      IconCloseOutline16,
-      IconPanelLeftOutline16
-    } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives')
+    /**
+     * Take an official icon by **capability**, never by DSH version: the icon set was renamed
+     * and redrawn between release lines (0.1.6 used the numeric tiers `IconPanelLeftOutline16`,
+     * 0.1.7 uses the tier words `IconPanelLeftOutlineMedium` — same icon identity, new naming),
+     * so pick the first export that actually exists. Within one base name `…Medium` and
+     * `…Regular` share the same paths and differ only in stroke weight; the workspace takes
+     * `…Medium`. When every name is gone, degrade to a component that renders nothing instead
+     * of letting one vanished name break the bundle.
+     * @param names - candidate export names, newest naming first.
+     */
+    function iconOf(...names) {
+      for (const name of names) {
+        const candidate = primitives?.[name]
+        if (typeof candidate === 'function' || (candidate !== null && typeof candidate === 'object')) return candidate
+      }
+      return () => null
+    }
+    // 局部名保持不变：组件里的用法与测试断言都不必跟着改名，改的只是"从哪里来"。
+    const IconCloseOutline16 = iconOf('IconCloseOutlineMedium', 'IconCloseOutlineRegular', 'IconCloseOutline16')
+    const IconPanelLeftOutline16 = iconOf('IconPanelLeftOutlineMedium', 'IconPanelLeftOutlineRegular', 'IconPanelLeftOutline16')
 
     const PLUGIN_ID = 'dsh-mobile-compat'
     const LOCALE_NAMESPACE = PLUGIN_ID
@@ -214,7 +231,8 @@ body[${BODY_ATTRIBUTE}] {
 
   /* 0.3.6: the entry reads as DSH's own header chrome. A 44px hit box holds a 28px visual box
      (bare glyph, radius 28, secondary ink, hover fill) and its glyph is drawn at the native
-     15px header-control size (IconPanelLeftOutline16 at size 15, the same token
+     15px header-control size (IconPanelLeftOutline16 at size 15 — 0.1.7 spells that export
+     IconPanelLeftOutlineMedium, same glyph — the token
      dsh-client-ui-sidebar-right uses). The hit box sits at left 12px so the visual box lands on
      20..48 — the phone header's own left gutter, where DSH puts its first header element — and
      the glyph ink then starts 26.5px from the edge, mirroring the native control's 26.5px from
@@ -1373,8 +1391,10 @@ body[${BODY_ATTRIBUTE}] {
 
         const label = sidebarCollapsed ? openLabel : closeLabel
         // The same icon token the right panel's own control draws (dsh-client-ui-sidebar-right
-        // renders IconPanelLeftOutline16 at size 15), so the pair reads as one icon family —
-        // measured ink identical (15x14.06, same y) once both are drawn this way.
+        // draws IconPanelLeftOutline16 on 0.1.6 and IconPanelLeftOutlineRegular on 0.1.7; our
+        // local token takes …Medium — identical paths, a slightly heavier stroke — at size 15),
+        // so the pair reads as one icon family — measured ink identical (15x14.06, same y) once
+        // both are drawn this way.
         const icon = sidebarCollapsed
           ? React.createElement(IconPanelLeftOutline16, { size: 15 })
           : React.createElement(IconCloseOutline16, { size: 15 })

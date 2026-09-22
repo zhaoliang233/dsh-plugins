@@ -171,41 +171,69 @@ React.useLayoutEffect = function useLayoutEffect(fn, deps) {
 }
 
 /**
- * primitives 桩：只放 bundle 真正 import 的图标与组件。
- * 多放会掩盖"引用了不存在的东西"这类错误——bundle 一旦 import 新的图标/组件就会立刻暴露。
+ * primitives 桩：只放 bundle 真正解析的图标与组件。
+ * 多放会掩盖"引用了不存在的东西"这类错误——bundle 一旦解析新的图标/组件就会立刻暴露。
+ *
+ * 图标**按命名法分别给出，一次只给一套**：bundle 现在用
+ * `iconOf('…Medium', '…Regular', '…数字档位')` 按能力取图标，同一个插件版本要在 0.1.6
+ * （数字档位 `IconCloseFill14`）与 0.1.7（档位词 `IconCloseFillMedium`）上都能画出来；
+ * 两套名字同时塞进一个桩就测不出优先顺序写错，所以用 `naming` 参数切换。
+ *
+ * 图标桩返回真实的 <svg> 元素，而不是 null：
+ * 浏览器里这些图标就是 svg，桩返回 null 会让"按钮里装的是什么"无法断言
+ * （曾经正是文本字符与 svg 混用导致两个按钮差 1.5px 对不齐）。
+ * 0.1.7 的图标都是 16 单位画布（`…Medium` 与 `…Regular` 只是同一组件的别名）。
  */
-// 图标桩返回真实的 <svg> 元素，而不是 null：
-// 浏览器里这些图标就是 svg，桩返回 null 会让"按钮里装的是什么"无法断言
-// （曾经正是文本字符与 svg 混用导致两个按钮差 1.5px 对不齐）。
-const primitives = {
-  IconTriangleRightFill14: (props) => ({ type: 'svg', props: { ...(props || {}), viewBox: '0 0 14 14' }, children: [] }),
-  // 与三角箭头同属 14 尺寸集；用 16 集（IconCloseOutline16）会大一圈
-  IconCloseFill14: (props) => ({ type: 'svg', props: { ...(props || {}), viewBox: '0 0 14 14' }, children: [] }),
-  // 设置页导航专用的 16 档图标：壳层那一列的图标都是 16 档
-  IconContextInjectionOutline16: (props) => ({ type: 'svg', props: { ...(props || {}), viewBox: '0 0 16 16' }, children: [] }),
-  /**
-   * 官方的开关控件桩：类型标成 `switch`。
-   *
-   * 这个标记很关键——"到底用的是壳层的 `Switch`，还是自绘的 `<input type="checkbox">`
-   * / `<button>`"在渲染树上因此可判定：自绘控件永远拿不到 `type === 'switch'`。
-   * 真实组件的契约（`Switch.d.ts`）：`{ checked, onChange, label, disabled }` →
-   * `<button role="switch" aria-checked={checked}>`，点击时回调 `onChange(!checked)`。
-   */
-  Switch: (props) => ({
-    type: 'switch',
-    props: { ...(props || {}), role: 'switch', 'aria-checked': props.checked === true },
-    children: []
-  })
+function iconStub() {
+  return (props) => ({ type: 'svg', props: { ...(props || {}), viewBox: '0 0 16 16' }, children: [] })
 }
+
+/**
+ * 官方的开关控件桩：类型标成 `switch`。
+ *
+ * 这个标记很关键——"到底用的是壳层的 `Switch`，还是自绘的 `<input type="checkbox">`
+ * / `<button>`"在渲染树上因此可判定：自绘控件永远拿不到 `type === 'switch'`。
+ * 真实组件的契约（`Switch.d.ts`）：`{ checked, onChange, label, disabled }` →
+ * `<button role="switch" aria-checked={checked}>`，点击时回调 `onChange(!checked)`。
+ */
+const switchStub = (props) => ({
+  type: 'switch',
+  props: { ...(props || {}), role: 'switch', 'aria-checked': props.checked === true },
+  children: []
+})
+
+function primitivesFor(naming) {
+  // 与三角箭头同属一档；同档的两个图标共用同一个桩形状，跨档搭配会在几何上不一致
+  const closeFill = iconStub()
+  const triangleRightFill = iconStub()
+  // 设置页导航专用的 16 档图标：壳层那一列的图标都是 16 档
+  const contextInjection = iconStub()
+  return {
+    ...(naming === 'legacy'
+      ? {
+          IconCloseFill14: closeFill,
+          IconTriangleRightFill14: triangleRightFill,
+          IconContextInjectionOutline16: contextInjection
+        }
+      : {
+          IconCloseFillMedium: closeFill,
+          IconTriangleRightFillMedium: triangleRightFill,
+          IconContextInjectionOutlineMedium: contextInjection
+        }),
+    Switch: switchStub
+  }
+}
+
+const primitives = primitivesFor('current')
 
 function byteLengthOf(text) {
   return new TextEncoder().encode(text).length
 }
 
-function loadPlugin() {
+function loadPlugin(naming = 'current') {
   return definition.factory((id) => {
     if (id === 'react') return React
-    if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return naming === 'current' ? primitives : primitivesFor(naming)
     throw new Error(`unexpected require: ${id}`)
   })
 }
@@ -286,9 +314,11 @@ function oneSegmentReport(overrides = {}) {
  * 针对两类真实回归的护栏：误删错误边界导致整页空白；动作没接进 actions
  * 导致点击箭头毫无反应。纯函数断言抓不到这两类问题。
  * @param {() => object} handler 状态接口返回的报告
+ * @param {object} hooks 写入时机钩子
+ * @param {object} options `icons` 选择 primitives 桩的图标命名法（`current` / `legacy`）
  */
-function mountPanel(handler, hooks = {}) {
-  const plugin = loadPlugin()
+function mountPanel(handler, hooks = {}, options = {}) {
+  const plugin = loadPlugin(options.icons)
   const timers = []
   /** 记录每次提交的 operations，用来断言"确实写入了"。 */
   const mutations = []
@@ -340,8 +370,9 @@ function mountPanel(handler, hooks = {}) {
   const context = {
     /** 两个插槽的注册（设置页分区 + 导航图标挂载点），按插槽名取用 */
     registrations: [],
-    settingsScope: {
-      bind: () => ({
+    configForms: {
+      // 0.1.7：设置条目控制器由 `configForms.get(<条目 id>)` 提供。
+      get: () => ({
         getSnapshot: () => ({ status: 'ready', writable: true, revision: 1, value: { enabled: true, segments: [], maxBytes: 8192 } }),
         subscribe: () => () => {},
         mutate: async (operations) => {
@@ -516,18 +547,18 @@ function textareaCount(tree) {
 test('bundle 以 CJS 惰性模型导出插件对象', () => {
   const plugin = loadPlugin()
   assert.equal(definition.id, 'dsh-extra-context')
-  assert.deepEqual(plugin.inject, ['slots', 'settingsScope', 'timer'])
+  assert.deepEqual(plugin.inject, ['slots', 'configForms', 'timer'])
   assert.equal(typeof plugin.apply, 'function')
   assert.equal(typeof plugin.__internals, 'object')
 })
 
-test('apply 绑定 settings 命名空间并注册设置页分区', () => {
+test('apply 绑定设置条目并注册设置页分区', () => {
   const plugin = loadPlugin()
   const state = { bound: null, slots: [], registrations: [] }
   const ctx = {
-    settingsScope: {
-      bind(spec) {
-        state.bound = spec
+    configForms: {
+      get(entryId) {
+        state.bound = entryId
         return { getSnapshot: () => ({ status: 'ready', value: {}, writable: true }), subscribe: () => () => {}, mutate: async () => {} }
       }
     },
@@ -551,8 +582,8 @@ test('apply 绑定 settings 命名空间并注册设置页分区', () => {
   }
   plugin.apply(ctx, {})
 
-  assert.equal(state.bound.namespace, 'extra-context')
-  assert.equal(typeof state.bound.decode, 'function')
+  // 0.1.7 契约：控制器读的是**本插件在 profile 里的条目 id**，宿主 describe() 的 ns 同值。
+  assert.equal(state.bound, 'dsh-extra-context')
   assert.deepEqual(state.slots, ['settings.section', 'settings.action'])
   const section = state.registrations.find((entry) => entry.options.name === 'settings.section')
   assert.equal(section.options.id, 'extra-context')
@@ -567,13 +598,9 @@ test('apply 绑定 settings 命名空间并注册设置页分区', () => {
   assert.equal(typeof navIcon.Component, 'function')
   assert.equal(navIcon.options.label, undefined, '动作区插槽不需要 label（导航名归 section 那一行）')
 
-  // 官方契约：spec.decode 收到的是 **section 值本身**（不是 {value} 包装）。
-  // 曾经的实现写成 view.value，恒为 undefined → 面板读到的永远是默认值。
-  const decoded = state.bound.decode({ enabled: false, segments: [{ text: 'x' }] })
-  assert.equal(decoded.enabled, false, 'decode 必须按 section 值解析')
-  assert.equal(decoded.segments.length, 1)
-  assert.equal(typeof decoded.segments[0].id, 'string')
-  assert.equal(state.bound.decode(undefined).segments.length, 0, '未配置时退回默认（空规则）')
+  // 客户端不再自己解码 section：读值一律走宿主状态接口（它还负责合并旧 settings.yaml 的迁移段），
+  // 写值走 configForms.mutate（revision 栅栏 + 排队由壳层负责）。
+  assert.equal(typeof plugin.__internals.ExtraContextSection, 'function')
 })
 
 test('回归护栏：设置面板能真正渲染，且 render 异常不会吞掉整页', async () => {
@@ -869,44 +896,41 @@ test('静态检查本身有效：缺少定义时必须报出该符号', async ()
   assert.equal(missing.includes('SectionErrorBoundary'), true, '静态检查必须能发现缺失的组件定义')
 })
 
-test('apply 必须按官方契约绑定设置命名空间：namespace + decode', () => {
-  // 这条守的是两个真实缺陷：
-  // ① decode 收到的是 **section 值本身**（不是 view）。曾写成收到 view 并取 view.value
-  //    （恒为 undefined）→ 快照永远是默认值、面板读不到已保存的规则；
-  // ② 命名空间写错会绑到别的插件的数据上（静默串数据）。
+test('apply 必须按 0.1.7 契约绑定设置条目：configForms.get(<条目 id>) + mutate', () => {
+  // 旧契约是 `ctx.settingsScope.bind({ namespace, decode })`；0.1.7 删除了 settingsScope，
+  // 换成「profile 条目配置表单」：`ctx.configForms.get(entryId)` 返回
+  // { getSnapshot, subscribe, mutate, set, unset }。这条用例把新契约钉死：
+  // 条目 id 必须与宿主 describe() 的 ns 同值，否则面板读不到也写不进。
   const plugin = loadPlugin()
   const bound = []
-  const registered = []
+  const writes = []
   const ctx = {
-    settingsScope: {
-      bind: (spec) => {
-        bound.push(spec)
-        return { mutate: async () => {}, getSnapshot: () => ({ value: null }) }
+    configForms: {
+      get(entryId) {
+        bound.push(entryId)
+        return {
+          getSnapshot: () => ({ status: 'ready', value: {}, writable: true, revision: 1 }),
+          subscribe: () => () => {},
+          mutate: async (operations) => {
+            writes.push(operations)
+            return true
+          }
+        }
       }
     },
-    slots: { inject: (_name, callback) => callback(), register: (options) => { registered.push(options); return () => {} } },
+    slots: { inject: () => {}, register: () => () => {} },
     timer: { timeout: () => () => {} }
   }
   plugin.apply(ctx, {})
-  assert.equal(bound.length, 1, 'apply 必须恰好绑定一次设置命名空间')
-  assert.equal(bound[0].namespace, 'extra-context', '命名空间必须与宿主一致')
-  assert.equal(typeof bound[0].decode, 'function', '必须提供 decode')
-  // decode 按官方契约收到 section 值本身
-  const decoded = bound[0].decode({ enabled: false, segments: [{ id: 'a', text: 'x', enabled: true }] })
-  assert.equal(decoded.enabled, false, 'decode 必须读到真正的 section 值')
-  assert.equal(decoded.segments.length, 1, 'decode 必须保留规则')
-  // label 字段已移除：老设置文档里的 label 不能再流进组件状态（否则界面/提交会把它带回来）
-  const withStaleLabel = bound[0].decode({ segments: [{ id: 'a', label: '旧名称', text: 'x', enabled: true }] })
-  assert.equal(Object.hasOwn(withStaleLabel.segments[0], 'label'), false, 'decode 必须丢弃已移除的 label 字段')
-  assert.deepEqual(Object.keys(withStaleLabel.segments[0]).sort(), ['enabled', 'id', 'text'], '分段只有 id/enabled/text 三个字段')
-  // 脏数据不得让 decode 抛错（面板会整页空白）
-  for (const dirty of [undefined, null, 'x', 42, [], { segments: 'oops' }]) {
-    const safe = bound[0].decode(dirty)
-    assert.equal(typeof safe.segments.length, 'number', `脏数据 ${JSON.stringify(dirty)} 必须退化为可用的默认值`)
-  }
-  assert.equal(registered.length, 2, 'apply 必须注册设置页分区与导航图标挂载点')
-  assert.equal(registered[0].id, 'extra-context', '分区 id 必须稳定（它决定设置项落点）')
-  assert.equal(registered[1].id, 'extra-context-nav-icon', '导航图标挂载点的 id 必须稳定')
+  assert.deepEqual(bound, ['dsh-extra-context'], '必须按条目 id 取控制器（与宿主 SETTINGS_ENTRY 同源）')
+  assert.deepEqual(plugin.inject, ['slots', 'configForms', 'timer'])
+
+  // 缺 configForms 服务时必须降级为只读而不是抛错：面板仍能显示宿主状态。
+  const degraded = loadPlugin()
+  assert.doesNotThrow(() => degraded.apply({
+    slots: { inject: () => {}, register: () => () => {} },
+    timer: { timeout: () => () => {} }
+  }, {}))
 })
 
 test('回归护栏：宿主返回的段数与提交不符时必须报错，不能当成功', async () => {
@@ -1028,7 +1052,7 @@ test('样式表由 apply() 插件级注入：打标签、引用计数、HMR 复�
   const previousFetch = globalThis.fetch
   globalThis.fetch = async () => ({ ok: true, json: async () => oneSegmentReport() })
   const makeContext = () => ({
-    settingsScope: { bind: () => ({ mutate: async () => {}, getSnapshot: () => ({ value: null }) }) },
+    configForms: { get: () => ({ mutate: async () => {}, getSnapshot: () => ({ value: null }) }) },
     slots: { inject: (_n, cb) => cb(), register: () => () => {} },
     timer: { timeout: () => () => {} }
   })
@@ -1250,7 +1274,7 @@ test('回归护栏：apply 之后样式即已就位（不依赖任何组件渲�
   try {
     const registered = {}
     const context = {
-      settingsScope: { bind: () => ({ mutate: async () => {}, getSnapshot: () => ({ value: null }) }) },
+      configForms: { get: () => ({ mutate: async () => {}, getSnapshot: () => ({ value: null }) }) },
       slots: {
         inject: (_name, callback) => callback(),
         register: (options, Component) => { registered[options.name] = Component; return () => {} }
@@ -1439,43 +1463,52 @@ test('回归护栏：两个图标按钮必须内容同型且几何一致（否�
     assert.equal(/justify-content:center/u.test(rule), true, '图标按钮必须水平居中内容')
   }
   assert.equal(/^\s*\}, '✕'\)/mu.test(source), false, '删除按钮不得再用文本字符 ✕（会与 SVG 箭头错位）')
-  const iconImports = /const \{ ([^}]+) \} = require\('@deepseek-ai\/dsh-client-ui-primitives'\)/u.exec(source)
-  assert.notEqual(iconImports, null, '必须从官方图标集导入图标')
-  // 关键：两个图标必须来自**同一尺寸集**（都以 14 结尾）。
-  // 跨档搭配过一次（IconCloseOutline16 + IconTriangleRightFill14），
-  // 实测 12x12 vs 5x8，视觉上一个明显大一圈。
-  const importedNames = iconImports[1].split(',').map((piece) => piece.trim()).filter((piece) => piece !== '')
-  assert.equal(importedNames.length >= 2, true, '必须同时导入关闭与三角图标')
-  assert.equal(importedNames.includes('Switch'), true, '开关必须来自官方 primitives，不得自绘')
-  const iconNames = importedNames.filter((name) => name !== 'Switch')
-  // 关键：**同一行里**的两个图标必须来自同一尺寸集（都以 14 结尾）。
-  const rowIcons = iconNames.filter((name) => name.includes('Close') || name.includes('TriangleRight'))
-  assert.equal(rowIcons.length, 2, '上下文行必须导入关闭与展开两个图标')
-  for (const name of rowIcons) {
-    assert.equal(/14$/u.test(name), true, `上下文行图标 ${name} 必须属于 14 尺寸集（与同一行其它图标同档）`)
+  // 图标**按能力解析**，不是从 primitives 直接解构：官方图标名在发布线之间改过名
+  // （0.1.6 数字档位 `IconCloseFill14`，0.1.7 档位词 `IconCloseFillMedium`），直接解构
+  // 旧名字在 0.1.7 上回来是 undefined，图标静默变空白。
+  const resolutions = [...source.matchAll(/const (Icon\w+) = iconOf\((?:\n\s*)?([^)]*)\)/gu)]
+    .map((match) => ({ local: match[1], candidates: [...match[2].matchAll(/'([^']+)'/gu)].map((item) => item[1]) }))
+  assert.deepEqual(
+    resolutions.map((entry) => entry.local).sort(),
+    ['IconCloseFill14', 'IconContextInjectionOutline16', 'IconTriangleRightFill14'],
+    '上下文行两个图标 + 导航图标：必须都走能力解析，且保留原有局部名（组件与断言都不用改）'
+  )
+  for (const entry of resolutions) {
+    assert.equal(entry.candidates[0].endsWith('Medium'), true, `${entry.local} 必须优先用当前档位词命名`)
+    assert.equal(entry.candidates.includes(entry.local), true, `${entry.local} 必须保留旧数字档位命名作兜底`)
   }
-  // 其余导入只允许设置页导航那一个：导航整列都是 16 档，与上下文行不同行、不受上面的同档约束。
+  // 关键：**同一行里**的两个图标必须来自同一尺寸档。
+  // 跨档搭配过一次（IconCloseOutline16 + IconTriangleRightFill14），实测 12x12 vs 5x8，明显一大一小。
+  const rowIcons = resolutions.filter((entry) => entry.local !== 'IconContextInjectionOutline16')
+  assert.equal(rowIcons.length, 2, '上下文行必须解析关闭与展开两个图标')
+  const tier = (name) => ['Medium', 'Regular', '20', '16', '14'].find((suffix) => name.endsWith(suffix))
+  assert.notEqual(tier(rowIcons[0].candidates[0]), undefined)
+  assert.equal(tier(rowIcons[0].candidates[0]), tier(rowIcons[1].candidates[0]), '同一行的两个图标必须同尺寸档')
+  // 其余图标只允许设置页导航那一个：导航整列都是 16 档，与上下文行不同行、不受上面的同档约束。
   // 这条同时守着"别顺手再加第三个图标"——新增图标前必须先确定它属于哪一档、跟谁同行。
-  const navIcons = iconNames.filter((name) => !rowIcons.includes(name))
-  assert.deepEqual(navIcons, ['IconContextInjectionOutline16'], '除上下文行两个图标外，只允许导入导航图标（16 档）')
-  assert.equal(iconNames.some((name) => name.includes('Close')), true, '必须导入关闭图标')
-  assert.equal(iconNames.some((name) => name.includes('TriangleRight')), true, '必须导入展开三角图标')
+  assert.equal(source.includes('IconContextInjectionOutlineMedium'), true, '导航图标必须给出 0.1.7 的档位词命名')
+  assert.equal(/const \{ Switch \} = primitives/u.test(source), true, '开关必须来自官方 primitives，不得自绘')
+  assert.equal(source.includes('IconTriangleRightFillMedium'), true, '展开三角必须给出 0.1.7 的档位词命名')
+  assert.equal(source.includes('IconCloseFillMedium'), true, '关闭图标必须给出 0.1.7 的档位词命名')
 
-  const panel = mountPanel(oneSegmentReport)
-  try {
-    const tree = await panel.settle()
-    const iconButtons = collect(tree).filter((node) => node.type === 'button'
-      && String(node.props.className).includes('dec-icon-btn'))
-    assert.equal(iconButtons.length >= 2, true, '上下文行必须有删除与展开两个图标按钮')
-    for (const button of iconButtons) {
-      const content = Array.isArray(button.children) ? button.children : [button.children]
-      assert.equal(content.some((child) => child !== null && typeof child === 'object'), true,
-        `图标按钮必须装 SVG 图标而不是文本字符（title=${String(button.props.title)}）`)
-      assert.equal(content.some((child) => typeof child === 'string'), false,
-        `图标按钮不得混入文本字符（title=${String(button.props.title)}）`)
+  // 两套命名法各真实挂载一遍：解析失败时会退化成空组件，下面的内容断言立刻对不上。
+  for (const icons of ['current', 'legacy']) {
+    const panel = mountPanel(oneSegmentReport, {}, { icons })
+    try {
+      const tree = await panel.settle()
+      const iconButtons = collect(tree).filter((node) => node.type === 'button'
+        && String(node.props.className).includes('dec-icon-btn'))
+      assert.equal(iconButtons.length >= 2, true, '上下文行必须有删除与展开两个图标按钮')
+      for (const button of iconButtons) {
+        const content = Array.isArray(button.children) ? button.children : [button.children]
+        assert.equal(content.some((child) => child !== null && typeof child === 'object'), true,
+          `${icons}: 图标按钮必须装 SVG 图标而不是文本字符（title=${String(button.props.title)}）`)
+        assert.equal(content.some((child) => typeof child === 'string'), false,
+          `${icons}: 图标按钮不得混入文本字符（title=${String(button.props.title)}）`)
+      }
+    } finally {
+      panel.unmount()
     }
-  } finally {
-    panel.unmount()
   }
 })
 
@@ -1721,7 +1754,7 @@ test('开关视觉：一律使用官方 Switch，不得自绘外观', async () =
   // 现在两个开关都用壳层自己的 Switch，配色/尺寸/过渡全部由它负责。
   assert.equal(source.includes('dec-btn-primary'), false, '不应再定义/使用品牌色按钮变体')
   assert.equal(source.includes('dec-btn-on'), false, '开关不再由插件按钮变体表达开启态')
-  const imports = /const \{ ([^}]+) \} = require\('@deepseek-ai\/dsh-client-ui-primitives'\)/u.exec(source)
+  const imports = /const \{ ([^}]+) \} = primitives/u.exec(source)
   assert.notEqual(imports, null, '必须从官方 primitives 取控件')
   const importedNames = imports[1].split(',').map((piece) => piece.trim())
   assert.equal(importedNames.includes('Switch'), true, '必须导入官方 Switch')

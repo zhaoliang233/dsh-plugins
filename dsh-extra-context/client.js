@@ -6,27 +6,56 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
-    // 规则行里两个图标必须来自**同一尺寸集**：曾用 IconCloseOutline16（16 集、描边）配
-    // IconTriangleRightFill14（14 集、实心），实测删除图标 12x12、箭头 5x8，
-    // 视觉上一个明显大一圈。官方图标集按 14/16 分档，跨档搭配就会不一致。
-    // IconContextInjectionOutline16 单独用在设置页导航（壳层那一列的图标都是 16 档），
-    // 与规则行不同行，不参与上面的同档约束。
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives')
+    /**
+     * 取一个官方图标，按**能力**而不是按 DSH 版本号：图标名在发布线之间改过名
+     * （0.1.6 是数字档位 `IconSearchOutline16`，0.1.7 换成档位词
+     * `IconSearchOutlineMedium`；图形身份同名，命名法与画法整体改过），所以按顺序取第一个
+     * 真实存在的导出。同一基础名的 `…Medium` 与 `…Regular` 路径完全相同、只有笔重
+     * 不同，工作区统一取 `…Medium`。全都缺失时退化成不渲染任何东西的空组件，绝不让整个
+     * bundle 因为一个图标名消失而挂掉。
+     * @param names - 候选导出名，从最新命名往后排。
+     */
+    function iconOf(...names) {
+      for (const name of names) {
+        const candidate = primitives?.[name]
+        if (typeof candidate === 'function' || (candidate !== null && typeof candidate === 'object')) return candidate
+      }
+      return () => null
+    }
+    // 规则行里两个图标必须来自**同一尺寸档**：曾用 IconCloseOutline16（16 档、描边）配
+    // IconTriangleRightFill14（14 档、实心），实测删除图标 12x12、箭头 5x8，
+    // 视觉上一个明显大一圈。0.1.7 起官方把档位写进名字（`…FillMedium` 与 `…FillRegular`
+    // 路径完全相同、只有笔重不同），所以这一行统一取 `…FillMedium`，
+    // 旧数字档位名只作兜底。IconContextInjectionOutline16 单独用在设置页导航（壳层那一列
+    // 的图标都是 16 档），与规则行不同行，不参与上面的同档约束。
     //
     // Switch 是壳层自己的开关控件（`<button role="switch" aria-checked>`：36x20、
     // 开启态品牌色轨道、圆形拇指、深浅主题与焦点环都跟随壳层），总开关与每行的启停
     // 都用它。**不要自绘开关**：自绘出来的尺寸/配色/过渡必然与壳层不一致，而壳层已经
     // 提供现成控件（`Switch.d.ts`：`{ checked, onChange, label, disabled, title, className }`）。
-    const { IconCloseFill14, IconTriangleRightFill14, IconContextInjectionOutline16, Switch } = require('@deepseek-ai/dsh-client-ui-primitives')
+    // 局部名保持不变：组件里的用法与测试断言都不必跟着改名，改的只是"从哪里来"。
+    const IconCloseFill14 = iconOf('IconCloseFillMedium', 'IconCloseFillRegular', 'IconCloseFill14')
+    const IconTriangleRightFill14 = iconOf(
+      'IconTriangleRightFillMedium',
+      'IconTriangleRightFillRegular',
+      'IconTriangleRightFill14'
+    )
+    const IconContextInjectionOutline16 = iconOf(
+      'IconContextInjectionOutlineMedium',
+      'IconContextInjectionOutlineRegular',
+      'IconContextInjectionOutline16'
+    )
+    const { Switch } = primitives
 
     /**
-     * settings 命名空间控制器。apply() 创建它，组件通过闭包读取；
-     * 只在 apply 期间赋值一次，组件渲染时必然已就绪。
+     * 设置条目控制器（`configForms.get(SETTINGS_ENTRY)`）。apply() 创建它，
+     * 组件通过闭包读取；只在 apply 期间赋值一次，组件渲染时必然已就绪。
      */
     let settingsController = null
 
     /** 与宿主 lib/rules.js 的 SECTION_HEADING 必须逐字一致（预览要对得上实际注入）。 */
     const SECTION_HEADING = '以下内容由用户在 dsh-extra-context 中配置，对本会话与全部子代理持续有效。'
-    const SETTINGS_NAMESPACE = 'extra-context'
     /** 设置页导航里的菜单名：既是 section 的 label，也是导航图标补丁的匹配依据。 */
     const SECTION_LABEL = '额外上下文'
     /**
@@ -44,8 +73,15 @@ window.__ModuleLoader__.load({
     const CLIENT_HEADER = 'x-dsh-extra-context-client'
     const STYLE_ID = 'dsh-extra-context-style'
     const DEFAULT_MAX_BYTES = 8192
+    /**
+     * 设置条目的 id。0.1.7 起 DSH 的设置文档换成 profile 配置表单：插件在
+     * `apply()` 里 `ctx.configForms.get(<条目 id>)` 拿到本插件条目的读写控制器，
+     * 写入直接落进 profile 里 `dsh-extra-context` 那一行（宿主 `settings.describe()`
+     * 的 `ns` 也是它）。旧的 `settingsScope.bind({ namespace: 'extra-context' })` 已不存在。
+     */
+    const SETTINGS_ENTRY = 'dsh-extra-context'
 
-    const inject = ['slots', 'settingsScope', 'timer']
+    const inject = ['slots', 'configForms', 'timer']
 
     /** apply() 捕获的插件上下文：组件内的计时器必须挂在它下面才能随插件卸载清理。 */
     let pluginCtx = null
@@ -446,21 +482,6 @@ window.__ModuleLoader__.load({
       return body
     }
 
-    
-    /**
-     * settings 命名空间的解码器。
-     *
-     * 不做 schema 校验：宿主才是权威（写入前已按同一 schema 校验，
-     * 非法值会被宿主标记为 last-good-value 并保留命名空间），
-     * 而组件对任何字段都做防御性读取。这里失败退回 undefined，
-     * 会让整个 section 显示成默认值——比显示原始文本更糟。
-     */
-    function decodeExtraSection(section) {
-      // 官方契约：spec.decode 收到的是 section 值本身（不是 view）。
-      // 曾写成 view.value（恒为 undefined），于是快照永远是默认值——面板读不到已保存的规则。
-      return normalizeSettings(section)
-    }
-
     // #endregion
 
     // #region React 组件
@@ -629,15 +650,14 @@ window.__ModuleLoader__.load({
         async (patch) => {
           setError('')
           try {
-            // 只走官方通道 settingsScope.mutate：它自带 revision 栅栏。
+            // 只走官方通道 `configForms` 的 mutate：它自带 revision 栅栏与写入排队。
             // 曾有一条"直连宿主 settings.replace"的备用通道——replace 是整节替换，
             // 而这里的补丁只是部分字段（如 {enabled}），会把用户的规则整节清空。
             let ok = false
             if (controller !== null && typeof controller.mutate === 'function') {
               try {
                 const operations = Object.keys(patch).map((key) => ({ op: 'set', path: [key], value: patch[key] }))
-                await controller.mutate(operations)
-                ok = true
+                ok = (await controller.mutate(operations)) !== false
               } catch (_mirrorFailure) {
                 ok = false
               }
@@ -944,10 +964,12 @@ window.__ModuleLoader__.load({
 
     function apply(ctx) {
       pluginCtx = ctx
-      settingsController = ctx.settingsScope.bind({
-        namespace: SETTINGS_NAMESPACE,
-        decode: decodeExtraSection
-      })
+      // 0.1.7 的设置模型：条目级配置表单。`get()` 返回本插件条目的控制器，
+      // 组件只用它的 mutate（自带 revision 栅栏与排队），读值仍走宿主状态接口——
+      // 宿主才是"生效值"的权威（它还要合并旧 settings.yaml 迁移段）。
+      settingsController = typeof ctx.configForms?.get === 'function'
+        ? ctx.configForms.get(SETTINGS_ENTRY)
+        : null
       // 样式由插件自己拥有：apply 时注入一次，不依赖任何组件是否渲染
       // （设置页导航里的补丁比分区面板更早出现，见 installStyles）。
       installStyles(ctx)

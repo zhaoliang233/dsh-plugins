@@ -12,7 +12,29 @@ globalThis.window = {
 
 await import('../client.js')
 
-function createPlugin() {
+/**
+ * primitives 桩的图标成员：按**命名法**分别给出，一次只给一套。
+ *
+ * bundle 现在按能力解析图标（`iconOf('…OutlineMedium', '…OutlineRegular', '…Outline16')`），
+ * 所以同一个版本要在 0.1.6（数字档位 `…Outline16`）与 0.1.7（档位词 `…OutlineMedium`）
+ * 上都能画出图标。两套名字同时塞进一个桩就测不出"优先顺序写错"，因此用 `icons` 选项切换。
+ * 桩里只放 bundle 真正解析的成员，多放会掩盖"引用了不存在的东西"。
+ */
+function iconStubs(naming, { IconLoading, IconNewChat, IconWarning }) {
+  return naming === 'legacy'
+    ? {
+        IconLoadingOutline16: IconLoading,
+        IconNewChatOutline16: IconNewChat,
+        IconWarningOutline16: IconWarning
+      }
+    : {
+        IconLoadingOutlineMedium: IconLoading,
+        IconNewChatOutlineMedium: IconNewChat,
+        IconWarningOutlineMedium: IconWarning
+      }
+}
+
+function createPlugin(options = {}) {
   let cursor = 0
   let states = []
   const React = {
@@ -31,17 +53,11 @@ function createPlugin() {
   const IconNewChat = () => null
   const IconWarning = () => null
   const Tooltip = () => null
+  const primitives = { ...iconStubs(options.icons, { IconLoading, IconNewChat, IconWarning }), Tooltip }
   return {
     plugin: definition.factory((id) => {
       if (id === 'react') return React
-      if (id === '@deepseek-ai/dsh-client-ui-primitives') {
-        return {
-          IconLoadingOutline16: IconLoading,
-          IconNewChatOutline16: IconNewChat,
-          IconWarningOutline16: IconWarning,
-          Tooltip
-        }
-      }
+      if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
       throw new Error(`unexpected require: ${id}`)
     }),
     render(component, props) {
@@ -348,6 +364,47 @@ test('rolls back partial client patches when policy installation fails', () => {
   assert.equal(workspaces.rename, originalRename)
   assert.equal(workspaces.delete, originalDelete)
   assert.equal(workspaces.insertBefore, originalInsertBefore)
+})
+
+test('resolves icons by capability so both the numeric and the tier-word naming draw', async () => {
+  // 回归护栏（DSH 0.1.6 → 0.1.7 图标改名）：旧名字在 0.1.7 里完全不存在，直接解构回来
+  // 是 undefined（图标静默变空白）；新名字在 0.1.6 里也不存在。两个方向各测一遍，
+  // 哪一边的兜底丢了都必红。名字缺失时 `iconOf` 会给出空组件，断言的类型立刻不符。
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = async () => statusResponse()
+  try {
+    for (const icons of ['current', 'legacy']) {
+      const workspaces = {
+        list: { getSnapshot() { return { items: [] } } },
+        async rename() {},
+        async delete() {},
+        async insertBefore() {},
+        async refresh() {}
+      }
+      const { plugin, render, reset, types } = createPlugin({ icons })
+      const harness = createContext(workspaces)
+      plugin.apply(harness.ctx)
+      await settle()
+      const registration = harness.registrations[0]
+
+      const wide = render(registration.component, { wide: true, onStart() {} })
+      assert.equal(wide.children[0].props.children.children[0].type, types.IconNewChat,
+        `${icons}: 默认态必须解析出新建会话图标`)
+
+      reset()
+      const failingStart = async () => { throw new Error('status unavailable') }
+      let failed = render(registration.component, { wide: true, onStart: failingStart })
+      failed.children[0].props.children.props.onClick()
+      await settle()
+      failed = render(registration.component, { wide: true, onStart: failingStart })
+      assert.equal(failed.children[0].props.children.children[0].type, types.IconWarning,
+        `${icons}: 失败态必须解析出警告图标`)
+
+      harness.cleanup()
+    }
+  } finally {
+    globalThis.fetch = previousFetch
+  }
 })
 
 test('installs and removes dedicated sidebar styles', async () => {

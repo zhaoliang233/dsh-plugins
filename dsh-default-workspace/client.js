@@ -6,12 +6,28 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
-    const {
-      IconLoadingOutline16,
-      IconNewChatOutline16,
-      IconWarningOutline16,
-      Tooltip
-    } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives')
+    /**
+     * 取一个官方图标，按**能力**而不是按 DSH 版本号：图标名在发布线之间改过名
+     * （0.1.6 是数字档位 `IconSearchOutline16`，0.1.7 换成档位词
+     * `IconSearchOutlineMedium`；图形身份同名，命名法与画法整体改过），所以按顺序取第一个
+     * 真实存在的导出。同一基础名的 `…Medium` 与 `…Regular` 路径完全相同、只有笔重
+     * 不同，工作区统一取 `…Medium`。全都缺失时退化成不渲染任何东西的空组件，绝不让整个
+     * bundle 因为一个图标名消失而挂掉。
+     * @param names - 候选导出名，从最新命名往后排。
+     */
+    function iconOf(...names) {
+      for (const name of names) {
+        const candidate = primitives?.[name]
+        if (typeof candidate === 'function' || (candidate !== null && typeof candidate === 'object')) return candidate
+      }
+      return () => null
+    }
+    // 局部名保持不变：组件里的用法与测试断言都不必跟着改名，改的只是"从哪里来"。
+    const IconLoadingOutline16 = iconOf('IconLoadingOutlineMedium', 'IconLoadingOutlineRegular', 'IconLoadingOutline16')
+    const IconNewChatOutline16 = iconOf('IconNewChatOutlineMedium', 'IconNewChatOutlineRegular', 'IconNewChatOutline16')
+    const IconWarningOutline16 = iconOf('IconWarningOutlineMedium', 'IconWarningOutlineRegular', 'IconWarningOutline16')
+    const { Tooltip } = primitives
 
     const PLUGIN_NAME = 'dsh-default-workspace'
     const STATUS_PATH = '/dsh-default-workspace/status'

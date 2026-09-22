@@ -64,16 +64,19 @@ function createPrimitivesStub() {
     props: props ?? {},
     children: (children ?? []).filter((child) => child !== null && child !== undefined && child !== false)
   })
+  // 图标按 0.1.7 的档位词命名法供货：0.1.6 的数字档位名（`…16`/`…14`）在 0.1.7 里
+  // 已不存在，bundle 靠 `iconOf()` 的能力探测取到这里的 `…Medium`（详见同文件
+  // 「图标按能力解析」用例——两套命名法都要能画出来）。
   return {
-    IconApiOutline14: icon('IconApiOutline14'),
-    IconChevronDownOutline14: icon('IconChevronDownOutline14'),
-    IconCodeOutline16: icon('IconCodeOutline16'),
-    IconLinkOutline16: icon('IconLinkOutline16'),
-    IconLoadingOutline16: icon('IconLoadingOutline16'),
-    IconPlusOutline16: icon('IconPlusOutline16'),
-    IconRefreshOutline16: icon('IconRefreshOutline16'),
-    IconTrashOutline16: icon('IconTrashOutline16'),
-    IconWarningOutline16: icon('IconWarningOutline16'),
+    IconApiOutlineMedium: icon('IconApiOutlineMedium'),
+    IconChevronDownOutlineMedium: icon('IconChevronDownOutlineMedium'),
+    IconCodeOutlineMedium: icon('IconCodeOutlineMedium'),
+    IconLinkOutlineMedium: icon('IconLinkOutlineMedium'),
+    IconLoadingOutlineMedium: icon('IconLoadingOutlineMedium'),
+    IconPlusOutlineMedium: icon('IconPlusOutlineMedium'),
+    IconRefreshOutlineMedium: icon('IconRefreshOutlineMedium'),
+    IconTrashOutlineMedium: icon('IconTrashOutlineMedium'),
+    IconWarningOutlineMedium: icon('IconWarningOutlineMedium'),
     /**
      * 官方 `Tooltip` 的桩：真组件**只在悬停/聚焦时**渲染气泡，且气泡
      * `pointer-events:none`、鼠标离开锚点即关（悬停行为由 `scripts/gui-flow.mjs` 真机验收）。
@@ -87,6 +90,44 @@ function createPrimitivesStub() {
     Modal: undefined
   }
 }
+
+/**
+ * 本插件用到的 8 个图标：基础名 → 0.1.6 的数字档位（0.1.7 一律换成档位词 `…Medium`）。
+ * 名字一旦对不上就是空白图标，所以两条命名法都要有守卫。
+ */
+const ICON_TIERS = {
+  IconChevronDownOutline: 14,
+  IconCodeOutline: 16,
+  IconEditOutline: 16,
+  IconLinkOutline: 16,
+  IconLoadingOutline: 16,
+  IconPlusOutline: 16,
+  IconRefreshOutline: 16,
+  IconTrashOutline: 16
+}
+
+/**
+ * 「会自我申报」的图标桩：每个图标渲染成 `<span data-icon="导出名">`，于是渲染树能证明
+ * 组件到底从哪个导出名取到了图标。`naming` 决定这份桩按哪条命名法供货：
+ * `'medium'` = 0.1.7 的档位词，`'legacy'` = 0.1.6 的数字档位。
+ * @param {'medium' | 'legacy'} naming
+ * @returns {object}
+ */
+function createIconProbePrimitives(naming) {
+  const stub = createPrimitivesStub()
+  for (const key of Object.keys(stub)) if (key.startsWith('Icon')) delete stub[key]
+  for (const [base, tier] of Object.entries(ICON_TIERS)) {
+    const name = naming === 'medium' ? `${base}Medium` : `${base}${tier}`
+    const Component = () => ({ type: 'span', props: { 'data-icon': name }, children: [] })
+    Component.displayName = name
+    stub[name] = Component
+  }
+  return stub
+}
+
+/** 渲染树里「由图标桩画出来」的导出名（顺序 = 渲染顺序）。 */
+const paintedIcons = (harness) =>
+  harness.findAll((node) => typeof node.props?.['data-icon'] === 'string').map((node) => node.props['data-icon'])
 
 /** 极简 React 桩：只够让组件函数跑起来并产出元素树。 */
 function createReactStub() {
@@ -362,6 +403,7 @@ test('mcp-manager 的 profile 行与状态路由常量与宿主半体同源', ()
  * 把真实 bundle 装进 harness 的 React 上，并按 apply() 注册的
  * settings.section 组件渲染一次设置分区。
  * @param {object} [options]
+ * @param {object} [options.primitives] - 替换 primitives 桩（图标命名法的能力探测用例要用）
  * @returns {Promise<any>}
  */
 /** 与 client.js 的 emptyDraft 同形，供导入用例构造宿主返回值。 */
@@ -448,7 +490,7 @@ async function mountSection(options = {}) {
     },
     remote: { credentials: { describe: async () => ({ ok: true, value: {} }), set: async () => ({ ok: true }), unset: async () => ({ ok: true }) } }
   }
-  const { exports } = loadBundle({ document: createStyleDocument(), react: harness.React, fetch: fetchStub })
+  const { exports } = loadBundle({ document: createStyleDocument(), react: harness.React, fetch: fetchStub, primitives: options.primitives })
   exports.apply(ctx)
   const section = registered.find((entry) => entry.slotOptions.name === 'settings.section')
   assert.ok(section !== undefined, 'apply 必须注册 settings.section')
@@ -475,6 +517,32 @@ test('分区真渲染：标题、总开关、空状态与配置文件条目都�
   assert.match(text, /figma/u)
   assert.match(text, /http:\/\/127\.0\.0\.1:3845\/mcp/u)
   assert.equal(mounted.harness.warnings.length, 0)
+})
+
+// 图标名在发布线之间改过（0.1.6 数字档位 → 0.1.7 档位词），而 `require` 到 undefined
+// 的图标是**静默**空白——所以两条命名法各渲染一遍，用渲染出来的 `data-icon` 证明取到了谁。
+test('图标按能力解析：0.1.7 的档位词命名取得到图标', async () => {
+  const mounted = await mountSection({ primitives: createIconProbePrimitives('medium') })
+  const painted = paintedIcons(mounted.harness)
+  for (const name of ['IconRefreshOutlineMedium', 'IconPlusOutlineMedium']) {
+    assert.ok(painted.includes(name), `应当从 0.1.7 的档位词导出取到 ${name}，实际画出的图标：${JSON.stringify(painted)}`)
+  }
+})
+
+test('图标按能力解析：0.1.6 的数字档位命名同样取得到图标', async () => {
+  const mounted = await mountSection({ primitives: createIconProbePrimitives('legacy') })
+  const painted = paintedIcons(mounted.harness)
+  for (const name of ['IconRefreshOutline16', 'IconPlusOutline16']) {
+    assert.ok(painted.includes(name), `应当回退到 0.1.6 的数字档位导出 ${name}，实际画出的图标：${JSON.stringify(painted)}`)
+  }
+})
+
+test('图标全部缺失时退化成空组件：不抛错，分区照常渲染', async () => {
+  const bare = createPrimitivesStub()
+  for (const key of Object.keys(bare)) if (key.startsWith('Icon')) delete bare[key]
+  const mounted = await mountSection({ primitives: bare })
+  assert.deepEqual(paintedIcons(mounted.harness), [], '没有图标导出时不该画出任何图标')
+  assert.match(mounted.harness.text(), /MCP 服务器/u, '图标缺失不能让整个分区挂掉')
 })
 
 /** 按 aria-label 取控件（行式编辑器里一行有多个输入，按字段容器找已经不够用了）。 */

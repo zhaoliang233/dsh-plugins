@@ -147,7 +147,7 @@ function createShell(valid = true, mainPage = false) {
   return { frame, sidebar, center, mainSeat, conversationRoot, rightbar, overlay, workspaceSeat }
 }
 
-function makeHarness({ version = '0.1.6-alpha.1', validStructure = true, mainPage = false, connectionCapability = true } = {}) {
+function makeHarness({ version = '0.1.6-alpha.1', validStructure = true, mainPage = false, connectionCapability = true, icons = 'current' } = {}) {
   let definition
   let runtimeVersion = version
   let currentStyle = null
@@ -253,10 +253,23 @@ function makeHarness({ version = '0.1.6-alpha.1', validStructure = true, mainPag
       return getSnapshot()
     }
   }
-  const primitives = {
+  /**
+   * primitives 桩：按**命名法**给出图标，一次只给一套。
+   *
+   * bundle 现在按能力解析图标（`iconOf('…OutlineMedium', '…OutlineRegular', '…Outline16')`），
+   * 同一个插件版本要在 0.1.6（数字档位 `…Outline16`）与 0.1.7（档位词 `…OutlineMedium`）上都能
+   * 画出图标；两套名字同时塞进一个桩就测不出优先顺序写错，所以用 `icons` 选项切换。
+   */
+  const iconTypes = {
     IconCloseOutline16: function IconCloseOutline16() {},
     IconPanelLeftOutline16: function IconPanelLeftOutline16() {}
   }
+  const primitives = icons === 'legacy'
+    ? { ...iconTypes }
+    : {
+        IconCloseOutlineMedium: iconTypes.IconCloseOutline16,
+        IconPanelLeftOutlineMedium: iconTypes.IconPanelLeftOutline16
+      }
   const plugin = definition.factory((id) => {
     if (id === 'react') return React
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
@@ -294,6 +307,8 @@ function makeHarness({ version = '0.1.6-alpha.1', validStructure = true, mainPag
       for (const callback of animationFrames.splice(0)) callback()
     },
     getStyle: () => currentStyle,
+    /** 桩里那两个图标组件（按 bundle 内部的局部名取用，与命名法无关）。 */
+    icons: iconTypes,
     media,
     mediaListeners,
     observers,
@@ -433,6 +448,29 @@ test('supported runtime installs and cleans static compatibility effects', async
     'slot',
     'subscription'
   ].sort())
+})
+
+test('resolves the drawer icons by capability, so both icon namings draw', async () => {
+  // 回归护栏（DSH 0.1.6 → 0.1.7 图标改名）：旧名字在 0.1.7 里完全不存在、新名字在 0.1.6 里
+  // 也不存在，两个方向各挂载一遍。解析失败时 `iconOf` 给出空组件，下面的类型断言立刻对不上
+  // （当年直接解构旧名字就是 undefined，抽屉入口静默变成空白按钮）。
+  for (const icons of ['current', 'legacy']) {
+    const harness = makeHarness({ icons })
+    const applied = applyPlugin(harness)
+    await flushCompatibility()
+
+    // 抽屉收起时是侧栏入口图标；展开时换成关闭图标。两处都由 primitives 的真实导出渲染。
+    const collapsed = applied.slotComponent()()
+    assert.equal(collapsed.props.children[1].props.children[0].type, harness.icons.IconPanelLeftOutline16,
+      `${icons}: 收起态必须解析出侧栏图标`)
+
+    harness.shell.frame.removeAttribute('data-sidebar-collapsed')
+    const expanded = applied.slotComponent()()
+    assert.equal(expanded.props.children[1].props.children[0].type, harness.icons.IconCloseOutline16,
+      `${icons}: 展开态必须解析出关闭图标`)
+
+    for (const dispose of applied.fiberDisposers.reverse()) dispose()
+  }
 })
 
 test('attribute-only shell changes deactivate and recover compatibility effects', async () => {

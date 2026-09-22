@@ -47,6 +47,7 @@ function instantiate(options = {}) {
       return [preset === undefined ? initial : preset, () => {}]
     }
   }
+  // 局部名不随命名法变化（bundle 里的用法与这里的断言都按局部名走）。
   const types = {
     Button: () => null,
     IconLoadingOutline16: () => null,
@@ -57,9 +58,36 @@ function instantiate(options = {}) {
     Switch: () => null,
     Tag: () => null
   }
+  /**
+   * primitives 桩：按**命名法**给出同一批函数，一次只给一套。
+   *
+   * bundle 现在按能力解析图标（`iconOf('…OutlineMedium', '…OutlineRegular', '…Outline16')`），
+   * 同一个版本要在 0.1.6（数字档位 `…Outline16`）与 0.1.7（档位词 `…OutlineMedium`）上都能
+   * 画出图标；两套名字同时塞进一个桩就测不出优先顺序写错，所以用 `icons` 选项切换。
+   */
+  const iconExports = options.icons === 'legacy'
+    ? {
+        IconLoadingOutline16: 'IconLoadingOutline16',
+        IconRefreshOutline16: 'IconRefreshOutline16',
+        IconTrashOutline16: 'IconTrashOutline16',
+        IconWarningOutline16: 'IconWarningOutline16'
+      }
+    : {
+        IconLoadingOutlineMedium: 'IconLoadingOutline16',
+        IconRefreshOutlineMedium: 'IconRefreshOutline16',
+        IconTrashOutlineMedium: 'IconTrashOutline16',
+        IconWarningOutlineMedium: 'IconWarningOutline16'
+      }
+  const primitives = {
+    Button: types.Button,
+    Modal: types.Modal,
+    Switch: types.Switch,
+    Tag: types.Tag,
+    ...Object.fromEntries(Object.entries(iconExports).map(([exported, local]) => [exported, types[local]]))
+  }
   const plugin = definition.factory((id) => {
     if (id === 'react') return React
-    if (id === '@deepseek-ai/dsh-client-ui-primitives') return types
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
     throw new Error(`unexpected require: ${id}`)
   })
   const ctx = {
@@ -234,6 +262,51 @@ test('renders the official Switch and Button primitives instead of local control
       }
     }
   })
+})
+
+test('resolves icons by capability so both the numeric and the tier-word naming draw', () => {
+  // 回归护栏（DSH 0.1.6 → 0.1.7 图标改名）：旧名字在 0.1.7 里完全不存在，直接解构回来是
+  // undefined；新名字在 0.1.6 里也不存在。两个方向各渲染一遍，哪一边的兜底丢了都必红
+  // ——名字缺失时 `iconOf` 给出空组件，断言的类型立刻对不上。
+  const resolutions = [...source.matchAll(/const (Icon\w+) = iconOf\(([^)]*)\)/gu)]
+    .map((match) => ({ local: match[1], candidates: [...match[2].matchAll(/'([^']+)'/gu)].map((item) => item[1]) }))
+  assert.deepEqual(
+    resolutions.map((entry) => entry.local),
+    ['IconLoadingOutline16', 'IconRefreshOutline16', 'IconTrashOutline16', 'IconWarningOutline16'],
+    '每个图标都必须走能力解析，且保留原有局部名（组件与断言都不必改）'
+  )
+  for (const entry of resolutions) {
+    assert.equal(entry.candidates[0].endsWith('Medium'), true, `${entry.local} 必须优先用当前的档位词命名`)
+    assert.equal(entry.candidates.includes(entry.local), true, `${entry.local} 必须保留旧数字档位命名作兜底`)
+  }
+
+  for (const icons of ['current', 'legacy']) {
+    withDocument({
+      options: { icons, view: { kind: 'ready', profile: 'web', plugins: DEMO_PLUGINS } },
+      body(harness) {
+        const tree = harness.render()
+        assert.equal(findByType(tree, harness.types.IconRefreshOutline16).length > 0, true,
+          `${icons}: 刷新图标必须解析到 primitives 的真实导出（缺失时会退化成空组件）`)
+        assert.equal(findByType(tree, harness.types.IconTrashOutline16).length, DEMO_PLUGINS.length,
+          `${icons}: 每行的卸载图标必须解析到 primitives 的真实导出`)
+      }
+    })
+    withDocument({
+      options: { icons, view: { kind: 'loading' } },
+      body(harness) {
+        assert.equal(findByType(harness.render(), harness.types.IconLoadingOutline16).length, 1,
+          `${icons}: 读取中的图标必须解析到 primitives 的真实导出`)
+      }
+    })
+    withDocument({
+      options: { icons, view: { kind: 'failed', error: '读取失败' } },
+      body(harness) {
+        const button = findByType(harness.render(), harness.types.Button)[0]
+        assert.equal(findByType(button.props.icon, harness.types.IconRefreshOutline16).length, 1,
+          `${icons}: 重试按钮里的图标必须解析到 primitives 的真实导出`)
+      }
+    })
+  }
 })
 
 test('renders the row badges as official Tags with the row state tone', () => {
