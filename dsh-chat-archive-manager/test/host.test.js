@@ -209,13 +209,14 @@ function invokeRoute(route, method, body, options = {}) {
 }
 
 test('runtime version gate stays inert outside the audited release line', async () => {
-  assert.deepEqual(classifyDshVersion('0.1.6-alpha.1+local'), {
-    supported: true, verified: true, normalized: '0.1.6-alpha.1'
+  assert.deepEqual(classifyDshVersion('0.1.7-alpha.1+local'), {
+    supported: true, verified: true, normalized: '0.1.7-alpha.1'
   })
-  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, true)
-  assert.equal(classifyDshVersion('0.1.6-alpha.0').supported, false)
-  assert.equal(classifyDshVersion('0.1.4').supported, false)
-  assert.equal(classifyDshVersion('0.1.5-alpha.1').supported, false, 'previous release line is now outside')
+  assert.equal(classifyDshVersion('0.1.7-alpha.2').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-alpha.2').verified, false)
+  assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false)
+  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, false, 'previous release line is outside')
+  assert.equal(classifyDshVersion('0.1.8-rc.1').supported, false, 'the next line needs a re-verified release')
 
   let sideEffects = 0
   const ctx = {
@@ -227,7 +228,7 @@ test('runtime version gate stays inert outside the audited release line', async 
       async delete() { sideEffects += 1 }
     }
   }
-  await applyForVersion(ctx, '0.1.7-alpha.1')
+  await applyForVersion(ctx, '0.1.8-rc.1')
   assert.equal(sideEffects, 0)
 })
 

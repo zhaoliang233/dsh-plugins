@@ -11,17 +11,62 @@ export const STATUS_PATH = '/dsh-chat-archive-manager/status'
 export const DELETE_PATH = '/dsh-chat-archive-manager/delete'
 export const RESTORE_PATH = '/dsh-chat-archive-manager/restore'
 export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
+/**
+ * 兼容发布线：插件只声明**已逐包核对过契约的最窄区间**，范围内可用，范围外保持 inert。
+ *
+ * 这是工作区规则：一个插件版本只服务它验证过的那一条 DSH 发布线，不支持"同一版本跨两条线"。
+ * 需要支持新的 DSH 版本时，重新读源码核对契约差异 → 补适配与回归测试 → 更新四处同源声明
+ * （本文件的常量、`package.json#dshCompatibility`、`engines.dsh`、`install.sh`）→ 发新版本。
+ * 范围外或版本来源不可验证时保持零副作用（不注册路由、不碰 registry、不做 legacy 迁移）。
+ *
+ * 能力探测仍然是权威判定：**线内**版本即使未逐条核对，也照常挂载并逐项 fail closed 降级。
+ */
+export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
+export const DSH_VERIFIED_VERSIONS = Object.freeze(['0.1.7-alpha.1'])
 
+/**
+ * 兼容发布线的**版本三元组**：只有 `0.1.7` 这一条在声明范围内（`0.1.7`、`0.1.7-alpha|beta|rc.N`，
+ * 其中 alpha 至少 1）。语义与 `install.sh` 的 `is_compatible_dsh_version()` 逐字对应，并与
+ * `DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"` 一致：**0.1.8 的 prerelease 不算在内**
+ * （上一线 0.1.6、下一线 0.1.8 都要重新核对契约后另发版本）。
+ */
+export const DSH_RELEASE_LINE = Object.freeze({ major: 0, minor: 1, patch: 7 })
+
+/** 解析 `major.minor.patch[-tag.N]`；拒绝其它写法（返回 undefined）。 */
+function parseVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.(\d+))?$/u.exec(version)
+  if (match === null) return undefined
+  return {
+    numbers: [Number(match[1]), Number(match[2]), Number(match[3])],
+    prerelease: match[4] === undefined
+      ? undefined
+      : { tag: match[4].toLowerCase(), sequence: Number(match[5]) }
+  }
+}
+
+/**
+ * 把运行中的 DSH 版本分类成"在不在兼容发布线上/是否逐条核对过"。
+ * @param version - `@deepseek-ai/dsh` 的版本号，或任何未知输入。
+ * @returns `{ supported, verified, normalized }`；`supported: false` 时插件保持 inert。
+ */
 export function classifyDshVersion(version) {
-  if (typeof version !== 'string') return { supported: false, verified: false }
-  const normalized = version.split('+', 1)[0]
-  const verified = normalized === '0.1.6-alpha.1'
-  if (normalized === '0.1.6') return { supported: true, verified, normalized }
-  const prerelease = /^0\.1\.6-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
-  if (prerelease === null) return { supported: false, verified: false, normalized }
-  const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= 1
-  return { supported, verified: supported && verified, normalized }
+  const normalized = typeof version === 'string' ? version.trim().split('+', 1)[0] : ''
+  const parsed = normalized === '' ? undefined : parseVersion(normalized)
+  if (parsed === undefined) return { supported: false, verified: false, normalized: undefined }
+  const onLine = parsed.numbers[0] === DSH_RELEASE_LINE.major
+    && parsed.numbers[1] === DSH_RELEASE_LINE.minor
+    && parsed.numbers[2] === DSH_RELEASE_LINE.patch
+  if (!onLine) return { supported: false, verified: false, normalized }
+  const known = ['alpha', 'beta', 'rc']
+  if (parsed.prerelease !== undefined
+    && (!known.includes(parsed.prerelease.tag) || (parsed.prerelease.tag === 'alpha' && parsed.prerelease.sequence < 1))) {
+    return { supported: false, verified: false, normalized }
+  }
+  return {
+    supported: true,
+    verified: DSH_VERIFIED_VERSIONS.includes(normalized),
+    normalized
+  }
 }
 
 export async function readDshPackage(entryPath = process.argv[1]) {
@@ -284,7 +329,7 @@ export function createArchiveMutationCoordinator() {
   }
 }
 
-export async function applyCompatibleRuntime(ctx) {
+export async function applyCompatibleRuntime(ctx, compatibility = classifyDshVersion(undefined)) {
   if (typeof ctx.connection?.requestRejection !== 'function') {
     throw new Error('incompatible DSH connection service: missing requestRejection()')
   }
@@ -353,6 +398,11 @@ export async function applyCompatibleRuntime(ctx) {
     deletionSupported: deletionService !== undefined,
     sessionQuiescenceSupported: deletionService?.status().quiescenceSupported === true,
     restorationSupported: restorationService !== undefined,
+    // Version facts are diagnostics only: they never gate a capability. The
+    // browser shows them, and `features` documents what this DSH can offer.
+    dshVersion: compatibility.normalized ?? null,
+    dshVersionVerified: compatibility.verified === true,
+    dshCompatibilityRange: DSH_COMPATIBILITY_RANGE,
     ...(deletionUnavailable === undefined
       ? {}
       : { deletionCode: deletionUnavailable.code, deletionUnavailable: deletionUnavailable.message }),
@@ -382,16 +432,16 @@ export async function applyForVersion(ctx, version) {
   const compatibility = classifyDshVersion(version)
   if (!compatibility.supported) {
     ctx.logger?.warn?.(
-      `${PLUGIN_NAME}: DSH ${version} is outside ${DSH_COMPATIBILITY_RANGE}; plugin remains inert`
+      `${PLUGIN_NAME}: DSH ${compatibility.normalized ?? String(version)} is outside ${DSH_COMPATIBILITY_RANGE}; plugin remains inert`
     )
     return
   }
   if (!compatibility.verified) {
     ctx.logger?.warn?.(
-      `${PLUGIN_NAME}: DSH ${version} is inside ${DSH_COMPATIBILITY_RANGE} but is not individually verified; capability checks remain authoritative`
+      `${PLUGIN_NAME}: DSH ${compatibility.normalized} is inside ${DSH_COMPATIBILITY_RANGE} but is not individually verified; capability checks remain authoritative`
     )
   }
-  return applyCompatibleRuntime(ctx)
+  return applyCompatibleRuntime(ctx, compatibility)
 }
 
 export async function applyForEntry(ctx, entryPath) {

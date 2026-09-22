@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import test from 'node:test'
 
 import { ArchiveDeleteError, createArchiveDeletionService, protectDeletedSessions } from '../lib/archive-deletion.js'
@@ -50,7 +50,8 @@ function fakeTracker() {
   }
 }
 
-function fakePersistence(root, snapshots) {
+function fakePersistence(root, snapshots, options = {}) {
+  const generation = options.generation ?? CURRENT_GENERATION
   return {
     constructor: { name: 'JsonlSessionPersistence' },
     name: 'session-persistence-jsonl',
@@ -65,7 +66,7 @@ function fakePersistence(root, snapshots) {
     // generation regression, which only showed up as a raw ENOENT at runtime.
     locate(header) {
       const suffix = header.path.endsWith('.zstd') ? '.zstd' : ''
-      return { kind: 'jsonl', path: join(dirname(header.path), `session.v3.jsonl${suffix}`) }
+      return { kind: 'jsonl', path: join(dirname(header.path), `session.v${generation}.jsonl${suffix}`) }
     },
     async list() { return snapshots },
     async stat(id) {
@@ -167,17 +168,28 @@ async function exists(path) {
   }
 }
 
-async function fixture({ compressed = false } = {}) {
+/**
+ * DSH 0.1.6 wrote `session.v3.jsonl[.zstd]`; 0.1.7 writes `session.v4.jsonl[.zstd]`.
+ * The deletion transaction must follow whatever the running build writes, so the
+ * fixture defaults to the current line and every generation-specific test passes
+ * its own value instead of inheriting a pinned literal.
+ */
+const CURRENT_GENERATION = 4
+
+async function fixture({ compressed = false, generation = CURRENT_GENERATION, siblings = [] } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-archive-delete-'))
   const persistenceRoot = join(root, 'sessions')
   const sessionDirectory = join(persistenceRoot, '--project--', 'session-1')
-  const logPath = join(sessionDirectory, compressed ? 'session.v3.jsonl.zstd' : 'session.v3.jsonl')
+  const logPath = join(sessionDirectory, compressed ? `session.v${generation}.jsonl.zstd` : `session.v${generation}.jsonl`)
   await mkdir(sessionDirectory, { recursive: true })
   await writeFile(logPath, compressed
     ? Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 0x00])
-    : '{"type":"session","version":3,"id":"session-1","createdAt":1,"cwd":"/project","isSeeded":false,"delegationDepth":0}\n')
+    : `{"type":"session","version":${generation},"id":"session-1","createdAt":1,"cwd":"/project","isSeeded":false,"delegationDepth":0}\n`)
+  // Extra artifacts in the same session directory: DSH publishes a migration on
+  // write-open and keeps the source log, so v3 and v4 legitimately coexist.
+  for (const name of siblings) await writeFile(join(sessionDirectory, name), '{}\n', 'utf8')
   const header = {
-    version: 3,
+    version: generation,
     id: 'session-1',
     createdAt: 1,
     cwd: '/project',
@@ -187,7 +199,7 @@ async function fixture({ compressed = false } = {}) {
   }
   const logState = await stat(logPath)
   return {
-    root, persistenceRoot, sessionDirectory, logPath, header,
+    root, persistenceRoot, sessionDirectory, logPath, header, generation,
     snapshots: [{ header, revision: 'revision-1', sizeBytes: logState.size }],
     dshHome: join(root, 'dsh-home')
   }
@@ -319,7 +331,7 @@ test('rejects live, persistence-held and descendant sessions', async () => {
             header: {
               id: 'child', createdAt: 2, cwd: '/project', delegationDepth: 1,
               parentSession: data.header.id,
-              path: join(data.persistenceRoot, '--project--', 'child', 'session.v3.jsonl')
+              path: join(data.persistenceRoot, '--project--', 'child', `session.v${CURRENT_GENERATION}.jsonl`)
             },
             revision: 'child'
           }]
@@ -525,7 +537,7 @@ test('quarantines a valid interrupted transaction without moving files', async (
         header: data.header,
         witness: {
           directory: { dev: directoryState.dev, ino: directoryState.ino },
-          log: { dev: logState.dev, ino: logState.ino, size: logState.size, filename: 'session.v3.jsonl' },
+          log: { dev: logState.dev, ino: logState.ino, size: logState.size, filename: basename(data.logPath) },
           header: { id: data.header.id, createdAt: 1, cwd: '/project' }
         },
         sourceDirectory: data.sessionDirectory,
@@ -563,7 +575,7 @@ test('rejects a journal whose trash path escapes the fixed root', async () => {
         header: data.header,
         witness: {
           directory: { dev: 1, ino: 1 },
-          log: { dev: 1, ino: 2, size: 1, filename: 'session.v3.jsonl' },
+          log: { dev: 1, ino: 2, size: 1, filename: basename(data.logPath) },
           header: { id: data.header.id }
         },
         sourceDirectory: data.sessionDirectory,
@@ -603,7 +615,7 @@ test('keeps an interrupted moved artifact outside the JSONL scan root', async ()
     const trashRoot = join(data.root, '.dsh-archived-chats-trash')
     const trashEntries = await readdir(trashRoot)
     assert.equal(trashEntries.length, 1)
-    assert.equal(await exists(join(trashRoot, trashEntries[0], 'session.v3.jsonl')), true)
+    assert.equal(await exists(join(trashRoot, trashEntries[0], basename(data.logPath))), true)
     const journal = JSON.parse(await readFile(join(data.dshHome, 'dsh-archived-chats', 'deletions.json'), 'utf8'))
     assert.equal(journal.transaction.trashDirectory, join(trashRoot, trashEntries[0]))
     service.disable()
@@ -726,6 +738,128 @@ test('restores only persistence methods still owned by the plugin', async () => 
     await service.dispose()
     assert.equal(persistence.list, laterList)
     assert.equal((await readFile(data.logPath, 'utf8')).includes('session'), true)
+  } finally {
+    await rm(data.root, { recursive: true, force: true })
+  }
+})
+
+test('follows whatever generation the running DSH writes instead of a pinned literal', async () => {
+  for (const generation of [4, 5]) {
+    const data = await fixture({ generation })
+    try {
+      const persistence = fakePersistence(data.persistenceRoot, data.snapshots, { generation })
+      const harness = fakeContext({ sessionId: data.header.id, persistence })
+      const service = createArchiveDeletionService(harness.ctx, { dshHome: data.dshHome })
+      await service.initialize()
+      assert.deepEqual(await service.delete(data.header.id), { sessionId: data.header.id })
+      assert.equal(await exists(data.sessionDirectory), false)
+      await service.dispose()
+    } finally {
+      await rm(data.root, { recursive: true, force: true })
+    }
+  }
+})
+
+test('moves the whole session directory when an unmigrated older log sits beside the current one', async () => {
+  const data = await fixture({ siblings: ['session.v3.jsonl.zstd'] })
+  try {
+    const persistence = fakePersistence(data.persistenceRoot, data.snapshots)
+    const harness = fakeContext({ sessionId: data.header.id, persistence })
+    let moved = []
+    const service = createArchiveDeletionService(harness.ctx, {
+      dshHome: data.dshHome,
+      afterArtifactRename: async (transaction) => {
+        moved = (await readdir(transaction.trashDirectory)).sort()
+        throw new Error('stop after the artifact moved, before the trash is removed')
+      }
+    })
+    await service.initialize()
+    await assert.rejects(
+      () => service.delete(data.header.id),
+      error => error instanceof ArchiveDeleteError && error.code === 'archive-delete-quarantined'
+    )
+    // DSH 发布迁移时会保留源日志，所以目录里可以同时有 v3 与 v4；删除的对象是
+    // 整段会话目录，不是"某一个 generation 的文件"。
+    assert.deepEqual(moved, ['session.v3.jsonl.zstd', 'session.v4.jsonl'])
+    service.disable()
+  } finally {
+    await rm(data.root, { recursive: true, force: true })
+  }
+})
+
+test('still recognises a deletion journal recorded under the previous generation', async () => {
+  const data = await fixture()
+  try {
+    const directoryState = await lstat(data.sessionDirectory)
+    const logState = await lstat(data.logPath)
+    const persistence = fakePersistence(data.persistenceRoot, data.snapshots)
+    const harness = fakeContext({ sessionId: data.header.id, persistence })
+    const journalDirectory = join(data.dshHome, 'dsh-archived-chats')
+    await mkdir(journalDirectory, { recursive: true })
+    const id = '22222222-2222-4222-8222-222222222222'
+    await writeFile(join(journalDirectory, 'deletions.json'), JSON.stringify({
+      version: 1,
+      transaction: {
+        id,
+        sessionId: data.header.id,
+        header: data.header,
+        witness: {
+          directory: { dev: directoryState.dev, ino: directoryState.ino },
+          // 0.1.6 写下的 journal：witness 里记的是 v3 文件名，现在进程写 v4。
+          log: { dev: logState.dev, ino: logState.ino, size: logState.size, filename: 'session.v3.jsonl' },
+          header: { id: data.header.id, createdAt: 1, cwd: '/project' }
+        },
+        sourceDirectory: data.sessionDirectory,
+        trashDirectory: join(data.root, '.dsh-archived-chats-trash', id),
+        phase: 'prepared'
+      }
+    }))
+    const service = createArchiveDeletionService(harness.ctx, { dshHome: data.dshHome })
+    await assert.rejects(
+      () => service.initialize(),
+      // 升级不能把旧 journal 变成"没有事务"：必须继续 quarantine，绝不自动动文件。
+      error => error instanceof ArchiveDeleteError && error.code === 'deletion-recovery-required'
+    )
+    assert.equal(await exists(data.logPath), true)
+    service.disable()
+  } finally {
+    await rm(data.root, { recursive: true, force: true })
+  }
+})
+
+test('clears the 0.1.7 pinnedSessionIds slot when this build has one', async () => {
+  const data = await fixture()
+  try {
+    const persistence = fakePersistence(data.persistenceRoot, data.snapshots)
+    const harness = fakeContext({ sessionId: data.header.id, persistence })
+    // DSH 0.1.7 的 Workspace state 多了 pinnedSessionIds；留着已删除的 id 会让侧栏
+    // 为一个不存在的会话补出置顶成员。
+    harness.registry.state = {
+      ...harness.registry.state,
+      pinnedSessionIds: [data.header.id, 'other-session']
+    }
+    const service = createArchiveDeletionService(harness.ctx, { dshHome: data.dshHome })
+    await service.initialize()
+    await service.delete(data.header.id)
+    assert.deepEqual(harness.registry.state.pinnedSessionIds, ['other-session'])
+    assert.deepEqual(harness.registry.state.archivedSessionIds, [])
+    await service.dispose()
+  } finally {
+    await rm(data.root, { recursive: true, force: true })
+  }
+})
+
+test('leaves a build without pinnedSessionIds untouched', async () => {
+  const data = await fixture()
+  try {
+    const persistence = fakePersistence(data.persistenceRoot, data.snapshots)
+    const harness = fakeContext({ sessionId: data.header.id, persistence })
+    // 0.1.6 没有这个字段：删除后的 state 形状必须与旧行为一致（不凭空多出键）。
+    const service = createArchiveDeletionService(harness.ctx, { dshHome: data.dshHome })
+    await service.initialize()
+    await service.delete(data.header.id)
+    assert.deepEqual(Object.keys(harness.registry.state).sort(), ['archivedSessionIds', 'initialized', 'workspaceIds'])
+    await service.dispose()
   } finally {
     await rm(data.root, { recursive: true, force: true })
   }

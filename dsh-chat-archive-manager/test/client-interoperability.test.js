@@ -40,7 +40,11 @@ function pluginContext(workspaces, sessions) {
       sessions,
       slots: {
         inject(_name, factory) { return factory() },
-        register() { return () => {} }
+        register() { return () => {} },
+        // 该 bundle 只注册「归档管理」分区与导航图标 helper；设置账本在 0.1.7 里
+        // 已经没有原生 `archived-sessions` 分区，这里按同一个账本回答。
+        entries() { return [] },
+        subscribe() { return () => {} }
       },
       effect(factory) {
         const cleanup = factory()

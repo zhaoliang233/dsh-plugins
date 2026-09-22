@@ -50,12 +50,12 @@ printf 'npm:%s\\n' "$*" >> "\${FAKE_INVOCATION_LOG:?}"
   }
 }
 
-test('installer accepts verified alpha.1 and runs the complete gate before profile add', async () => {
-  const fixture = await runInstaller('0.1.6-alpha.1+local.1')
+test('installer accepts the verified version and runs the complete gate before profile add', async () => {
+  const fixture = await runInstaller('0.1.7-alpha.1+local.1')
   try {
     assert.equal(fixture.result.status, 0, fixture.result.stderr)
     assert.equal(fixture.result.stderr, '')
-    assert.equal(fixture.result.stdout.includes('DSH:      0.1.6-alpha.1+local.1'), true)
+    assert.equal(fixture.result.stdout.includes('DSH:      0.1.7-alpha.1+local.1'), true)
     assert.deepEqual(fixture.invocations.trim().split('\n'), [
       `npm:run publish:check --prefix ${pluginPath}`,
       `dsh:plugin --profile web add link:${pluginPath} --config.minimumReleaseAge=0`
@@ -66,7 +66,7 @@ test('installer accepts verified alpha.1 and runs the complete gate before profi
 })
 
 test('installer warns for an unverified version within the compatible line', async () => {
-  const fixture = await runInstaller('0.1.6-alpha.2')
+  const fixture = await runInstaller('0.1.7-alpha.2')
   try {
     assert.equal(fixture.result.status, 0, fixture.result.stderr)
     assert.equal(fixture.result.stderr.includes('尚未列入逐版本验证清单'), true)
@@ -78,12 +78,14 @@ test('installer warns for an unverified version within the compatible line', asy
 })
 
 test('installer rejects a version outside the release line before npm or profile changes', async () => {
-  const fixture = await runInstaller('0.1.7-alpha.1')
-  try {
-    assert.equal(fixture.result.status, 1)
-    assert.match(fixture.result.stderr, />=0\.1\.6-alpha\.1 <0\.1\.7/u, fixture.result.stderr)
-    assert.equal(fixture.invocations, '')
-  } finally {
-    await fixture.cleanup()
+  for (const version of ['0.1.6-alpha.2', '0.1.8-rc.1']) {
+    const fixture = await runInstaller(version)
+    try {
+      assert.equal(fixture.result.status, 1)
+      assert.match(fixture.result.stderr, />=0\.1\.7-alpha\.1 <0\.1\.8/u, fixture.result.stderr)
+      assert.equal(fixture.invocations, '')
+    } finally {
+      await fixture.cleanup()
+    }
   }
 })

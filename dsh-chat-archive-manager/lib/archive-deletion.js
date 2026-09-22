@@ -7,10 +7,13 @@ const JOURNAL_VERSION = 1
 const JOURNAL_DIRECTORY = 'dsh-archived-chats'
 const JOURNAL_FILENAME = 'deletions.json'
 const TRASH_DIRECTORY = '.dsh-archived-chats-trash'
-const LOG_FILENAMES = new Set(['session.v3.jsonl', 'session.v3.jsonl.zstd'])
-const CURRENT_GENERATION = 3
 // Canonical Session log generation names: v0 keeps the suffix-only name, every
 // later generation carries a numeric `vN` component (see dsh-session-format).
+// The **current** generation is never a constant here: 0.1.6 wrote v3 and
+// 0.1.7 writes v4, and `JsonlSessionPersistence.locate()` derives its path from
+// whatever this build writes — so the located basename is the authoritative
+// "current generation" for this process, and it is read back per request
+// instead of being pinned to a build-time literal.
 const CANONICAL_LOG_PATTERN = /^session(?:\.v(\d+))?\.jsonl(?:\.zstd)?$/u
 const TRANSACTION_PHASES = new Set(['prepared', 'clearing', 'committed'])
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -266,10 +269,21 @@ function pathInside(root, candidate) {
   return suffix !== '' && suffix !== '..' && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix)
 }
 
+/**
+ * A filename is a canonical Session log name — the current generation, an older
+ * one, or v0 — when it matches `session[.vN].jsonl[.zstd]`. Generation-specific
+ * decisions are made separately (`lstatCurrentGenerationArtifact`), so this
+ * shape check never pins the plugin to one DSH build's format version.
+ * @param filename - `basename()` of a candidate log path.
+ */
+function isCanonicalLogName(filename) {
+  return typeof filename === 'string' && CANONICAL_LOG_PATTERN.test(filename)
+}
+
 function assertStaticLogLocation(persistence, root, header, sourceDirectory) {
   const location = persistence.locate(header)
   if (location?.kind !== 'jsonl' || typeof location.path !== 'string' || !isAbsolute(location.path)
-    || !LOG_FILENAMES.has(basename(location.path))) {
+    || !isCanonicalLogName(basename(location.path))) {
     throw new ArchiveDeleteError('unsafe-artifact-path', '会话日志路径格式与当前 DSH 不匹配', 500)
   }
   const expectedDirectory = resolve(dirname(location.path))
@@ -371,6 +385,13 @@ function generationOf(filename) {
 // absent path, and a bare lstat() ENOENT there used to surface as a generic
 // "restart dsh web and retry" failure that could never succeed. Refuse the
 // artifact explicitly instead, without touching anything on disk.
+//
+// The generation this process writes is taken from the located basename, never
+// from a literal: a directory may legitimately hold both an unmigrated older
+// log and the current one (DSH publishes a migration on write-open and keeps
+// the source file), so the whole session directory is what gets moved — this
+// check only decides whether the *current* artifact the backend points at is
+// really there.
 async function lstatCurrentGenerationArtifact(rawLog, rawDirectory) {
   try {
     return await lstat(rawLog)
@@ -404,8 +425,8 @@ async function lstatCurrentGenerationArtifact(rawLog, rawDirectory) {
   throw new ArchiveDeleteError(
     'unsupported-artifact',
     versions.some(version => version < current)
-      ? `该聊天的日志仍是旧格式（${listed}），DSH 尚未把它迁移为 v${CURRENT_GENERATION}；永久删除不会代 DSH 迁移会话日志。请先在“已归档”中恢复该聊天并继续一次对话以触发迁移，再重新归档后删除。`
-      : `该聊天的日志格式（${listed}）高于当前 DSH 支持的 v${CURRENT_GENERATION}，无法安全永久删除。`,
+      ? `该聊天的日志仍是旧格式（${listed}），DSH 尚未把它迁移为 v${current}；永久删除不会代 DSH 迁移会话日志。请先恢复该聊天并继续一次对话（DSH 只在以写方式打开会话时发布迁移），再重新归档后删除。`
+      : `该聊天的日志格式（${listed}）高于当前 DSH 支持的 v${current}，无法安全永久删除。`,
     501
   )
 }
@@ -414,7 +435,7 @@ async function validateArtifact(persistence, root, snapshot) {
   const header = snapshot.header
   const location = persistence.locate(header)
   if (location?.kind !== 'jsonl' || typeof location.path !== 'string' || !isAbsolute(location.path)
-    || !LOG_FILENAMES.has(basename(location.path))) {
+    || !isCanonicalLogName(basename(location.path))) {
     throw new ArchiveDeleteError('unsupported-artifact', '会话没有可安全删除的 JSONL artifact', 501)
   }
   const rawLog = resolve(location.path)
@@ -478,7 +499,7 @@ function validWitness(witness) {
     && Number.isSafeInteger(witness.log?.dev)
     && Number.isSafeInteger(witness.log?.ino)
     && Number.isSafeInteger(witness.log?.size)
-    && LOG_FILENAMES.has(witness.log?.filename)
+    && isCanonicalLogName(witness.log?.filename)
     && typeof witness.header?.id === 'string'
 }
 
@@ -694,12 +715,17 @@ async function clearCoreAccounting(ctx, sessionId) {
   await registry.enqueueOperation(async () => {
     for (const workspace of registry.list()) await workspace.detachSession(sessionId)
     const state = registry.requireState()
-    if (state.archivedSessionIds.includes(sessionId)) {
-      await registry.setState({
-        ...state,
-        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId)
-      })
+    let next
+    if (Array.isArray(state.archivedSessionIds) && state.archivedSessionIds.includes(sessionId)) {
+      next = { ...state, archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId) }
     }
+    // DSH 0.1.7 起 Workspace state 多了 `pinnedSessionIds`（pin 与 archive 互斥，归档会清 pin）。
+    // 永久删除也要把这条 id 摘掉：留着会让侧栏为一个已经不存在的会话补出一个置顶成员。
+    // 字段不存在时（0.1.6）什么都不做，保持与旧版逐字节相同的行为。
+    if (Array.isArray(state.pinnedSessionIds) && state.pinnedSessionIds.includes(sessionId)) {
+      next = { ...(next ?? state), pinnedSessionIds: state.pinnedSessionIds.filter(id => id !== sessionId) }
+    }
+    if (next !== undefined) await registry.setState(next)
     registry.headers.delete(sessionId)
     registry.sessionPaths.delete(sessionId)
     registry.invalidSessionPaths.delete(sessionId)

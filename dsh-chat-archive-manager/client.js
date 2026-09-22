@@ -6,18 +6,33 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
-    const {
-      IconArchiveOutline20,
-      IconFolderClose16,
-      IconFolderOpen16,
-      IconLoadingOutline16,
-      IconRefreshOutline16,
-      IconSearchOutline16,
-      IconTrashOutline16,
-      IconTriangleRightFill14,
-      Modal,
-      Switch
-    } = require('@deepseek-ai/dsh-client-ui-primitives')
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives')
+    /**
+     * 取一个官方图标，按**能力**而不是按 DSH 版本号：图标名在发布线之间改过名
+     * （0.1.6 是数字档位 `IconSearchOutline16`，0.1.7 换成档位词
+     * `IconSearchOutlineRegular`/`…Medium`），所以按顺序取第一个真实存在的导出。
+     * 候选顺序里**档位词 Regular 优先**：`…Medium` 与 `…Regular` 是同一基础组件的
+     * 两个包装器，只差 `strokeWidth`（0.1.7 构建里 `…Medium` 传 1.3、`…Regular` 传 1.0），
+     * 而官方客户端各处用的都是 Regular——不这么排，插件图标会比相邻壳层图标重约 30%。
+     * 全都缺失时退化成不渲染任何东西的空组件，绝不让整个 bundle 因为一个图标名消失而挂掉。
+     * @param names - 候选导出名，从最贴近当前发布线的命名往后排。
+     */
+    function iconOf(...names) {
+      for (const name of names) {
+        const candidate = primitives?.[name]
+        if (typeof candidate === 'function' || (candidate !== null && typeof candidate === 'object')) return candidate
+      }
+      return () => null
+    }
+    const IconArchiveOutline20 = iconOf('IconArchiveOutlineRegular', 'IconArchiveOutlineMedium', 'IconArchiveOutline20')
+    const IconFolderClose16 = iconOf('IconFolderCloseRegular', 'IconFolderCloseMedium', 'IconFolderClose16')
+    const IconFolderOpen16 = iconOf('IconFolderOpenRegular', 'IconFolderOpenMedium', 'IconFolderOpen16')
+    const IconLoadingOutline16 = iconOf('IconLoadingOutlineRegular', 'IconLoadingOutlineMedium', 'IconLoadingOutline16')
+    const IconRefreshOutline16 = iconOf('IconRefreshOutlineRegular', 'IconRefreshOutlineMedium', 'IconRefreshOutline16')
+    const IconSearchOutline16 = iconOf('IconSearchOutlineRegular', 'IconSearchOutlineMedium', 'IconSearchOutline16')
+    const IconTrashOutline16 = iconOf('IconTrashOutlineRegular', 'IconTrashOutlineMedium', 'IconTrashOutline16')
+    const IconTriangleRightFill14 = iconOf('IconTriangleRightFillRegular', 'IconTriangleRightFillMedium', 'IconTriangleRightFill14')
+    const { Modal } = primitives
 
     const STATUS_PATH = '/dsh-chat-archive-manager/status'
     const DELETE_PATH = '/dsh-chat-archive-manager/delete'
@@ -28,34 +43,15 @@ window.__ModuleLoader__.load({
     /** Settings navigation label and page heading; the nav-icon patch matches this exact text. */
     const SECTION_TITLE = '归档管理'
     /**
-     * 设置分区 order。DSH 自带分区是 general 0 / models 10 / plugins 15 /
-     * agent-presets 20 / archived-sessions 25，**插件分区一律 ≥ 100**：排在内置之后，
-     * 不插队、也不与内置并列（并列时只能靠注册顺序决胜）。
+     * 设置分区 order。DSH `0.1.7-alpha.1` 自带分区是
+     * account −10 / general 0 / models 10 / plugins 15 / agent-presets 20
+     * （0.1.6 的最大项 archived-sessions 25 已被 DSH 删除），
+     * **插件分区一律 ≥ 100**：排在内置之后，不插队、也不与内置并列
+     * （并列时只能靠注册顺序决胜）。升级 DSH 后重新读一遍内置项的 order 上限。
      */
     const SECTION_ORDER = 120
     /** 导航图标补丁的挂载点与本分区同号（动作区里只有壳层的 open-document 在 0）。 */
     const NAV_ICON_ORDER = SECTION_ORDER
-    /**
-     * DSH 0.1.6 ships its own "Archived sessions" Settings page (section id
-     * `archived-sessions`). This manager already covers every recovery that page
-     * runs, so the General section carries a browser-local switch that hides the
-     * native nav row. The preference never reaches the Host: it is a viewing
-     * habit of this browser, like the region's other client preferences.
-     */
-    const NATIVE_ARCHIVE_SECTION_ID = 'archived-sessions'
-    const NATIVE_SUPPRESS_STORAGE_KEY = 'dsh-chat-archive-manager.hideNativeArchivedSessions'
-    const NATIVE_SUPPRESS_ROW_ID = 'dsh-chat-archive-manager.native-archived-sessions'
-    /** 通用设置行 order：内置行是 -20..20，插件行一律 ≥ 100（排在所有内置行之后）。 */
-    const NATIVE_SUPPRESS_ROW_ORDER = 100
-    const NATIVE_SUPPRESS_DATASET_KEY = 'dacNativeArchiveHidden'
-    const NATIVE_SUPPRESS_REFERENCES_KEY = 'dacNativeArchiveHiddenReferences'
-    /** General-settings row copy for the native-page suppression switch. */
-    const NATIVE_SUPPRESS_TITLE = '屏蔽自带归档页'
-    const NATIVE_SUPPRESS_DESCRIPTION = '隐藏 DSH 自带的「已归档会话」设置页，设置菜单只保留这里的「归档管理」。'
-    /** Shown only while the switch is on but the DOM patch could not locate the native row. */
-    const NATIVE_SUPPRESS_UNAVAILABLE = '未能定位 DSH 自带的「已归档会话」菜单项，原生页保持显示。'
-    /** The Settings shell's own panel: `SettingsRoot` renders `role=dialog` + `aria-modal`, then one `nav`. */
-    const SETTINGS_NAV_SELECTOR = '[role="dialog"][aria-modal="true"] nav'
     const BATCH_CONFIRM_THRESHOLD = 50
     const DAY_MS = 24 * 60 * 60 * 1000
     /**
@@ -83,11 +79,6 @@ window.__ModuleLoader__.load({
 [data-dac-archive-nav]>svg:first-child{opacity:0}
 [data-dac-archive-nav]::before{content:"";position:absolute;left:12px;top:50%;width:16px;height:16px;transform:translateY(-50%);background:currentColor;pointer-events:none;-webkit-mask:var(--dac-archive-nav-mask) center/16px 16px no-repeat;mask:var(--dac-archive-nav-mask) center/16px 16px no-repeat}
 [data-dac-native-archive-hidden]{display:none!important}
-.dac-general-row{display:flex;align-items:center;gap:8px;padding:16px 0;border-bottom:.5px solid var(--dsw-alias-border-l2)}
-.dac-general-row-text{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0;padding-right:48px}
-.dac-general-row-title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}
-.dac-general-row-description{color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:400;line-height:18px}
-.dac-general-row-note{color:var(--dsw-alias-state-warn-label);font-size:12px;font-weight:400;line-height:18px}
 .dac-section{width:100%;max-width:720px;color:var(--dsw-alias-label-primary);display:flex;flex-direction:column;gap:12px}
 .dac-section-heading{display:flex;align-items:baseline;gap:8px;min-width:0;min-height:24px}
 .dac-section-title{min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:16px;font-weight:500;line-height:24px;letter-spacing:0}
@@ -619,287 +610,6 @@ window.__ModuleLoader__.load({
       if (result.failed.length > 0) parts.push(`失败 ${result.failed.length} 条`)
       if (result.stopped) parts.push('已中止')
       return `${parts.join('、')}。`
-    }
-
-    /**
-     * Resolve client storage without letting a denied or absent store break apply.
-     * @returns localStorage, or null when unusable.
-     */
-    function resolveClientStorage() {
-      try {
-        if (typeof localStorage === 'undefined' || localStorage === null) return null
-        return localStorage
-      } catch {
-        return null
-      }
-    }
-
-    /**
-     * Read the browser-local suppression preference. Anything but a stored
-     * boolean literal resolves to the default (on): the native page duplicates
-     * this manager's own section, so a fresh install must not show two archive
-     * entries side by side.
-     */
-    function readNativeSuppression(storage) {
-      if (storage === null || typeof storage?.getItem !== 'function') return true
-      try {
-        const raw = storage.getItem(NATIVE_SUPPRESS_STORAGE_KEY)
-        if (raw === 'true') return true
-        if (raw === 'false') return false
-        return true
-      } catch {
-        return true
-      }
-    }
-
-    /**
-     * Persist the suppression preference, tolerating denied or full storage.
-     */
-    function writeNativeSuppression(storage, value) {
-      if (storage === null || typeof storage?.setItem !== 'function') return
-      try {
-        storage.setItem(NATIVE_SUPPRESS_STORAGE_KEY, value ? 'true' : 'false')
-      } catch {
-        // A denied write keeps the in-memory value; the next apply re-reads storage.
-      }
-    }
-
-    /**
-     * Create the suppression preference consumed by the General row and the nav
-     * patch. The value is browser-local viewing habit, so it never reaches the
-     * Host, the profile, or the registry.
-     *
-     * `applied` is the patch's own report, not a preference: `null` while the
-     * switch is off or nothing is installed, `true` when the native row is
-     * actually hidden, `false` when the switch is on but the DOM patch could not
-     * locate that row. The General row reads it so it never claims a suppression
-     * that did not happen.
-     */
-    function createNativeSuppressionStore(storage) {
-      let suppressed = readNativeSuppression(storage)
-      let applied = null
-      const listeners = new Set()
-      const publish = () => {
-        for (const listener of [...listeners]) {
-          try {
-            listener()
-          } catch (error) {
-            console.error('[dsh-chat-archive-manager] suppression listener failed:', error)
-          }
-        }
-      }
-      return {
-        get: () => suppressed,
-        getApplied: () => applied,
-        setApplied: (next) => {
-          const value = next === true ? true : (next === false ? false : null)
-          if (value === applied) return
-          applied = value
-          publish()
-        },
-        subscribe: (listener) => {
-          listeners.add(listener)
-          return () => {
-            listeners.delete(listener)
-          }
-        },
-        set: (next) => {
-          const value = next === true
-          if (value === suppressed) return
-          suppressed = value
-          writeNativeSuppression(storage, value)
-          publish()
-        },
-        reload: () => {
-          const value = readNativeSuppression(storage)
-          if (value === suppressed) return
-          suppressed = value
-          publish()
-        }
-      }
-    }
-
-    /**
-     * The Settings nav's **section list**: the last direct child of the nav that
-     * holds buttons. `SettingsRoot` renders the title seat first and the section
-     * list after it, so scanning the nav's own children in reverse keeps a
-     * replaced `settings.header` — a third-party plugin may legitimately put its
-     * own button into the title seat — out of the button count, while any
-     * structure this cannot read still yields an empty list and therefore keeps
-     * the patch disabled (fail closed).
-     *
-     * @param nav - the Settings dialog's nav element, or null.
-     * @returns the section buttons in document order, or an empty list.
-     */
-    function settingsNavListButtons(nav) {
-      if (nav === null || nav === undefined || typeof nav.querySelectorAll !== 'function') return []
-      const children = nav.children
-      if (children === undefined || children === null) return []
-      const containers = [...children]
-      for (let index = containers.length - 1; index >= 0; index -= 1) {
-        const buttons = [...containers[index].querySelectorAll('button')]
-        if (buttons.length > 0) return buttons
-      }
-      return []
-    }
-
-    /**
-     * Pick the native archived-sessions nav row to hide, or `undefined` when the
-     * answer is not certain. The Settings shell projects `settings.section`
-     * entries into one nav button per entry, in entry order, so position is the
-     * stable join between the slot ledger and the DOM — another installation may
-     * have more sections, order them differently, or run another language without
-     * changing that join. Every guard is fail closed, because hiding the wrong
-     * row is worse than hiding none:
-     *
-     * - the native entry must still exist (a DSH without it disables the switch);
-     * - the button count must equal the entry count, so an unknown extra control
-     *   inside the section list (a future shell affordance) turns the patch off;
-     * - an empty label means the button is not a projected section row;
-     * - this manager's own "归档管理" row is never a target.
-     *
-     * @param navButtons - the section-list buttons, in document order.
-     * @param sectionIds - the `settings.section` entry ids, in slot order.
-     * @returns the row to hide, or undefined.
-     */
-    function resolveNativeArchiveNavButton(navButtons, sectionIds) {
-      if (!Array.isArray(navButtons) || !Array.isArray(sectionIds)) return undefined
-      if (navButtons.length !== sectionIds.length) return undefined
-      const index = sectionIds.indexOf(NATIVE_ARCHIVE_SECTION_ID)
-      if (index === -1) return undefined
-      const button = navButtons[index]
-      if (button === null || button === undefined || typeof button !== 'object') return undefined
-      const label = typeof button.textContent === 'string' ? button.textContent.trim() : ''
-      if (label === '' || label === SECTION_TITLE) return undefined
-      return button
-    }
-
-    /**
-     * Hide the native archived-sessions Settings row while the preference is on,
-     * and restore exactly what this run marked when it turns off or unloads.
-     *
-     * The row is hidden with a marked attribute plus the plugin's own
-     * `display:none` rule rather than by removing the node: the shell's React
-     * owns that subtree, and a removed node would make its own cleanup throw. The
-     * attribute carries a reference count so two live bundle generations (HMR)
-     * cannot restore a row the other still suppresses.
-     */
-    function installNativeArchiveSuppression(ctx, options) {
-      const doc = options.document
-      const view = options.window
-      const preference = options.preference
-      if (doc === null || doc === undefined || view === null || view === undefined) return
-      const touched = new Set()
-
-      const navButtons = () => {
-        const nav = typeof doc.querySelector === 'function' ? doc.querySelector(SETTINGS_NAV_SELECTOR) : null
-        return settingsNavListButtons(nav)
-      }
-
-      const sectionIds = () => {
-        try {
-          const entries = ctx.slots.entries('settings.section')
-          if (!Array.isArray(entries)) return []
-          return entries
-            .map(entry => entry?.options?.id)
-            .filter(id => typeof id === 'string')
-        } catch {
-          return []
-        }
-      }
-
-      const release = (button) => {
-        const current = Number(button.dataset?.[NATIVE_SUPPRESS_REFERENCES_KEY])
-        const remaining = Number.isSafeInteger(current) && current > 0 ? current - 1 : 0
-        if (remaining > 0) {
-          button.dataset[NATIVE_SUPPRESS_REFERENCES_KEY] = String(remaining)
-          return
-        }
-        delete button.dataset?.[NATIVE_SUPPRESS_DATASET_KEY]
-        delete button.dataset?.[NATIVE_SUPPRESS_REFERENCES_KEY]
-      }
-
-      const mark = (button) => {
-        if (touched.has(button)) return
-        const current = Number(button.dataset?.[NATIVE_SUPPRESS_REFERENCES_KEY])
-        const references = Number.isSafeInteger(current) && current >= 0 ? current : 0
-        button.dataset[NATIVE_SUPPRESS_DATASET_KEY] = ''
-        button.dataset[NATIVE_SUPPRESS_REFERENCES_KEY] = String(references + 1)
-        touched.add(button)
-      }
-
-      const sync = () => {
-        const buttons = navButtons()
-        const hiding = preference.get() === true
-        const target = hiding ? resolveNativeArchiveNavButton(buttons, sectionIds()) : undefined
-        for (const button of [...touched]) {
-          if (button === target) continue
-          release(button)
-          touched.delete(button)
-        }
-        if (target !== undefined) mark(target)
-        // Report whether the switch is actually doing anything, so the General row
-        // never claims a suppression this DOM patch could not apply.
-        if (typeof preference.setApplied === 'function') {
-          preference.setApplied(hiding ? target !== undefined : null)
-        }
-      }
-
-      sync()
-      const observer = typeof view.MutationObserver === 'function'
-        ? new view.MutationObserver(sync)
-        : undefined
-      if (observer !== undefined && doc.body !== undefined && doc.body !== null) {
-        observer.observe(doc.body, { childList: true, subtree: true })
-      }
-      const unsubscribe = preference.subscribe(sync)
-      const removeStorageListener = typeof view.addEventListener === 'function'
-        ? (() => {
-            const listener = (event) => {
-              if (event === null || event === undefined || event.key !== NATIVE_SUPPRESS_STORAGE_KEY) return
-              preference.reload()
-            }
-            view.addEventListener('storage', listener)
-            return () => view.removeEventListener('storage', listener)
-          })()
-        : undefined
-
-      ctx.effect(() => () => {
-        observer?.disconnect()
-        unsubscribe()
-        removeStorageListener?.()
-        for (const button of touched) release(button)
-        touched.clear()
-      }, 'dsh-chat-archive-manager: native archived-sessions suppression')
-    }
-
-    /**
-     * General-settings row for the suppression switch: title, description, and
-     * the shell's own Switch primitive (never a self-drawn control). When the
-     * switch is on but the nav patch could not locate the native row, the row
-     * says so instead of pretending the page is hidden.
-     */
-    function NativeArchiveSuppressRow({ getSuppressed, subscribeSuppressed, setSuppressed, getApplied }) {
-      const suppressed = React.useSyncExternalStore(subscribeSuppressed, getSuppressed, getSuppressed)
-      const applied = React.useSyncExternalStore(subscribeSuppressed, getApplied, getApplied)
-      return React.createElement('div', {
-        className: 'dac-general-row',
-        'data-dac-native-archive-row': ''
-      },
-      React.createElement('div', { className: 'dac-general-row-text' },
-        React.createElement('div', { className: 'dac-general-row-title' }, NATIVE_SUPPRESS_TITLE),
-        React.createElement('div', { className: 'dac-general-row-description' }, NATIVE_SUPPRESS_DESCRIPTION),
-        suppressed === true && applied === false && React.createElement('div', {
-          className: 'dac-general-row-note',
-          role: 'status'
-        }, NATIVE_SUPPRESS_UNAVAILABLE)),
-      React.createElement(Switch, {
-        checked: suppressed === true,
-        onChange: (next) => {
-          setSuppressed(next === true)
-        },
-        label: NATIVE_SUPPRESS_TITLE
-      }))
     }
 
     function ArchiveNavIconMarker() {
@@ -1788,24 +1498,6 @@ window.__ModuleLoader__.load({
         order: NAV_ICON_ORDER
       }, ArchiveNavIconMarker))
 
-      const suppression = createNativeSuppressionStore(resolveClientStorage())
-      installNativeArchiveSuppression(ctx, {
-        document: typeof document === 'undefined' ? null : document,
-        window: typeof window === 'undefined' ? null : window,
-        preference: suppression
-      })
-      ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-        name: 'settings.general.item',
-        id: NATIVE_SUPPRESS_ROW_ID,
-        order: NATIVE_SUPPRESS_ROW_ORDER,
-        inject: () => ({
-          getSuppressed: suppression.get,
-          subscribeSuppressed: suppression.subscribe,
-          setSuppressed: suppression.set,
-          getApplied: suppression.getApplied
-        })
-      }, NativeArchiveSuppressRow))
-
       void loadStatus().catch((error) => {
         if (!disposed) console.warn('archived chats status unavailable:', error)
       })
@@ -1832,17 +1524,8 @@ window.__ModuleLoader__.load({
       runArchiveBatch,
       runDeletionBatch,
       runRestoreBatch,
-      readNativeSuppression,
-      createNativeSuppressionStore,
-      settingsNavListButtons,
-      resolveNativeArchiveNavButton,
-      installNativeArchiveSuppression,
       BATCH_PRESETS,
       BATCH_CONFIRM_THRESHOLD,
-      NATIVE_ARCHIVE_SECTION_ID,
-      NATIVE_SUPPRESS_STORAGE_KEY,
-      NATIVE_SUPPRESS_DATASET_KEY,
-      NATIVE_SUPPRESS_UNAVAILABLE
     })
     return module.exports
   }

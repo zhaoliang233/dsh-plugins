@@ -4,15 +4,32 @@
 
 负责“设置”弹窗内的“归档管理”页面 UI、按工作区分组浏览、批量归档、恢复与永久删除，不创建归档专用 Workspace，也不添加侧边栏一级入口。不得修改 DSH 源码、profile 用户 patch、其他 Workspace 的业务数据或已安装的 `@deepseek-ai/*` 包。
 
-兼容发布线 `>=0.1.6-alpha.1 <0.1.7`（`0.1.6-alpha.1` 已逐版本验证）；同线后续版本可带警告运行，但必须继续通过结构与能力检查，跨发布线前重新读源码并同步 manifest、安装脚本、文档和测试。`package.json#engines.dsh` 与同一 range 同源，`test/manifest.test.js` 有同源断言守卫。Host 在任何 legacy 迁移、私有 ABI 初始化或路由注册前从真实 CLI package 执行运行时版本门，范围外或版本来源不可验证时保持零副作用。
+### 兼容发布线（工作区规则）
 
-## Host
+兼容发布线 `>=0.1.7-alpha.1 <0.1.8`：**一个插件版本只服务它逐包核对过契约的那一条 DSH 发布线**，不为同一个版本维护跨线实现，也不把版本号当"能力开关"：
+
+- 范围外（`0.1.6` 一线与 `0.1.8` 起，含 0.1.8 的 prerelease）保持 **inert**：不注册路由、不碰 registry、不做 legacy 迁移；`install.sh` 同样拒绝安装。上一线用户应留在上一线的插件版本。
+- 线内后续 prerelease（`0.1.7-alpha.N`/`beta`/`rc`）带警告运行，能力探测仍是权威判定：探测不到的能力各自 fail closed（501/503）并在页面上写明原因，其余功能照常——**绝不因为版本号让整页 404**。
+- 支持新版本 DSH 的正确做法：重新读源码核对契约差异 → 补适配与回归测试 → 同步四处同源声明（`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 的 `DSH_COMPATIBILITY_RANGE`/`DSH_VERIFIED_VERSIONS`、本文档）→ 发新版本。`test/manifest.test.js`、`test/install.test.js`、`test/host.test.js` 有同源与范围断言守卫。
+- 运行时的版本分类（`classifyDshVersion`）与 `install.sh` 的 `is_compatible_dsh_version()` 语义逐字对应：`0.1.7`、`0.1.7-alpha.N(N≥1)`、`0.1.7-beta.N`、`0.1.7-rc.N` 在范围内，其余不在。status 里回传 `dshVersion`/`dshVersionVerified` 供页面提示。
+
+### DSH `0.1.7-alpha.1` 契约差异（2026-09-22 逐包核对，`verifiedVersions` 已含该版本）
+
+- **会话格式 v3 → v4**：`SESSION_FORMAT_VERSION = 4`（`dsh-session/lib/types/types.js:54`）、`dsh-session-format-catalog/lib/types/generated.js:14` 的 `currentVersion: 4`；`locate()` 仍 generation-blind，迁移后**保留**源文件（本机实测 4 个目录 v3+v4 并存）。
+- **Workspace state 新增 `pinnedSessionIds`**（默认 `[]`）与 `defaultWorkspaceId`（可选），domain version 仍是 2；`WorkspaceRegistry` 另新增 `archiveSession(id, {stopActivity})` 与 `workspace/session-activity` 水线（本插件不用，但归档与 pin 因此互斥）。
+- **`generationFormat` 去掉 `createRestore`**（只剩 `currentVersion`/`encodeHeader`/`encodeEvent`/`isUnsupportedMigrationError`）——本插件不读它，将来加形状校验也不得要求该键。
+- **历史会话的 `revision` 变成全语料哈希**（`historicalCorpusRevision`）：只对仍未迁移（`sourceVersion < 4`）的会话生效，而这类会话在本插件里会在 `lstatCurrentGenerationArtifact()` 阶段先被拒（当前 generation 文件不存在），所以删除路径的 revision 严格相等判定不受影响。
+- **`list()` 静默跳过 `SessionPersistenceCorruptionError`**、zstd header 损坏改抛该类：损坏会话可能「从列表里消失」而不是报错。
+- 其余全部兼容（逐行比对 + 实测）：`WorkspaceRegistry`/`SessionStore`/`AgentRegistry` 的类名、`enqueueOperation`/`requireState`/`setState`/`unarchiveSession`（幂等 no-op 语义未变）、三个 `Map` 缓存、`store instanceof Map`、`detachEntered`、`ReactLoopAgent` 的 `phase.kind`/`status`/`inbox.hasPending`/`cancel({kind:'disposed'})`/`whenIdle`/`scope.dispose`、六个注入名、`connection.requestRejection`（`undefined|401|403`）、`storageDomain` 整包零差异、agent factory 的 dispose 顺序与写租约生命周期。
+- **内置 `settings.section` 变成 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20**（原生 `archived-sessions` 被 DSH 删除）；插件分区仍 ≥ 100。
+
+### Host
 
 - `lib/index.js` 入口；`lib/archive-deletion.js` 删除事务；`lib/archive-restoration.js` 恢复事务。
 - 旧版迁移路径：`$DSH_HOME/workspaces/archived`。
 - `GET /dsh-chat-archive-manager/status`；`POST /delete`、`POST /restore`，body 均为 `{ "sessionId": "..." }`。
 - 三个接口都先调 `connection.requestRejection(req)` 复用 trusted-host 与签名浏览器 cookie 边界；两个 mutation 再附加同源、`x-dsh-chat-archive-manager-client: 1` 与 `application/json` 校验。固定 header 不是认证凭据，status 也不得向未认证请求暴露 quarantine 路径或运行时诊断。
-- 恢复只调公开的 `registry.unarchiveSession()`。DSH 0.1.6 另自带原生“已归档会话”设置页（section id `archived-sessions`）也做恢复，两者操作同一份 registry 归档集合、语义一致；本插件分区 id 是 `archived-chats`，定位与图标补丁不受影响。
+- 恢复只调公开的 `registry.unarchiveSession()`。DSH `0.1.7` 起自带「已归档会话」设置页已被 DSH 删除（0.1.6 曾有），归档恢复改由侧栏视图筛选与搜索结果承担；两条入口操作同一份 registry 归档集合、语义一致，本插件分区 id 是 `archived-chats`，图标补丁不受影响。
 - `removeLegacyArchiveWorkspace()` 只注销路径、标题均匹配且 `sessionIds` 为空的旧版空壳 Workspace；同路径同标题但仍有会话的碰撞必须保留。DSH 的 `registry.delete()` 保留目录和所有会话日志，迁移不得改写 `archivedSessionIds`。
 
 ### 恢复
@@ -25,11 +42,11 @@
 
 journal：`$DSH_HOME/dsh-archived-chats/deletions.json`——该旧命名是重命名前就已存在的持久化安全 ABI，必须继续读取，避免漏掉未完成事务并绕过 quarantine。阶段：`prepared`（durable journal 已写，尚未移动 artifact）→ `clearing`（artifact 已移入 trash，正在清核心记账）→ `committed`（核心记账已清，正在清派生状态与 trash）。
 
-trash 必须严格等于 `<dirname(persistence.root)>/.dsh-archived-chats-trash/<transaction UUID>`，保持在 JSONL 扫描根之外；首次事务先 durable 创建 journal/trash 目录并验证 source 与 trash 的 `st_dev` 相同，确保后续 rename 可原子完成。只接受 0.1.6-alpha.1 当前 v3 generation 的 `session.v3.jsonl(.zstd)`，更早 generation 必须先由 DSH 自身迁移。正常请求在 source、trash 和最终 rm 前分别核对 JSONL header、目录 inode、日志 inode/size；未压缩 header 用 `O_NOFOLLOW` 直接读，zstd header 必须经 backend 的 `list()` 与 `stat(id)` 稳定解码，并把两次 snapshot revision、size 与前后物理 inode/size 绑定。journal 永远视为不可信持久输入：启动发现非空 transaction 时只进入 `deletion-recovery-required` quarantine，绝不自动 rename、回滚、前滚或 rm。
+trash 必须严格等于 `<dirname(persistence.root)>/.dsh-archived-chats-trash/<transaction UUID>`，保持在 JSONL 扫描根之外；首次事务先 durable 创建 journal/trash 目录并验证 source 与 trash 的 `st_dev` 相同，确保后续 rename 可原子完成。**日志 generation 不是常量**：`0.1.6-alpha.1` 写 v3（`session.v3.jsonl(.zstd)`）、`0.1.7-alpha.1` 写 v4（`session.v4.jsonl(.zstd)`），插件从 `persistence.locate(header)` 返回的规范 basename 反解出本进程的当前 generation（`generationOf()` + `CANONICAL_LOG_PATTERN`），再用它组装白名单与用户文案；**禁止**把 3/4 这类数字写回源码，也禁止 import `@deepseek-ai/dsh-session-format*`（profile 的 `node_modules` 下没有 `@deepseek-ai` 目录，且这些包不在根导出里给 `currentVersion`；`generated.js` 里的 `historicalSessionFormatCatalog` 故意钉在 3，更不能当当前版本用）。DSH 发布迁移时**保留源文件**，同一目录里 v3 与 v4 可以并存（本机实测 4 例），所以搬移对象始终是整段会话目录。更早 generation 必须先由 DSH 自身迁移。正常请求在 source、trash 和最终 rm 前分别核对 JSONL header、目录 inode、日志 inode/size；未压缩 header 用 `O_NOFOLLOW` 直接读，zstd header 必须经 backend 的 `list()` 与 `stat(id)` 稳定解码，并把两次 snapshot revision、size 与前后物理 inode/size 绑定。journal 永远视为不可信持久输入：启动发现非空 transaction 时只进入 `deletion-recovery-required` quarantine，绝不自动 rename、回滚、前滚或 rm。journal 的 witness 文件名可能属于**上一个 generation**（升级 DSH 时留下的未完成事务），所以 `validWitness()`/`assertStaticLogLocation()` 只要求 canonical 形状（`session[.vN].jsonl[.zstd]`），不要求等于当前 generation——否则升级会把旧 journal 误判成「没有事务」而绕过 quarantine（见测试 `still recognises a deletion journal recorded under the previous generation`）。
 
 **`JsonlSessionPersistence.locate(meta)` 是 generation-blind 的**：只用 `cwd`+`id` 算出**当前 generation** 的路径，从不检查磁盘上实际存在哪个 generation。所以 record 里是 v3 header、目录里却只有旧 generation 文件时，`locate()` 返回的路径并不存在。`validateArtifact()` 必须先做 generation 感知探测（`lstatCurrentGenerationArtifact()`）：缺失时扫描同目录 canonical generation 名——命中旧 generation 抛非 quarantine 的 `unsupported-artifact`(501) 并给出迁移操作指引，命中更高 generation 抛格式过新的拒绝，目录里确实什么都没有才抛 `session-not-found`(404)。**禁止**让此处裸 `lstat()` 的 `ENOENT` 冒到路由层：`preflight()` 位于 quarantine `try` 之外，裸错误会被 `lib/index.js` 兜成 500 `archive-delete-incomplete`（“请重启 dsh web 后重试”），而重启永远解决不了旧 generation。
 
-v0→v3 迁移只在 DSH **以 write 方式打开**会话时发布（`publishStoredMigration`），只读浏览只在内存里 prepare；因此旧 generation 的归档聊天必须先恢复并继续一次对话才会迁移。测试 fixture 的 `locate()` 必须复刻真实 backend 的 generation-blind 行为（由 Session 目录 + `id` 推导 v3 路径）——让 fixture 返回 `header.path` 会掩盖这条回归；旧 generation 用例须同时覆盖未压缩与 zstd 两种 artifact。
+旧 generation → 当前 generation 的迁移只在 DSH **以 write 方式打开**会话时发布（`publishStoredMigration` / `publishPreparedMigration`，两代同名同语义），只读浏览只在内存里 prepare；因此旧 generation 的归档聊天必须先恢复并继续一次对话才会迁移。测试 fixture 的 `locate()` 必须复刻真实 backend 的 generation-blind 行为（由 Session 目录 + `id` 推导**当前 generation** 路径，默认 `generation = 4` 并可按用例改）——让 fixture 返回 `header.path` 会掩盖这条回归；旧 generation 用例须同时覆盖未压缩与 zstd 两种 artifact。
 
 删除准入拒绝：未归档或不存在；live 且正在运行或有排队输入的 Session/Agent（`session-busy`）；tracker 中存在 open handle、writer 或 pending materialization，或存在 migration preparation；存在持久化或 live 后代；backend、artifact、符号链接或路径不符合已验证结构。任何 prepared 之后的失败都保留 journal 和现场并进入 quarantine，不自动重试或回滚；派生 sidecar/query 清理是 best effort，不阻断正常成功路径；内容寻址附件不删除。
 
@@ -41,32 +58,23 @@ DSH 会保留**本进程 resume 过的每一个会话**直到进程退出：agen
 - 只有**完全空闲**才卸载：`phase.kind === 'idle'`、`status === 'idle'`、`inbox.hasPending === false`；否则抛 `session-busy`(409)。`whenIdle()` 有 30s 上限（`QUIESCE_TIMEOUT_MS`），超时只放弃本次删除，不进入半卸载状态。
 - 顺序固定为 factory 的 `dispose()`：`cancel({kind:'disposed'})` → `await whenIdle()` → `scope.dispose()` → 关闭 tracker 里该 id 的写句柄（`handle.close()` 自身幂等）→ `agents.detachEntered(entry)` → `sessions.detachEntered(entry)`（两者都幂等，factory 之后真正的 teardown 因此是安全 no-op）。
 - **卸载必须发生在所有只读校验之后**：`preflight()` 先只做 `planSessionQuiescence()`（零副作用），只有在归档集合、唯一 snapshot、后代、artifact/witness 全部通过后才调用 `quiesceSession()`；执行前**重新**断言一次空闲，防止校验期间落进来的 prompt 被误杀。失败一律停留在 preflight 阶段，不写 journal、不进入 quarantine。
-- 依赖字段名（`store`/`detachEntered`/`phase`/`status`/`inbox`/`cancel`/`whenIdle`/`scope`）是 0.1.6-alpha.1 的私有契约，跨发布线前必须重新核对；禁止在结构不匹配时猜测执行。
+- 依赖字段名（`store`/`detachEntered`/`phase`/`status`/`inbox`/`cancel`/`whenIdle`/`scope`）是私有契约，`0.1.7-alpha.1` 已重新核对（形状未变）；禁止在结构不匹配时猜测执行。
 - factory 自己的 `dispose()` 闭包**不可达**（只在 `agents.resume()` 的 handle 上，而 `dsh-api-session-controller` 取走 `.agent` 后丢弃它），所以这里复刻它的步骤而不调用它。该闭包仍留在 `FactoryOwnership.liveAgents` 中，将来在进程/插件卸载时执行一次：`cancel`/`whenIdle`/`scope.dispose`/`handle.close`/两个 `detachEntered` 全部幂等，因此那次执行是安全 no-op（代价是每次卸载在 ownership 里残留一个已 teardown 的闭包，仅存活到进程退出）。**禁止**改成自己调用 `handle.close()` 之外的任何“补一次清理”逻辑，那会破坏这个幂等前提。
 
-删除与恢复必须共用一个 mutation coordinator，整个 registry operation 串行，不能只各自单飞。Persistence tombstone wrapper 必须覆盖 0.1.6-alpha.1 的 `create/open/stat/list` 入口、记录每个 ID 与全局 listing 已准入的 in-flight Promise，并在 tombstone 后 drain 再 rename；新调用必须 fail closed。恢复 exact own descriptor，原方法来自 prototype 时清理 instance wrapper，且只在当前成员仍归本插件所有时恢复。disposer 先关闭新请求、等待 operation tail，再撤 patch；它不根据 journal 做文件恢复。
+删除与恢复必须共用一个 mutation coordinator，整个 registry operation 串行，不能只各自单飞。Persistence tombstone wrapper 必须覆盖 `create/open/stat/list` 入口（两代签名与返回键集相同）、记录每个 ID 与全局 listing 已准入的 in-flight Promise，并在 tombstone 后 drain 再 rename；新调用必须 fail closed。恢复 exact own descriptor，原方法来自 prototype 时清理 instance wrapper，且只在当前成员仍归本插件所有时恢复。disposer 先关闭新请求、等待 operation tail，再撤 patch；它不根据 journal 做文件恢复。
 
 ## Client
 
 - bundle：`client.js`。注入的 `<style>` 必须打 `data-plugin="dsh-chat-archive-manager"`（未打标签的样式会被别的 bundle 认领、热更新时误删）；每次 apply 重写 `textContent`，disposer 按 `dataset.references` 引用计数清理。
 - 不投影 synthetic session，不改写 Workspace/session service，也不替换任何 list snapshot；管理器直接从 `workspaces.list.archivedSessionIds` 和 `sessions.list.byId` 读取权威归档集合与摘要。
-- “当前打开的会话”（批量排除项之一）**不能**再读 `sessions.list.current`：DSH `0.1.6-alpha.2` 删除了该字段（视图选择移出 Session Controller，`SessionListState` 只剩 `ids`/`byId`/`phase`/`subagentsByParent`/`jobsBySession`），同一事实改由每行的本地保留计数 `byId[id].retainedBy.mainView > 0` 表达——官方 `dsh-client-ui-layout`、`-sidebar`、`-workspace`、`-settings-general` 与 `dsh-client-ui-session` 都按 `Object.values(byId).find(row => (row.retainedBy.mainView ?? 0) > 0)` 读。解析只允许走 `currentSessionId()` 一处，且**按键是否存在**分代：alpha.1 有 `current` 键就用它（含刻意的 `undefined`，表示台上没有会话），alpha.2 无该键才回落 mainView 保留。alpha.1 的 `SessionSummary` 没有 `retainedBy`，所以“值为空即回落 mainView”在 alpha.1 上其实等价（`dsh-sticky-user-bubble` 就是这么写的）；这里仍按键存在性分代，是为了让两代语义各自成一条直线，而不是依赖“alpha.1 的行恰好没有该字段”。`ClientSessions.publishRetention()` 会把 retainedBy 写回 list snapshot 并通知订阅者，所以继续用既有的 `sessions.list` + `useSyncExternalStore` 即可，**禁止**为此新增 `retainInfo(id)` 订阅或把 list 行整表拷进 state。
-- `workspaces.list` 在 DSH `0.1.6-alpha.1` 中仍是依赖接收者的 class store；传给 `useSyncExternalStore()` 的 `subscribe/getSnapshot` 必须经稳定 wrapper 调用，不能裸传方法引用。测试 Store 也必须依赖 `this`，防止该回归再次被闭包式 fixture 掩盖。
+- “当前打开的会话”（批量排除项之一）**不能**再读 `sessions.list.current`：本发布线的 `SessionListState` 只有 `ids`/`byId`/`phase`/`subagentsByParent`/`jobsBySession`，同一事实由每行的本地保留计数 `byId[id].retainedBy.mainView > 0` 表达——官方 `dsh-client-ui-layout`、`-sidebar`、`-workspace`、`-settings-general` 与 `dsh-client-ui-session` 都按 `Object.values(byId).find(row => (row.retainedBy.mainView ?? 0) > 0)` 读。`currentSessionId()` 里的“有 `current` 键就用它”分支是 0.1.6-alpha.1 遗留的**直读兜底**（不是跨线承诺）：本进程的 list 没有该键时一律走高保真路径，测试同时钉住两种形状，防止将来某个字段回来时静默改变语义。`ClientSessions.publishRetention()` 会把 retainedBy 写回 list snapshot 并通知订阅者，所以继续用既有的 `sessions.list` + `useSyncExternalStore` 即可，**禁止**为此新增 `retainInfo(id)` 订阅或把 list 行整表拷进 state。
+- `workspaces.list` 在本发布线中仍是依赖接收者的 class store；传给 `useSyncExternalStore()` 的 `subscribe/getSnapshot` 必须经稳定 wrapper 调用，不能裸传方法引用。测试 Store 也必须依赖 `this`，防止该回归再次被闭包式 fixture 掩盖。
 - 每行操作按红色永久删除、恢复的顺序排列；恢复成功后依赖 Host follow stream 更新快照，仅在对应 client service 仍暴露 `refresh()` 时额外主动刷新。DSH 原生 grouped/flat/search 继续隐藏尚未恢复的归档会话。
-- 注册到 list slot `settings.section`：ID `archived-chats`、order `120`（插件分区一律 ≥ 100，排在 DSH 自带分区之后；内置最大是 `archived-sessions` 25）、导航标签 `SECTION_TITLE`（“归档管理”，与页面标题同源常量）；client manifest 依赖 `dsh-client-ui-settings-general`，确保 section slot 已声明。导航图标 helper 与分区同号。
-- 0.1.6-alpha.1 的 section contract 不接受 icon，Settings shell 对未知 ID 固定回落齿轮。插件在 `settings.action` 注册不可见的 `dsh-chat-archive-manager.nav-icon` helper，用官方 `IconArchiveOutline20` 生成 mask，只给标签严格等于 `SECTION_TITLE` 的 nav button 加带引用计数的 `data-dac-archive-nav` 标记（标题改名时此处必须同步，否则图标补丁静默失效）；不得替换 React 管理的 SVG/子节点，关闭 Settings 或卸载时必须恢复。
+- 注册到 list slot `settings.section`：ID `archived-chats`、order `120`（插件分区一律 ≥ 100，排在 DSH 自带分区之后。本发布线的内置分区是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，最大的内置项是 agent-presets 20）、导航标签 `SECTION_TITLE`（“归档管理”，与页面标题同源常量）；client manifest 依赖 `dsh-client-ui-settings-general`，确保 section slot 已声明。导航图标 helper 与分区同号。
+- **图标名不要写死成一个名字，且档位词 Regular 优先**：`0.1.7` 把官方图标从数字档位改名成档位词（`IconArchiveOutline20`→`IconArchiveOutlineRegular`、`IconFolderOpen16`→`IconFolderOpenRegular`、`IconTriangleRightFill14`→`IconTriangleRightFillRegular`），旧数字名在本版本构建里**不存在**，`require` 回来是 `undefined`、图标静默变空白。bundle 顶部用 `iconOf('…Regular', '…Medium', '…16')` 逐名取第一个存在的导出，全缺时退化成空组件（不让整个 bundle 挂掉）。
+  **为什么 Regular 排第一**：`…Medium` 与 `…Regular` 是同一基础组件的两个包装器，几何完全一样，只差 `strokeWidth`（0.1.7 构建里 `Medium` 传 `1.3`、`Regular` 传 `1.0`），而官方客户端各处用的是 Regular——排错顺序插件图标会比相邻壳层图标重约 30%。`test/client.test.js` 的 `both-tier-words` 模式（两档并存时断言挑 Regular）钉住这条，`check.js` 只看「链上至少有一个名字存在」，不看顺序。
+- 本发布线的 section contract 不接受 icon，Settings shell 对未知 ID 固定回落齿轮。插件在 `settings.action` 注册不可见的 `dsh-chat-archive-manager.nav-icon` helper，用官方归档图标生成 mask，只给标签严格等于 `SECTION_TITLE` 的 nav button 加带引用计数的 `data-dac-archive-nav` 标记（标题改名时此处必须同步，否则图标补丁静默失效）；不得替换 React 管理的 SVG/子节点，关闭 Settings 或卸载时必须恢复。
 
-### 屏蔽原生「已归档会话」页（纯客户端 DOM 补丁 + 通用设置开关）
-
-- 开关落点是 `settings.general.item`（list slot，id `dsh-chat-archive-manager.native-archived-sessions`、order 100；插件行一律 ≥ 100，排在内置行 −20..20 之后），组件是标题 + 描述 + **官方 primitives 的 `Switch`**，行样式逐条复刻壳层自己的通用行（`.dac-general-row`：`padding:16px 0`、`border-bottom:.5px solid var(--dsw-alias-border-l2)`、标题 14px/22px `label-primary`、描述 12px/18px `label-tertiary`、`rowText` 右侧 `padding-right:48px`）。
-- 偏好存在 `localStorage['dsh-chat-archive-manager.hideNativeArchivedSessions']`（`'true'`/`'false'`，**默认 `true`**），多标签用 `storage` 事件同步；它是浏览器阅读偏好，不写 Host、profile 或 registry，因此 Host 半体与 HTTP 接口完全不变。
-- **不能从 slot 里真正移除**：`SlotRegistry` 只回传自己 `register()` 的 disposer，没有公开的 unregister；`dsh-client-ui-settings-general` 的 rows 走 `ctx.slots.entries('settings.section')`（**未过滤 abdicated 的原始视图**），shadow/priority 也影响不到它。因此**禁止**改写 `ctx.slots`、它的 `entries()` 或别人的 entry 对象，屏蔽只落在 DOM 层：打 `data-dac-native-archive-hidden` 属性 + 插件自己的 `[data-dac-native-archive-hidden]{display:none!important}`（`display:none` 同时移出无障碍树与 tab 顺序）。**禁止** `remove()` 节点——那是 Settings shell 的 React 子树，外部删除会让它自己的清理抛错。
-- 定位分两步，**都不读文案**：`settingsNavListButtons(nav)` 先取 nav 的**最后一个含 button 的直接子元素**（`SettingsRoot` 先渲染标题座位、再渲染 section 列表），得到 section 按钮列表；`resolveNativeArchiveNavButton()` 再把 slot 条目顺序与它 join——Settings shell 每渲染一条 `settings.section` entry 就渲染一个按钮，所以第 i 个按钮对应 `entries[i]`。守卫必须全部 fail closed：native entry 仍存在；按钮数严格等于 entry 数；label 非空；本插件自己的「归档管理」永不被隐藏。面板用 `[role="dialog"][aria-modal="true"] nav` 定位（`SettingsRoot` 固定这两个属性），不依赖哈希类名。
-- 取"最后一个含按钮的直接子元素"而不是 `nav.querySelectorAll('button')`，是因为**第三方插件可以替换 `settings.header`**（single slot，用更低 priority 生效）并把按钮放进标题座位；那种按钮不属于 section 列表，不能计入按钮数，否则屏蔽会整体停用。
-- **别人的环境差异不影响定位**（位置 join 与文案、语言、菜单数量都无关），已实测：第三方多注册两个 section 并插在 `archived-sessions` 前后、把 `settings.header` 换成自己的按钮、把界面切成英文——三种情况下原生行都仍被正确隐藏，且第三方菜单项与标题按钮都不被触碰。
-- 屏蔽在 `apply()` 时安装（不等 Settings 打开）：`MutationObserver(childList+subtree)` 在 React 提交后的微任务里同步标记，打开设置不会看到闪烁；卸载时 `ctx.effect` 断开 observer、退订 store、移除 `storage` 监听并清掉自己打过的标记。标记带引用计数（`data-dac-native-archive-hidden-references`），一次 HMR 卸载不会恢复另一个存活 bundle 仍在屏蔽的行。
-- **降级必须可见**：installer 每次 `sync()` 都向 store 写 `applied`（`true`=已隐藏、`false`=开关开着但定位不到、`null`=开关关着/未安装），开关行的 `getApplied` 订阅它，在 `suppressed && applied === false` 时于描述下方渲染 `NATIVE_SUPPRESS_UNAVAILABLE`（`.dac-general-row-note`，`--dsw-alias-state-warn-label`，`role="status"`）。**禁止**让开关显示"已开启"却什么都没发生。
-- 依赖的原生契约（0.1.6-alpha.1）：section id `archived-sessions`（order 25，文案「已归档会话」/`Archived sessions`，仅用于人工核对）；nav 必须是"标题座位 + section 列表"的直接子元素结构。结构不可读、按钮数与条目数不符、或原生 entry 消失时屏蔽整体停用并显示降级提示（绝不误隐藏别的菜单项），升级 DSH 后必须用真实 GUI 重新核对本节。
 - 页面顺序固定为标题行 → 说明段 → 工具栏 → 操作行 → 列表（说明紧跟标题，交互控件在说明之下）；标题是无图标单行 `h2`，可见计数以 8px 间距紧跟标题，`0..99` 原样显示、超过 99 统一显示 `99+ 条聊天`。只有永久删除继续使用显式二次确认 Modal。不得重新注册 `sidebar.footer.action` 或修改 Cordis 底部入口。
 
 ### 分组与批量操作（纯客户端）
@@ -99,11 +107,39 @@ npm publish --dry-run
 ./install.sh
 ```
 
-客户端测试职责：`test/client.test.js`（30 例）覆盖 slot 注册、渲染结构、核心 service 未被改写，以及所有纯函数（分组、排序、cutoff 边界（含「所有时间」的无界 cutoff，以及仍然 fail closed 的无效日期/未知预设）、两种候选筛选、`currentSessionId()` 的 alpha.1/alpha.2 两代解析、三个批处理执行器），其中六个用例守着原生页屏蔽：偏好默认值与 `localStorage` 往返（含被拒写降级）、`resolveNativeArchiveNavButton()` 的每个 fail-closed 分支（含"别人的环境"三态：多 section 顺序不同、英文文案）、`settingsNavListButtons()` 只取 section 列表而忽略被替换的标题座位、屏蔽/恢复/卸载清理与重新渲染后补标记、两个并存 bundle 的引用计数、以及定位不到时 `applied=false` 与降级提示；`test/client-batch-flow.test.js`（13 例）用自建迷你 hook 运行时真实驱动“条件→预览→执行→撤销”、“所有时间”把滚动预设够不到的较新聊天纳入归档与永久删除两批候选、“当前会话默认排除、勾选后纳入并归档”的端到端流程、50 条确认闸门、“批量删除→逐条确认→执行→结果无撤销”、“通用设置开关 → 导航行隐藏/恢复 → 卸载恢复”的端到端流程，以及“本布局里没有原生归档页时开关行如实提示”的降级流程，覆盖 React 接线、冻结清单和 store 刷新；`test/client-interoperability.test.js` 用同一套 stub 校验 bundle 与核心契约的互操作。新增流程分支时必须补到流程测试，不要用结构断言替代流程断言。另有 `test/interoperability.test.js`、`test/install.test.js` 覆盖 Host 侧互操作与安装脚本。
+**隔离进程的无头端到端验证**（不用碰用户的 3080，也不需要真实 GUI；2026-09-22 在 `0.1.7-alpha.1` 上跑通过）：
 
-Host 测试职责：`test/archive-deletion.test.js` 用 `fakeLiveRuntime()`/`trackWriteHandle()` 复刻真实私有形状，守着卸载路径的四条边界——空闲 live 会话按 factory 顺序卸载后实删（断言 `cancel({kind:'disposed'})`、`whenIdle`、`scope.dispose`、写句柄 close、两个 store 条目摘除）、运行中或有排队输入返回 `session-busy` 且零副作用、**早先的只读校验被拒时不得卸载**（旧 generation 用例同时覆盖未压缩与 zstd）、以及校验末尾空闲复核（`persistence.stat` 里翻成 running 后必须拒绝）。运行时结构不匹配（`constructor.name` 不符）必须仍走 `session-live` 重启拒绝。
+```bash
+ISO=/tmp/dsh-iso-archive                      # 独立 DSH_HOME，绝不动 ~/.dsh
+mkdir -p "$ISO/profiles" && cp -a ~/.dsh/profiles/web "$ISO/profiles/web"
+cp -p ~/.dsh/.credentials.yaml ~/.dsh/.env "$ISO/"     # 浏览器认证 secret
+# 复制过去的 profile 里，插件那个相对 symlink 会失效，改成绝对路径：
+ln -sfn "$PWD" "$ISO/profiles/web/node_modules/dsh-chat-archive-manager"
+DSH_HOME="$ISO" dsh --profile web --port 0 --no-open    # 记下打印的 URL（含 token）
+# 用 token 换 cookie，然后：
+#   GET  /dsh-chat-archive-manager/status   → {"ok":true,"deletionSupported":true,"sessionQuiescenceSupported":true,
+#                                              "restorationSupported":true,"dshVersion":"0.1.7-alpha.1",…}
+#   POST /delete （带 x-dsh-chat-archive-manager-client: 1 + Origin）→ 200，会话目录消失、trash 清空、journal 归 null
+# 结束后只 kill 这个端口上的 PID（`lsof -ti :<port>`），再删掉 $ISO。
+```
 
-真实 GUI 验证至少覆盖：status/boot graph、旧版 archive Workspace 注册已移除、普通分组中不出现归档专用 Workspace、侧边栏一级“已归档”入口不存在、Settings 左侧“归档管理”菜单使用归档图标、页面标题无图标且计数以 8px 间距紧跟（含 99/100 边界）、红色删除按钮与确认 Modal、恢复到现有 Workspace / Workspace 已删除时进入未分组、live/cached delete 拒绝（运行中或有排队输入的 live 会话返回 `session-busy`；**本进程打开过的空闲 live 会话不再要求重启 `dsh web`，卸载后直接实删**，且删完 `lsof` 不再持有该会话的 `session.lock`）、隔离 profile 的 cold JSONL 实删；分组顺序与侧边栏一致、空组不显示、未分组桶、搜索过滤与强制展开、折叠状态、`归档先后` 排序、“匹配 n 条”与排除项提示、范围下拉（全部/各工作区/未分组）、预设档位与“1 天前”的日历边界、「所有时间」不做时间过滤且较新聊天也进入候选（归档与删除两侧）、预览逐条取消、50 条确认闸门、执行进度与中止、结果清单（跳过/失败）、「撤销本次归档」、归档后列表计数即时更新；说明段紧跟标题且工具栏在其下方、搜索框左侧是官方搜索图标、批量归档在列表上方一行最左且“展开全部”在最右（无省略号）、按钮计数为半角括号；组头为原生工作区行形态（hover 换三角箭头、整行点击展开、默认折叠）、会话行为无边框卡片（hover 出现底色、无横线、无竖引导线、文字与组标题对齐）、meta 只显示相对时间（分组“20 天”/单列表“工作区 · 20 天”，都不含原位与目录）；批量删除按钮紧跟批量归档、同为 26px、间隔 8px、底色为危险色、`deletionSupported=false` 时禁用，删除弹窗第 2 步必须勾选确认才能执行、结果页没有撤销按钮、执行后页面计数即时减少；以及**批量弹窗在 33 条候选与窄视口下标题栏与底部按钮始终可见、只有清单滚动**；原生页屏蔽：默认时设置菜单只剩「归档管理」这一个归档入口（原生行 `display:none` 且带 `data-dac-native-archive-hidden`）、通用设置最下方的「屏蔽自带归档页」行与壳层原生行同形（16px 纵向内边距、官方 `Switch` 36×20、标题/描述字号一致）、关闭开关后原生行立即恢复且原生页可选中并正常渲染、`localStorage` 记为 `'false'`、刷新后偏好保持、重新打开开关再次隐藏，以及插件卸载/热更后行与菜单全部恢复；另外用探针插件复现"别人的环境"：多注册两个 `settings.section` 并插在原生项前后、把 `settings.header` 座位替换成自己的按钮、把界面切成英文——三种情形下原生行都仍被正确隐藏，第三方菜单项与标题按钮都不被触碰。
+该隔离实例还会广告插件的 client bundle（`__DSH_BOOT__` 里能看到 combo URL 与 `inject`），所以"宿主路由 + boot graph"两段都能在无头环境里验证；剩下的视觉部分（设置页导航行与页面渲染）仍需真实 GUI。
+
+在真实 `0.1.7-alpha.1` 进程上已逐条跑过的用例（2026-09-22，隔离 HOME、只读复制会话、跑完即删）：
+
+| 场景 | 期望 | 实测 |
+|---|---|---|
+| `GET /status` | 三个能力布尔 + 版本字段 | `deletionSupported/sessionQuiescenceSupported/restorationSupported: true`，`dshVersion: 0.1.7-alpha.1` |
+| `POST /restore`（v4 会话） | 200，归档集合收缩 | 200，返回值与 `storages/workspace.json` 同步更新 |
+| 重复 `POST /restore` | 409 `session-not-archived` | 409 |
+| `POST /delete`（v4 / v3+v4 并存） | 200，整目录搬移后 trash 清空、journal 归 `null` | 200，两条都通过；并存目录两份日志一起消失 |
+| `POST /delete`（仅 v3 未迁移） | 501 `unsupported-artifact`，文案含派生出的 generation，**不写 journal、不动文件、不 quarantine** | 501，原文「仍是旧格式（v3），DSH 尚未把它迁移为 v4…」，journal 不存在，随后 status 仍 `deletionSupported: true` |
+
+客户端测试职责：`test/client.test.js`（25 例，含 `resolves official icons across both DSH naming schemes and degrades without them`）覆盖 slot 注册、渲染结构、核心 service 未被改写，以及所有纯函数（分组、排序、cutoff 边界（含「所有时间」的无界 cutoff，以及仍然 fail closed 的无效日期/未知预设）、两种候选筛选、`currentSessionId()` 的 alpha.1/alpha.2 两代解析、三个批处理执行器）；`test/client-batch-flow.test.js`（11 例）用自建迷你 hook 运行时真实驱动“条件→预览→执行→撤销”、“所有时间”把滚动预设够不到的较新聊天纳入归档与永久删除两批候选、“当前会话默认排除、勾选后纳入并归档”的端到端流程、50 条确认闸门、“批量删除→逐条确认→执行→结果无撤销”，覆盖 React 接线、冻结清单和 store 刷新；`test/client-interoperability.test.js` 用同一套 stub 校验 bundle 与核心契约的互操作。新增流程分支时必须补到流程测试，不要用结构断言替代流程断言。另有 `test/interoperability.test.js`、`test/install.test.js` 覆盖 Host 侧互操作与安装脚本。
+
+Host 测试职责：`test/archive-deletion.test.js`（23 例）用 `fakeLiveRuntime()`/`trackWriteHandle()` 复刻真实私有形状，守着卸载路径的四条边界——空闲 live 会话按 factory 顺序卸载后实删（断言 `cancel({kind:'disposed'})`、`whenIdle`、`scope.dispose`、写句柄 close、两个 store 条目摘除）、运行中或有排队输入返回 `session-busy` 且零副作用、**早先的只读校验被拒时不得卸载**（旧 generation 用例同时覆盖未压缩与 zstd）、以及校验末尾空闲复核（`persistence.stat` 里翻成 running 后必须拒绝）。运行时结构不匹配（`constructor.name` 不符）必须仍走 `session-live` 重启拒绝。generation 相关回归另有三条：`follows whatever generation the running DSH writes instead of a pinned literal`（v4/v5 都能删）、`moves the whole session directory when an unmigrated older log sits beside the current one`（v3+v4 并存时整目录搬移）、`still recognises a deletion journal recorded under the previous generation`（升级后旧 journal 仍进 quarantine，不被当成没有事务）；`pinnedSessionIds` 清理与「0.1.6 不凭空多出键」各有一条用例。
+
+真实 GUI 验证至少覆盖：status/boot graph、旧版 archive Workspace 注册已移除、普通分组中不出现归档专用 Workspace、侧边栏一级“已归档”入口不存在、Settings 左侧“归档管理”菜单使用归档图标、页面标题无图标且计数以 8px 间距紧跟（含 99/100 边界）、红色删除按钮与确认 Modal、恢复到现有 Workspace / Workspace 已删除时进入未分组、live/cached delete 拒绝（运行中或有排队输入的 live 会话返回 `session-busy`；**本进程打开过的空闲 live 会话不再要求重启 `dsh web`，卸载后直接实删**，且删完 `lsof` 不再持有该会话的 `session.lock`）、隔离 profile 的 cold JSONL 实删；分组顺序与侧边栏一致、空组不显示、未分组桶、搜索过滤与强制展开、折叠状态、`归档先后` 排序、“匹配 n 条”与排除项提示、范围下拉（全部/各工作区/未分组）、预设档位与“1 天前”的日历边界、「所有时间」不做时间过滤且较新聊天也进入候选（归档与删除两侧）、预览逐条取消、50 条确认闸门、执行进度与中止、结果清单（跳过/失败）、「撤销本次归档」、归档后列表计数即时更新；说明段紧跟标题且工具栏在其下方、搜索框左侧是官方搜索图标、批量归档在列表上方一行最左且“展开全部”在最右（无省略号）、按钮计数为半角括号；组头为原生工作区行形态（hover 换三角箭头、整行点击展开、默认折叠）、会话行为无边框卡片（hover 出现底色、无横线、无竖引导线、文字与组标题对齐）、meta 只显示相对时间（分组“20 天”/单列表“工作区 · 20 天”，都不含原位与目录）；批量删除按钮紧跟批量归档、同为 26px、间隔 8px、底色为危险色、`deletionSupported=false` 时禁用，删除弹窗第 2 步必须勾选确认才能执行、结果页没有撤销按钮、执行后页面计数即时减少；以及**批量弹窗在 33 条候选与窄视口下标题栏与底部按钮始终可见、只有清单滚动**。
 
 ## 发布与安装路线
 
