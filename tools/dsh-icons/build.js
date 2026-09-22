@@ -218,7 +218,9 @@ function primitivesModule(source) {
   const seed = /"@deepseek-ai\/dsh-client-ui-primitives":\s*([A-Za-z0-9_$]+)/u.exec(source)
   if (seed === null) throw new Error('seed 映射里没有 client-ui-primitives')
   const variable = seed[1]
-  const definition = new RegExp(`(?:const|let|var)\\s+${escapeRegExp(variable)}\\s*=\\s*Object\\.freeze\\(Object\\.defineProperty\\(`, 'u').exec(source)
+  // 定义可能带 `const/let/var`，也可能只是逗号声明表里的尾项（`…,zj=Object.freeze(…)`，
+  // 0.1.7 起就是这样），所以只要求左侧不是标识符字符，不再要求声明关键字。
+  const definition = new RegExp(`(?<![A-Za-z0-9_$])${escapeRegExp(variable)}\\s*=\\s*Object\\.freeze\\(Object\\.defineProperty\\(`, 'u').exec(source)
   if (definition === null) throw new Error(`没找到 ${variable} 的冻结导出对象定义`)
   const objectOpen = source.indexOf('{', definition.index + definition[0].length - 1)
   const range = balancedRange(source, objectOpen)
@@ -267,10 +269,41 @@ function definitionOf(source, variable) {
 const jsxRuntime = {
   Fragment: Symbol('Fragment'),
   jsx: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? [props.children] : [] }),
-  jsxs: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? (Array.isArray(props.children) ? props.children : [props.children]) : [] })
+  jsxs: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? (Array.isArray(props.children) ? props.children : [props.children]) : [] }),
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children })
+}
+
+/**
+ * 求值一个图标定义。
+ *
+ * 打包产物里的 JSX 运行时别名由压缩器决定（0.1.6 是 `u`／`react_jsx_runtime`，0.1.7 换成了 `l`），
+ * 写死别名会让升级 DSH 后**所有**图标都变成 `render: l is not defined`。所以别名从定义本身
+ * 探测出来再绑定；同一个桩对象同时提供 `jsx`/`jsxs`/`Fragment`/`createElement`，无论压缩器
+ * 把哪一层别名留下来都能求值。
+ *
+ * @param definition - 图标组件的定义表达式源码。
+ * @returns 组件函数。
+ */
+function evaluateIconDefinition(definition) {
+  const aliases = new Set()
+  for (const match of definition.matchAll(/\b([A-Za-z0-9_$]+)\s*\.\s*(?:jsxs?|createElement)\s*\(/gu)) aliases.add(match[1])
+  aliases.add('u')
+  aliases.add('react_jsx_runtime')
+  aliases.add('React')
+  const names = [...aliases]
+  const factory = new Function(...names, `return (${definition})`)
+  return factory(...names.map(() => jsxRuntime))
 }
 
 const SVG_VOID_TAGS = new Set(['path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse', 'use', 'stop', 'image'])
+
+/** 语言关键字与求值器参数：出现这些标识符时不去模块里找定义。 */
+const RESERVED_IDENTIFIERS = new Set([
+  'true', 'false', 'null', 'undefined', 'this', 'return', 'new', 'typeof', 'instanceof', 'in', 'of', 'void', 'delete',
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'function', 'class', 'const', 'let', 'var',
+  'try', 'catch', 'finally', 'throw', 'await', 'async', 'yield', 'default', 'export', 'import', 'extends', 'super',
+  'u', 'l', 'React', 'react_jsx_runtime', 'props', 'children', 'Math', 'Number', 'String', 'Object', 'Array', 'JSON'
+])
 
 /**
  * JSX 里的驼峰属性名 → 真实 SVG 属性名。
@@ -297,12 +330,22 @@ function svgAttributeName(key) {
  * 把桩 jsx 树序列化成静态 SVG 字符串。
  * `idPrefix` 给 mask/clipPath 的内部 id 加前缀，避免同一页面里多个图标撞 id。
  */
-function serializeSvg(node, idPrefix) {
+function serializeSvg(node, idPrefix, depth = 0) {
   if (node === null || node === undefined || typeof node === 'boolean') return ''
   if (Array.isArray(node)) return node.map((child) => serializeSvg(child, idPrefix)).join('')
   if (typeof node === 'string' || typeof node === 'number') return String(node)
   const { type, props } = node
   if (type === jsxRuntime.Fragment) return serializeSvg(props.children, idPrefix)
+  // 0.1.7 起导出图标常是包装器（`e=>l.jsx(F5,{...e})`），所以要继续展开函数组件，
+  // 而不是把非字符串的 type 直接丢掉（那会渲染出空 SVG）。
+  if (typeof type === 'function') {
+    if (depth > 8) return ''
+    return serializeSvg(type(props), idPrefix, depth + 1)
+  }
+  if (type !== null && typeof type === 'object' && typeof type.type === 'function') {
+    if (depth > 8) return ''
+    return serializeSvg(type.type(props), idPrefix, depth + 1)
+  }
   if (typeof type !== 'string') return ''
   const attributes = []
   for (const [key, value] of Object.entries(props)) {
@@ -322,36 +365,71 @@ function serializeSvg(node, idPrefix) {
 /**
  * 提取全部图标并渲染成 SVG。
  *
- * 图标定义可能引用同模块的常量导出（例如 `SHIELD_OUTLINE_PATH`），所以先把非函数导出
- * 求值挂到 globalThis——它们是纯数据，求值失败只影响对应图标（记为 unrenderable）。
+ * 图标定义会引用同模块的其它标识符，压缩器的版本决定它们的形状：
+ * 0.1.6 是内联的 `d=` 字符串，0.1.7 把路径抽成独立常量（`F5="M0 0…"`）再在组件里引用。
+ * 所以这里**两遍**求值：先把图标定义里引用到的、本模块内有定义的纯数据标识符挂到
+ * globalThis，再求值组件本身；失败只影响对应图标（记为 unrenderable）。
  */
 function extractIcons(source, exports) {
   const icons = []
   const unrenderable = []
   const constantExports = []
 
+  const referenced = new Set()
+  const iconDefinitions = new Map()
+  for (const [name, variable] of exports) {
+    if (!name.startsWith('Icon')) continue
+    const definition = definitionOf(source, variable)
+    if (definition === null) continue
+    iconDefinitions.set(name, definition)
+    for (const token of definition.matchAll(/(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)/gu)) referenced.add(token[1])
+  }
+
+  const constants = new Set(constantExports)
   for (const [name, variable] of exports) {
     if (name.startsWith('Icon') || COMPONENT_EXPORTS_WITHOUT_ICON_PREFIX.includes(name)) continue
-    const definition = definitionOf(source, variable)
-    if (definition === null || /=>|function/u.test(definition)) continue
-    try {
-      globalThis[variable] = new Function(`return (${definition})`)()
-      constantExports.push(name)
-    } catch {
-      // 常量求值失败不影响图标本身
+    constants.add(variable)
+  }
+
+  // 图标定义里引用到的模块内符号：0.1.7 把每个图标拆成「导出包装器 + 基础组件」
+  // （`Sx=e=>l.jsx(F5,{...e,strokeWidth:Z})`），引用到的可能是函数而不是数据，
+  // 所以这里按工作队列收敛求值（含函数），并继续展开它们自己引用到的符号。
+  const seen = new Set()
+  const queue = [...referenced]
+  while (queue.length > 0 && seen.size < 500) {
+    const token = queue.shift()
+    if (seen.has(token) || RESERVED_IDENTIFIERS.has(token)) continue
+    seen.add(token)
+    const definition = definitionOf(source, token)
+    if (definition === null || definition.length > 20_000) continue
+    if (constants.has(token) && globalThis[token] === undefined) {
+      try {
+        globalThis[token] = new Function(`return (${definition})`)()
+      } catch {
+        // 常量求值失败不影响图标本身
+      }
+    } else if (!constants.has(token) && globalThis[token] === undefined) {
+      try {
+        globalThis[token] = evaluateIconDefinition(definition)
+      } catch {
+        // 组件求值失败只影响引用它的图标（记为 unrenderable）
+      }
+    }
+    for (const match of definition.matchAll(/(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)/gu)) {
+      if (!seen.has(match[1])) queue.push(match[1])
     }
   }
 
   for (const [name, variable] of exports) {
     if (!name.startsWith('Icon')) continue
-    const definition = definitionOf(source, variable)
-    if (definition === null) {
+    const definition = iconDefinitions.get(name)
+    if (definition === undefined) {
       unrenderable.push({ name, reason: 'definition-not-found' })
       continue
     }
     let component
     try {
-      component = new Function('u', 'react_jsx_runtime', `return (${definition})`)(jsxRuntime, jsxRuntime)
+      component = evaluateIconDefinition(definition)
     } catch (error) {
       unrenderable.push({ name, reason: `eval: ${error.message}` })
       continue
@@ -388,13 +466,15 @@ function extractIcons(source, exports) {
     //   `IconInspectOutline12` 名字写 12、viewBox 却是 16×16；
     //   `IconRightUpOutline14` 名字 14、viewBox 是 8×14（窄字形）。
     //   换图标前用预览页按真实尺寸看一眼，别只信名字。
+    // 档位后缀有两种命名法：0.1.6 的数字（14/16/20）与 0.1.7 的档位词（Medium/Regular）。
+    const tierWord = /(Medium|Regular|Small|Large)$/u.exec(name)
     const tierMatch = /(\d+)x(\d+)$/u.test(name) ? null : /(\d+)$/u.exec(name)
-    const tier = tierMatch === null ? null : Number(tierMatch[1])
+    const tier = tierMatch !== null ? Number(tierMatch[1]) : (tierWord === null ? null : tierWord[1])
     icons.push({
       name,
       tier,
       canvasSize,
-      sizeMismatch: tier !== null && canvasSize !== null && canvasSize.width === canvasSize.height && canvasSize.width !== tier,
+      sizeMismatch: typeof tier === 'number' && canvasSize !== null && canvasSize.width === canvasSize.height && canvasSize.width !== tier,
       viewBox,
       keywords: KEYWORDS[name] ?? [],
       usedBy: [],
@@ -430,6 +510,36 @@ function officialUsage(root, iconNames, log) {
   return usage
 }
 
+/**
+ * 一个插件里「会去 primitives 取哪些名字」，按**取用组**分组。
+ *
+ * 两种写法都要认，缺一种就会漏检：
+ * 1. 解构：`const { IconX, Switch } = require('…primitives')` —— 每个名字自成一组；
+ * 2. 能力取用：`iconOf('IconXMedium', 'IconXRegular', 'IconX16')` —— 整条链是一组，
+ *    只要**有一个**名字在当前构建里存在就算通过（旧发布线的名字本来就该缺失）。
+ *
+ * @param source - 插件 bundle 源码。
+ * @returns `{ groups, members }`；groups 里每项是 `{ names, kind }`。
+ */
+function primitiveUsageGroups(source) {
+  const groups = []
+  const members = new Set()
+  const imports = /const \{([^}]+)\} = require\('@deepseek-ai\/dsh-client-ui-primitives'\)/u.exec(source)
+  if (imports !== null) {
+    for (const piece of imports[1].split(',')) {
+      const name = piece.trim().split(':').pop().trim()
+      if (name !== '') groups.push({ names: [name], kind: 'destructured' })
+    }
+  }
+  for (const call of source.matchAll(/\biconOf\(\s*([^)]*)\)/gu)) {
+    const names = [...call[1].matchAll(/'([A-Za-z0-9_$]+)'/gu)].map((match) => match[1])
+    if (names.length > 0) groups.push({ names, kind: 'capability-chain' })
+  }
+  for (const access of source.matchAll(/\bprimitives\s*\.\s*([A-Za-z0-9_$]+)/gu)) groups.push({ names: [access[1]], kind: 'member-access' })
+  for (const group of groups) for (const name of group.names) members.add(name)
+  return { groups, members }
+}
+
 /** 工作区内各插件谁用了哪个图标（含「引用了但当前构建里没有」的情况，那是真 bug）。 */
 function workspaceUsage(root, iconNames) {
   const usage = new Map(iconNames.map((name) => [name, []]))
@@ -440,21 +550,29 @@ function workspaceUsage(root, iconNames) {
     const clientPath = path.join(root, entry.name, 'client.js')
     if (!fs.existsSync(clientPath)) continue
     const source = fs.readFileSync(clientPath, 'utf8')
-    const imports = /const \{([^}]+)\} = require\('@deepseek-ai\/dsh-client-ui-primitives'\)/u.exec(source)
-    if (imports === null) continue
-    for (const piece of imports[1].split(',')) {
-      const name = piece.trim().split(':').pop().trim()
-      if (name === '') continue
-      if (!name.startsWith('Icon')) {
+    const { groups } = primitiveUsageGroups(source)
+    if (groups.length === 0) continue
+    for (const group of groups) {
+      const icons = group.names.filter((name) => name.startsWith('Icon'))
+      for (const name of group.names) {
+        if (name.startsWith('Icon')) continue
         // 非图标成员（Button/Modal/Tooltip/…）另算：它们不在 icons 列表里，但确实存在
         if (!NON_ICON_MEMBERS.has(name)) unknownMembers.push({ plugin: entry.name, icon: name })
+      }
+      if (icons.length === 0) continue
+      if (group.kind === 'capability-chain') {
+        const present = icons.filter((name) => usage.has(name))
+        if (present.length === 0) missing.push({ plugin: entry.name, icon: icons.join(' → ') })
+        for (const name of present) usage.get(name).push(entry.name)
         continue
       }
-      if (!usage.has(name)) {
-        missing.push({ plugin: entry.name, icon: name })
-        continue
+      for (const name of icons) {
+        if (!usage.has(name)) {
+          missing.push({ plugin: entry.name, icon: name })
+          continue
+        }
+        usage.get(name).push(entry.name)
       }
-      usage.get(name).push(entry.name)
     }
   }
   return { usage, missing, unknownMembers }

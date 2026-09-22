@@ -58,9 +58,15 @@ open /tmp/dsh-nav-icon-fixture/index.html
 1. **能 require 到的就是全部。** 图标来自浏览器侧 `__ModuleLoader__` seed 里的
    `@deepseek-ai/dsh-client-ui-primitives` 冻结导出对象（在 `dsh-web-frontend/dist/assets/index-*.js` 里）。
    没被打进这个对象的图标，`require` 回来是 `undefined`，组件会静默渲染成空白——所以选图标必须先在本工具里查到名字。
-2. **档位看名字后缀**（`IconXxx14` / `IconXxx16` / `IconXxx20`）：同一行里的图标必须同档，否则视觉大小不一致
-   （实测过 12×12 vs 5×8 的搭配）。注意**名字不等于画布**：`IconInspectOutline12` 的 viewBox 是 16×16，
-   `IconRightUpOutline14` 是 8×14，`IconWarningOutline16` 是 14×14。预览页对这类图标会多标一个「画布 N」徽章。
+2. **档位看名字后缀，而命名法换过一次**：`0.1.6` 是数字档位（`IconXxx14`/`IconXxx16`/`IconXxx20`），
+   `0.1.7` 换成档位词（`IconXxxOutlineMedium` / `IconXxxOutlineRegular` 等）。同一行里的图标必须同档，
+   否则视觉大小不一致（实测过 12×12 vs 5×8 的搭配）。**数字名的图标在 0.1.7 构建里已经不存在**，
+   插件里别再写死：用 `iconOf('…Regular','…Medium','…16')` 这种候选链取第一个存在的导出
+   （`check.js` 的扫描器认 `iconOf(...)`，只要链上有一个名字存在就算通过）。
+   **同一几何的 `…Medium`/`…Regular` 只差 `strokeWidth`（1.3 vs 1.0），官方客户端用 Regular**，
+   所以候选链把 Regular 排在前面，插件图标才不会比相邻壳层图标粗。
+   另注意**名字不等于画布**：`IconInspectOutline12` 的 viewBox 是 16×16，`IconRightUpOutline14` 是 8×14。
+   预览页对这类图标会多标一个「画布 N」徽章。
 3. **`usedBy` 只是语义线索**，说明官方在什么场景用过它（例如 `IconContextInjectionOutline16` 被 `chat` 用于
    「上下文注入」折叠行）。它不是契约，别指望它稳定。
 
@@ -80,7 +86,8 @@ open /tmp/dsh-nav-icon-fixture/index.html
 关键事实（都核对过 `dsh-client-ui-settings-general/lib/client.js`）：
 
 - `settings.section` 的注册选项只有 `id/order/label`，**没有 `icon`**；
-- 壳层 `navIcon(id)` 只白名单 4 个官方 id（`models`/`agent-presets`/`plugins`/`archived-sessions`），其余 id 回落 `IconSettingsOutline16`（齿轮）；
+- 壳层 `navIcon(id)` 只白名单若干官方 id（`0.1.7` 里是 `models`/`agent-presets`/`plugins`/`account` 等，
+  `archived-sessions` 那一项随该设置页一起被 DSH 删除），其余 id 回落齿轮图标；
 - `settings.action` 与 `settings.section` 同属 `sidebar.settings` 的 children 表，随设置面板挂载/卸载——拿它当补丁挂载点，补丁的生命周期就与面板一致；
 - data: URI 里的 SVG **必须带 `xmlns`**，否则按 HTML 解析、mask 静默失效（图标整块空白）。
 
@@ -103,6 +110,13 @@ open /tmp/dsh-nav-icon-fixture/index.html
 **为什么不做成共享库**：工作区内每个插件都是可独立发布、可单独安装的包（`package.json` + `install.sh` + 发布物清单）。
 抽一个共享运行时会让"装单个插件"变成"装整个工作区"，所以这里只共享**知识**（本文档 + 快照），不共享代码。
 新插件照抄其中一份实现即可，并把它当成权宜：壳层哪天支持在 slot 选项里声明图标，就该删掉。
+
+## 0.1.7 之后工具改了什么（改脚本前必读）
+
+- **冻结导出对象的定位不能要求 `const/var` 关键字**：0.1.7 里它是逗号声明表的尾项（`…,zj=Object.freeze(Object.defineProperty({…`），旧正则直接找不到对象 → 0 个图标。
+- **JSX 运行时别名要探测**：0.1.6 是 `u`/`react_jsx_runtime`，0.1.7 是 `l`；写死别名会让全部图标求值失败（`render: l is not defined`）。
+- **图标定义引用的兄弟符号要一起内联**：0.1.7 把图标拆成「导出包装器 + 基础组件 + 路径常量」（`Sx=e=>l.jsx(F5,{...e})`），只求值包装器拿不到几何；`build.js` 现在按工作队列把引用到的定义内联/求值，`serializeSvg` 也会继续展开函数类型的节点。
+- **漂移扫描要认能力取用**：解构（`const { IconX } = require(...)`）与候选链（`iconOf('A','B','C')`）都算；后者只要有一个名字存在就通过，全缺失才报「require 了不存在的图标」。
 
 ## 实现上的坑（已踩过，改脚本前先读）
 

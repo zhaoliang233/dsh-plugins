@@ -50,22 +50,35 @@ function argValue(argv, name, fallback) {
 /**
  * 从插件 bundle 里找导航图标组件用的图标名。
  *
- * 只在**从 primitives 解构进来的图标名**里找，而不是随便匹配 `Icon…`：
- * 组件体里还可能出现 `navIconReferences`、`installNavIconPatch` 这类标识符，
- * 直接正则会把 `IconReferences` 当成图标名（踩过）。
+ * 只在**真去 primitives 取图标的地方**找，而不是随便匹配 `Icon…`：组件体里还可能
+ * 出现 `navIconReferences`、`installNavIconPatch` 这类标识符，直接正则会把
+ * `IconReferences` 当成图标名（踩过）。两种取用写法都认：
+ *
+ * 1. 解构：`const { IconLinkOutline16 } = require('…primitives')`；
+ * 2. 能力取用：`iconOf('IconLinkOutlineMedium', 'IconLinkOutlineRegular', 'IconLinkOutline16')`
+ *    —— 整条链都算候选，返回的 `icon` 取链上**第一个真实存在**的名字，找不到就交给 --icon。
+ *
+ * @param pluginSource - 插件 bundle 源码。
+ * @returns `{ component, icon, candidates }`；`icon` 可能是 undefined（判不出来，需 --icon）。
  */
 function detectNavIcon(pluginSource) {
+  const names = []
   const imports = /const \{([^}]+)\} = require\('@deepseek-ai\/dsh-client-ui-primitives'\)/u.exec(pluginSource)
-  const candidates = imports === null
-    ? []
-    : imports[1].split(',').map((piece) => piece.trim().split(':').pop().trim()).filter((name) => name.startsWith('Icon'))
+  if (imports !== null) names.push(...imports[1].split(',').map((piece) => piece.trim().split(':').pop().trim()))
+  for (const call of pluginSource.matchAll(/\biconOf\(\s*([^)]*)\)/gu)) {
+    names.push(...[...call[1].matchAll(/'([A-Za-z0-9_$]+)'/gu)].map((match) => match[1]))
+  }
+  const candidates = [...new Set(names.filter((name) => name.startsWith('Icon')))]
   // 组件名必须是首字母大写（`ExtraContextNavIcon`），否则会匹配到 `navIconReferences` 这类工具函数
   const component = /function\s+([A-Z]\w*NavIcon\w*)\s*\([^)]*\)\s*\{([\s\S]*?)\n    \}/u.exec(pluginSource)
-  if (component === null) throw new Error('在插件 bundle 里找不到名字含 NavIcon 的组件，请用 --icon 指定图标')
+  if (component === null) return { component: undefined, icon: undefined, candidates }
   const used = candidates.filter((name) => component[2].includes(name))
-  if (used.length === 1) return { component: component[1], icon: used[0] }
-  if (used.length === 0) throw new Error(`组件 ${component[1]} 里没有引用导入的图标（导入的是 ${candidates.join(', ')}），请用 --icon 指定`)
-  throw new Error(`组件 ${component[1]} 引用了多个图标（${used.join(', ')}），请用 --icon 指定`)
+  return {
+    component: component[1],
+    // 只有唯一命中时才能自动判定；链式取用时按候选顺序取第一个（新命名优先）。
+    icon: used.length === 1 ? used[0] : (used.length === 0 ? undefined : used[0]),
+    candidates: used.length === 0 ? candidates : used
+  }
 }
 
 /**
@@ -76,7 +89,7 @@ function detectNavIcon(pluginSource) {
  */
 function detectLabel(pluginSource) {
   const registration = /name: 'settings\.section',[\s\S]{0,240}?label:\s*([A-Za-z0-9_$]+|'[^']+')/u.exec(pluginSource)
-  if (registration === null) throw new Error('在插件 bundle 里找不到 settings.section 的 label，请用 --label 指定')
+  if (registration === null) return undefined
   const value = registration[1]
   if (value.startsWith("'")) return value.slice(1, -1)
   const constant = new RegExp(`const\\s+${value}\\s*=\\s*'([^']+)'`, 'u').exec(pluginSource)
@@ -95,18 +108,66 @@ function pluginStyleText(pluginSource) {
 }
 
 /** 把壳层图标定义求值成可用的组件（桩 jsx-runtime，复用 build.js 的序列化能力做自检）。 */
-function compileIcon(root, exportName) {
-  const { source } = shellBundle(root)
+/** 求值图标定义时要绑定的名字：0.1.6 的 `u`/`react_jsx_runtime` 与 0.1.7 的 `l` 都要给。 */
+const ICON_EVAL_PARAMETERS = ['u', 'react_jsx_runtime', 'l', 'React']
+
+const ICON_EVAL_RUNTIME = {
+  Fragment: Symbol('Fragment'),
+  jsx: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? [props.children] : [] }),
+  jsxs: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? (Array.isArray(props.children) ? props.children : [props.children]) : [] }),
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children })
+}
+
+/**
+ * 产出一段**自包含**的图标定义源码：把图标引用到的同模块定义（0.1.7 起图标被拆成
+ * 「导出包装器 + 基础组件 + 路径常量」）内联成闭包里的 `const`，再返回组件本身。
+ *
+ * 页面里的 `icon(source)` 只有 `u`/`react_jsx_runtime` 两个参数，而 0.1.7 的 JSX 运行时
+ * 别名是 `l`、图标又引用兄弟组件——不内联就求不了值（会得到 undefined 组件、量不出几何）。
+ *
+ * @param source - 前端 chunk 源码。
+ * @param exportName - primitives 导出的图标名。
+ * @returns 可直接 `new Function(...).call()` 的源码字符串。
+ */
+function inlineIconSource(source, exportName) {
   const mapping = new RegExp(`${exportName}:([A-Za-z0-9_$]+)`).exec(source)
   if (mapping === null) throw new Error(`当前 DSH 构建里没有 ${exportName}`)
   const definition = definitionOf(source, mapping[1])
   if (definition === null) throw new Error(`找不到 ${exportName} 的定义`)
-  const jsxRuntime = { Fragment: Symbol('Fragment'), jsx: (type, props) => ({ type, props: props ?? {}, children: [] }), jsxs: (type, props) => ({ type, props: props ?? {}, children: [] }) }
-  const component = new Function('u', 'react_jsx_runtime', `return (${definition})`)(jsxRuntime, jsxRuntime)
-  // 用 build.js 的序列化顺手自检：拿不到 viewBox 说明定义形态变了，早点报错
+  const inlined = []
+  const seen = new Set([mapping[1]])
+  const queue = [...definition.matchAll(/(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)/gu)].map((match) => match[1])
+  while (queue.length > 0 && inlined.length < 64) {
+    const name = queue.shift()
+    if (seen.has(name) || ICON_EVAL_PARAMETERS.includes(name) || RESERVED_WORDS.has(name)) continue
+    seen.add(name)
+    const dependency = definitionOf(source, name)
+    if (dependency === null || dependency.length > 20_000) continue
+    inlined.push(`const ${name} = (${dependency});`)
+    for (const match of dependency.matchAll(/(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)/gu)) queue.push(match[1])
+  }
+  // IIFE：外层求值器把它当值，所以末尾必须真正调用一次，返回组件本身。
+  return `(function (${ICON_EVAL_PARAMETERS.join(', ')}) { ${inlined.join(' ')} return (${definition}); })(${ICON_EVAL_PARAMETERS.join(', ')})`
+}
+
+/** 语言关键字：内联依赖时不去模块里找定义。 */
+const RESERVED_WORDS = new Set([
+  'true', 'false', 'null', 'undefined', 'this', 'return', 'new', 'typeof', 'instanceof', 'in', 'of', 'void', 'delete',
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'function', 'class', 'const', 'let', 'var',
+  'try', 'catch', 'finally', 'throw', 'await', 'async', 'yield', 'default', 'export', 'import', 'extends', 'super',
+  'Math', 'Number', 'String', 'Object', 'Array', 'JSON', 'props', 'children'
+])
+
+function compileIcon(root, exportName) {
+  const { source } = shellBundle(root)
+  const inlined = inlineIconSource(source, exportName)
+  // 用同一段源码自检：拿不到 viewBox 说明图标定义形态又变了，早点报错而不是产出个空页面
+  const component = new Function(...ICON_EVAL_PARAMETERS, `return (${inlined})`)(
+    ...ICON_EVAL_PARAMETERS.map(() => ICON_EVAL_RUNTIME)
+  )
   const probe = serializeSvg(component({ size: 16 }), 'probe')
   if (!probe.includes('viewBox=')) throw new Error(`${exportName} 渲染出来没有 viewBox，图标定义形态可能变了`)
-  return definition
+  return inlined
 }
 
 /**
@@ -276,7 +337,7 @@ const jsxRuntime = {
   jsx: (type, props) => ({ type, props: props || {}, children: props && props.children !== undefined ? [props.children] : [] }),
   jsxs: (type, props) => ({ type, props: props || {}, children: props && props.children !== undefined ? (Array.isArray(props.children) ? props.children : [props.children]) : [] })
 }
-const icon = (source) => new Function('u', 'react_jsx_runtime', 'return (' + source + ')')(jsxRuntime, jsxRuntime)
+const icon = (source) => new Function('u', 'react_jsx_runtime', 'l', 'React', 'return (' + source + ')')(jsxRuntime, jsxRuntime, jsxRuntime, jsxRuntime)
 const icons = { ${iconName}: icon(${JSON.stringify(iconDefinition)}), ${shellIconDefinitions} }
 
 // ---- 加载真实插件 bundle ----
@@ -402,6 +463,19 @@ try {
 `
 }
 
+/** 官方图标改名过，按能力取第一个能在当前构建里编译出来的名字。 */
+function existingIconName(root, candidates) {
+  for (const name of candidates) {
+    try {
+      compileIcon(root, name)
+      return name
+    } catch {
+      // 换下一个候选
+    }
+  }
+  throw new Error(`当前 DSH 构建里没有这些候选图标：${candidates.join('、')}`)
+}
+
 function main(argv) {
   const pluginName = argValue(argv, 'plugin', 'dsh-extra-context')
   const pluginDir = path.isAbsolute(pluginName) ? pluginName : path.join(WORKSPACE_ROOT, pluginName)
@@ -410,15 +484,24 @@ function main(argv) {
 
   const pluginSource = fs.readFileSync(bundlePath, 'utf8')
   const detected = detectNavIcon(pluginSource)
+  // --icon/--label 优先：探测失败只影响"能不能自动判定"，不该在拿到显式入参前就抛。
   const iconName = argValue(argv, 'icon', detected.icon)
+  if (iconName === undefined) {
+    throw new Error(`无法从组件 ${detected.component ?? '(找不到 NavIcon 组件)'} 里确定图标（候选：${detected.candidates.join(', ') || '无'}），请用 --icon 指定`)
+  }
   const label = argValue(argv, 'label', detectLabel(pluginSource))
+  if (label === undefined) throw new Error('在插件 bundle 里找不到 settings.section 的 label，请用 --label 指定')
   const patch = detectPatchContract(pluginSource)
   const root = locateDshRoot(argValue(argv, 'dsh'))
 
   const { name: assetName } = shellBundle(root)
   const navCss = settingsNavCss(root)
 
-  const extraIcons = ['IconSettingsOutline16', 'IconDataOutline16']
+  // 官方图标改过名（0.1.6 数字档位 → 0.1.7 档位词）：假装"壳层的齿轮/数据图标"时
+  // 也按能力取第一个真实存在的名字，否则升级后这个离线验证器自己就先炸了。
+  const shellIconName = existingIconName(root, ['IconSettingsOutlineMedium', 'IconSettingsOutlineRegular', 'IconSettingsOutline16'])
+  const dataIconName = existingIconName(root, ['IconDataOutlineMedium', 'IconDataOutlineRegular', 'IconDataOutline16'])
+  const extraIcons = [shellIconName, dataIconName]
     .map((name) => `${name}: icon(${JSON.stringify(compileIcon(root, name))})`)
     .join(', ')
 
@@ -434,7 +517,9 @@ function main(argv) {
     patch
   })
   const htmlPath = path.join(OUT_DIR, 'index.html')
-  fs.writeFileSync(htmlPath, html)
+  fs.writeFileSync(htmlPath, html
+    .replaceAll('IconSettingsOutline16', shellIconName)
+    .replaceAll('IconDataOutline16', dataIconName))
 
   console.log(`${TOOL_NAME}: 插件 ${path.relative(WORKSPACE_ROOT, pluginDir)}（组件 ${detected.component}）`)
   console.log(`${TOOL_NAME}: 菜单名「${label}」，图标 ${iconName}，壳层导航 CSS 取自 ${assetName}`)
