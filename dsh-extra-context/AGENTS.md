@@ -103,7 +103,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 - `lib/rules.js`：纯逻辑（规范化 / 过滤 / 渲染 / 预算）。**不对用户文本做任何改写**——`{{…}}` 由 section 的 `interpolate: false` 原样放行，不再用“把 `{{` 拆成零宽字符”的老 hack。只依赖 Node 内置，可在 `node --test` 下独立验证。分段的形状是 `{ id, enabled, text }`：`label`（分段名称）与 `order` 字段都已随功能移除，规范化只挑已知字段，老数据里的残留键一律丢弃；顺序即数组顺序。
 - `lib/index.js`：Cordis 入口。版本门 → 装配 section / settings 命名空间 / 状态路由 / **压缩摘要补充指令（`llm/stream`，见实现事实 5）**。其余导出仅为测试与兼容检查可见。设置 schema 只声明 `enabled` / `segments[{id,enabled,text}]` / `maxBytes`。
-- `client.js`：单文件 CJS 惰性 bundle（无构建步骤，逻辑分层靠函数分区）。`apply()` 做三件事：绑定设置命名空间、注入插件样式表、注册两个插槽（`settings.section` id `extra-context` order 25；`settings.action` id `extra-context-nav-icon` order 25，仅作导航图标补丁的挂载点）。客户端**不**做 schema 校验（bundle 里拿不到 schemastery，`dsh-client-ui-settings` 也不导出 `Schema`）；宿主是权威，组件对任何字段都防御性读取。界面上两个开关（动作行右侧的总开关、每行行首的启停）**都用官方 `Switch`**，插件样式只负责定位（`.dec-master{…margin-left:auto}` / `.dec-row-switch{flex:none}`），不给它写尺寸或配色。
+- `client.js`：单文件 CJS 惰性 bundle（无构建步骤，逻辑分层靠函数分区）。`apply()` 做三件事：绑定设置命名空间、注入插件样式表、注册两个插槽（`settings.section` id `extra-context` order 100；`settings.action` id `extra-context-nav-icon` order 100，仅作导航图标补丁的挂载点）。**插件设置入口一律排到 DSH 自带分区之后（`order ≥ 100`；内置最大是 `archived-sessions` 25），别再按“挨着谁放”挑数字**——0.1.5 用的 25 与内置的 `archived-sessions` 正好并列，谁先谁后只能靠注册顺序决胜；约定见根 `AGENTS.md` 的 Slot 章节。客户端**不**做 schema 校验（bundle 里拿不到 schemastery，`dsh-client-ui-settings` 也不导出 `Schema`）；宿主是权威，组件对任何字段都防御性读取。界面上两个开关（动作行右侧的总开关、每行行首的启停）**都用官方 `Switch`**，插件样式只负责定位（`.dec-master{…margin-left:auto}` / `.dec-row-switch{flex:none}`），不给它写尺寸或配色。
 
 ## 运行期行为
 

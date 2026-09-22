@@ -4,8 +4,8 @@
 // jump, and the compact transcript refuses to fold any Turn while history is
 // incomplete (`ChatNodeSeat`: `!historyIncomplete`), so a reader either pages by
 // hand or never sees the compact view. This plugin automates that paging through
-// the public client Session face and adds one Settings → General preference row
-// that turns the behavior off.
+// the public client Session face and adds one Settings → General switch that
+// turns the behavior off.
 //
 // Which Session is being viewed is a view-owned fact: the client Controller
 // stopped publishing a `current` selection in its list snapshot (0.1.6-alpha.2),
@@ -19,7 +19,10 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
-    const { IconChevronDownOutline14, Menu } = require('@deepseek-ai/dsh-client-ui-primitives')
+    // The switch is the shell's own control (`<button role="switch" aria-checked>`:
+    // 36x20 track, brand colour when on), so the row looks native without owning any
+    // control styling — the same reason every shipped General row uses a primitive.
+    const { Switch } = require('@deepseek-ai/dsh-client-ui-primitives')
 
     // ------------------------------------------------------------------ identity
     const PLUGIN_ID = 'dsh-auto-load-history'
@@ -30,10 +33,11 @@ window.__ModuleLoader__.load({
     const STORAGE_KEY = `${PLUGIN_ID}.enabled`
     const DEFAULT_ENABLED = true
     const ROW_ID = PLUGIN_ID
-    // Settings → General row order: permission -20, language 0, appearance 10,
-    // font-size 11, transcript-view 12, composer-enter 20. This belongs beside
-    // the transcript-display row it exists to serve.
-    const ROW_ORDER = 13
+    // Settings → General row order. Every shipped row lives below 100
+    // (permission -20, language 0, appearance 10, font-size 11, transcript-view 12,
+    // composer-enter 20), and plugin-contributed setting entries start at 100 —
+    // a plugin row never splits the shipped list, it follows it.
+    const ROW_ORDER = 110
     /**
      * Session-scoped list slot this plugin occupies to learn which Session the
      * Conversation is showing. It is declared by `dsh-client-ui-conversation` and
@@ -90,40 +94,30 @@ window.__ModuleLoader__.load({
      * Controller's retention (one frame apart, so roughly half a second).
      */
     const MAX_BINDING_RETRIES = 30
-    const ROW_OPTIONS = [
-      { id: 'on', labelKey: 'row.option.automatic' },
-      { id: 'off', labelKey: 'row.option.manual' }
-    ]
     const LOCALE_ZH = {
       'row.title': '会话历史',
-      'row.description': '打开会话时自动加载全部历史；加载完成后，“紧凑”排版会立即折叠每个回合的思考过程。',
-      'row.option.automatic': '自动',
-      'row.option.manual': '手动'
+      'row.description': '打开会话时自动加载全部历史，让「紧凑」排版立即折叠每个回合的思考过程。',
+      'row.switch': '自动加载会话历史'
     }
     const LOCALE_EN = {
       'row.title': 'Session history',
-      'row.description': 'Load the whole history when a session opens; Compact then folds each turn’s process immediately.',
-      'row.option.automatic': 'Automatic',
-      'row.option.manual': 'Manual'
+      'row.description': 'Load the whole history when a session opens, so Compact folds each turn’s process immediately.',
+      'row.switch': 'Load session history automatically'
     }
 
     // Mirrors the shipped General preference row chrome (`row`/`rowText`/`title`/
-    // `desc`/`selector`) so the contribution is visually native; only the class
-    // prefix and the stylesheet tag are ours.
+    // `desc`) so the contribution is visually native; only the class prefix and the
+    // stylesheet tag are ours. The control itself is the shipped `Switch`, so this
+    // sheet carries no control styling at all.
     const CSS_TEXT = '.dshalh_row{border-bottom:.5px solid var(--dsw-alias-border-l2);align-items:center;gap:8px;padding:16px 0;display:flex}'
       + '.dshalh_rowText{flex-direction:column;flex:1;gap:4px;min-width:0;padding-right:48px;display:flex}'
       + '.dshalh_title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}'
       + '.dshalh_desc{color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:400;line-height:18px}'
-      + '.dshalh_selector{background:var(--dsw-alias-bg-module-platform);height:36px;font:inherit;color:var(--dsw-alias-label-primary);cursor:pointer;border:none;border-radius:18px;align-items:center;gap:12px;padding:0 14px;font-size:14px;line-height:22px;display:inline-flex}'
-      + '.dshalh_selector:hover{background:var(--dsw-alias-interactive-bg-hover)}'
-      + '.dshalh_chevron{flex:none}'
     const CSS_CLASS = {
       row: 'dshalh_row',
       rowText: 'dshalh_rowText',
       title: 'dshalh_title',
-      desc: 'dshalh_desc',
-      selector: 'dshalh_selector',
-      chevron: 'dshalh_chevron'
+      desc: 'dshalh_desc'
     }
 
     // ------------------------------------------------------------- pure decisions
@@ -888,18 +882,6 @@ window.__ModuleLoader__.load({
      */
     function AutoLoadHistoryRow({ getEnabled, subscribeEnabled, setEnabled, t }) {
       const enabled = React.useSyncExternalStore(subscribeEnabled, getEnabled, getEnabled)
-      const [open, setOpen] = React.useState(false)
-      const selectedId = enabled ? 'on' : 'off'
-      const selected = ROW_OPTIONS.find((option) => option.id === selectedId) ?? ROW_OPTIONS[0]
-      const anchor = React.createElement('button', {
-        type: 'button',
-        className: CSS_CLASS.selector,
-        'aria-haspopup': 'menu',
-        'aria-expanded': open,
-        onClick: () => {
-          setOpen((value) => !value)
-        }
-      }, t(selected.labelKey), React.createElement(IconChevronDownOutline14, { className: CSS_CLASS.chevron }))
       return React.createElement('div', {
         className: CSS_CLASS.row,
         'data-dsh-auto-load-history-row': ''
@@ -907,20 +889,12 @@ window.__ModuleLoader__.load({
       React.createElement('div', { className: CSS_CLASS.rowText },
         React.createElement('div', { className: CSS_CLASS.title }, t('row.title')),
         React.createElement('div', { className: CSS_CLASS.desc }, t('row.description'))),
-      React.createElement(Menu, {
-        open,
-        onClose: () => {
-          setOpen(false)
-        },
-        items: ROW_OPTIONS.map((option) => ({ id: option.id, label: t(option.labelKey) })),
-        selectedId,
-        onSelect: (id) => {
-          setOpen(false)
-          setEnabled(id === 'on')
-        },
-        align: 'end',
-        portal: true,
-        anchor
+      React.createElement(Switch, {
+        checked: enabled,
+        label: t('row.switch'),
+        onChange: (next) => {
+          setEnabled(next)
+        }
       }))
     }
 

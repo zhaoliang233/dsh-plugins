@@ -29,6 +29,12 @@ window.__ModuleLoader__.load({
     const SETTINGS_NAMESPACE = 'extra-context'
     /** 设置页导航里的菜单名：既是 section 的 label，也是导航图标补丁的匹配依据。 */
     const SECTION_LABEL = '额外上下文'
+    /**
+     * 设置分区 order。DSH 自带分区是 general 0 / models 10 / plugins 15 /
+     * agent-presets 20 / archived-sessions 25，**插件分区一律 ≥ 100**：
+     * 插件分区排在内置之后，不去插队、也不和内置的 25 并列（并列只能靠注册顺序决胜）。
+     */
+    const SECTION_ORDER = 100
     /** 导航图标补丁在按钮 dataset 上留下的标记与引用计数（卸载时逐项回滚）。 */
     const NAV_PATCH_FLAG = 'decNavIcon'
     const NAV_PATCH_COUNT = 'decNavIconReferences'
@@ -955,7 +961,7 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
         id: 'extra-context',
-        order: 25,
+        order: SECTION_ORDER,
         label: SECTION_LABEL
       }, Section))
       // 导航图标补丁的挂载点。落在设置面板 header 的动作区，面板一开就存在，
@@ -963,7 +969,7 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('settings.action', () => ctx.slots.register({
         name: 'settings.action',
         id: 'extra-context-nav-icon',
-        order: 25
+        order: SECTION_ORDER
       }, ExtraContextNavIcon))
     }
 

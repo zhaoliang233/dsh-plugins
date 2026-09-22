@@ -724,16 +724,18 @@ test('registers the Settings section and archive nav icon marker with reversible
     assert.deepEqual(sectionRegistration.options, {
       name: 'settings.section',
       id: 'archived-chats',
-      order: 30,
+      // 插件分区必须排到 DSH 自带分区（最大 archived-sessions 25）之后。
+      order: 120,
       label: '归档管理'
     })
     assert.deepEqual(navIconRegistration.options, {
       name: 'settings.action',
       id: 'dsh-chat-archive-manager.nav-icon',
-      order: 30
+      order: 120
     })
     assert.equal(suppressionRegistration.options.id, 'dsh-chat-archive-manager.native-archived-sessions')
-    assert.equal(suppressionRegistration.options.order, 90)
+    // 通用设置行同理：内置行是 -20..20，插件行排在所有内置行之后。
+    assert.equal(suppressionRegistration.options.order, 100)
     const navIconTemplate = navIconRegistration.component()
     assert.equal(navIconTemplate.props.className, 'dac-nav-icon-template')
     assert.equal(navIconTemplate.children[0].type, types.IconArchive)
@@ -896,7 +898,7 @@ test('renders grouped archive management inside Settings and leaves core list se
     assert.deepEqual(options, {
       name: 'settings.section',
       id: 'archived-chats',
-      order: 30,
+      order: 120,
       label: '归档管理'
     })
 

@@ -383,7 +383,9 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
         name: 'settings.plugins.tab',
         id: 'local-plugins',
-        order: 20,
+        // 插件贡献的设置入口一律排到 DSH 自带项之后：内置 tab 只有 all（order 10），
+        // 插件 tab 从 100 起。并列只能靠注册顺序决胜，所以不要复用内置的档位。
+        order: 100,
         label: '本地插件'
       }, LocalPluginsTab))
     }

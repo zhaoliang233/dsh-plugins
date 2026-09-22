@@ -148,10 +148,11 @@ test('registers a third Plugins tab with reversible current-theme styles', () =>
     body(harness, fixture) {
       assert.deepEqual(harness.plugin.inject, ['slots'])
       assert.equal(harness.registrations.length, 1)
+      // 插件 tab 必须排到 DSH 自带 tab（只有 all，order 10）之后。
       assert.deepEqual(harness.registrations[0].options, {
         name: 'settings.plugins.tab',
         id: 'local-plugins',
-        order: 20,
+        order: 100,
         label: '本地插件'
       })
       const style = styleFor(fixture)

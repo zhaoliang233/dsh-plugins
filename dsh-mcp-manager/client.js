@@ -41,7 +41,12 @@ window.__ModuleLoader__.load({
     const CSRF_HEADER = 'x-dsh-mcp-manager-csrf'
     const SECTION_ID = 'mcp-manager'
     const SECTION_LABEL = 'MCP 服务器'
-    const SECTION_ORDER = 26
+    /**
+     * 设置分区 order。DSH 自带分区是 general 0 / models 10 / plugins 15 /
+     * agent-presets 20 / archived-sessions 25，**插件分区一律 ≥ 100**：排在内置之后，
+     * 不插队、也不与内置并列（并列时只能靠注册顺序决胜）。
+     */
+    const SECTION_ORDER = 110
     const NAV_ICON_ID = 'mcp-manager-nav-icon'
     const STYLE_OWNER = `${PLUGIN_ID}-v1`
     const CREDENTIAL_TOKEN = /credential:([A-Za-z_][A-Za-z0-9_]*)/gu

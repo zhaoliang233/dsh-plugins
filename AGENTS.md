@@ -19,7 +19,7 @@
 | `dsh-local-plugin-manager/` | 在设置页启停或卸载当前 web profile 中的本地 link 插件 |
 | `dsh-sticky-user-bubble/` | 阅读长对话时把已滚出顶部的用户气泡固定在阅读区顶部 |
 | `dsh-mobile-compat/` | 为精确声明的 DSH 版本提供移动抽屉、Settings、Composer、触控与安全区兼容层 |
-| `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，使“紧凑”排版立即折叠每个回合的思考过程（设置→通用可切回手动） |
+| `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，使“紧凑”排版立即折叠每个回合的思考过程（设置→通用末尾的总开关可关闭） |
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |
 | `dsh-mcp-manager/` | 设置页管理 MCP 服务器：增删改、启停、连接与工具状态、凭据走 credentials，不改 profile 配置、不重启即生效（**未发布**） |
 
@@ -126,6 +126,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 - 全局 Slot：`shell.overlay`（`dsh-client-ui-layout` 声明，`{kind:'list', scope:'root'}`，AppFrame 渲染为绝对定位全屏层，z-index 20，`pointer-events:none`、子元素 auto）——全局弹窗/横幅的落点；`sidebar.footer.action` 可放侧边栏底部按钮。
 - 子 Slot 由父 entry 的 `children` 表在运行期声明：注册方必须用 `ctx.slots.inject('<slot>', () => ctx.slots.register({ name: '<slot>', ... }, Component))` 等待声明，不要直接 `register` 或依赖 client bundle 顺序。两者的副作用都归调用方 fiber，随插件卸载清理。
 - 注册规则（按 slot 类型）：list slot **必须带 `id`**（否则 apply 抛 `list slot "..." requires options.id`，插件加载失败、浏览器显示 "Failed to load plugins"）；single slot 不需要额外字段；keyed slot 需要 `key`；chain slot 需要 `select`。
+- **设置入口一律排在 DSH 自带项之后（用户规则）**：插件贡献的 `settings.section` / `settings.general.item` / `settings.plugins.tab` 的 `order` 都 **≥ 100**。DSH `0.1.6-alpha.2` 内置项：分区 general 0 / models 10 / plugins 15 / agent-presets 20 / archived-sessions 25，通用行 permission −20 / language 0 / appearance 10 / font-size 11 / transcript-view 12 / composer-enter 20，插件页 tab all 10。同一个 slot 里多个插件不要复用同一档 order（壳层是 `sort((a,b) => a.order - b.order)` 的稳定排序，并列时只能靠注册顺序决胜）；需要固定次序就 100 / 110 / 120 往上排。**升级 DSH 后重新读一遍内置项的 order 上限**，别把插件行插到内置行中间。
 
 ### 子代理委派纪律
 

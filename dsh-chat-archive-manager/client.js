@@ -28,6 +28,14 @@ window.__ModuleLoader__.load({
     /** Settings navigation label and page heading; the nav-icon patch matches this exact text. */
     const SECTION_TITLE = '归档管理'
     /**
+     * 设置分区 order。DSH 自带分区是 general 0 / models 10 / plugins 15 /
+     * agent-presets 20 / archived-sessions 25，**插件分区一律 ≥ 100**：排在内置之后，
+     * 不插队、也不与内置并列（并列时只能靠注册顺序决胜）。
+     */
+    const SECTION_ORDER = 120
+    /** 导航图标补丁的挂载点与本分区同号（动作区里只有壳层的 open-document 在 0）。 */
+    const NAV_ICON_ORDER = SECTION_ORDER
+    /**
      * DSH 0.1.6 ships its own "Archived sessions" Settings page (section id
      * `archived-sessions`). This manager already covers every recovery that page
      * runs, so the General section carries a browser-local switch that hides the
@@ -37,7 +45,8 @@ window.__ModuleLoader__.load({
     const NATIVE_ARCHIVE_SECTION_ID = 'archived-sessions'
     const NATIVE_SUPPRESS_STORAGE_KEY = 'dsh-chat-archive-manager.hideNativeArchivedSessions'
     const NATIVE_SUPPRESS_ROW_ID = 'dsh-chat-archive-manager.native-archived-sessions'
-    const NATIVE_SUPPRESS_ROW_ORDER = 90
+    /** 通用设置行 order：内置行是 -20..20，插件行一律 ≥ 100（排在所有内置行之后）。 */
+    const NATIVE_SUPPRESS_ROW_ORDER = 100
     const NATIVE_SUPPRESS_DATASET_KEY = 'dacNativeArchiveHidden'
     const NATIVE_SUPPRESS_REFERENCES_KEY = 'dacNativeArchiveHiddenReferences'
     /** General-settings row copy for the native-page suppression switch. */
@@ -1770,13 +1779,13 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('settings.section', () => ctx.slots.register({
         name: 'settings.section',
         id: 'archived-chats',
-        order: 30,
+        order: SECTION_ORDER,
         label: SECTION_TITLE
       }, ArchiveSettingsSection))
       ctx.slots.inject('settings.action', () => ctx.slots.register({
         name: 'settings.action',
         id: 'dsh-chat-archive-manager.nav-icon',
-        order: 30
+        order: NAV_ICON_ORDER
       }, ArchiveNavIconMarker))
 
       const suppression = createNativeSuppressionStore(resolveClientStorage())

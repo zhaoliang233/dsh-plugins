@@ -556,7 +556,8 @@ test('apply 绑定 settings 命名空间并注册设置页分区', () => {
   assert.deepEqual(state.slots, ['settings.section', 'settings.action'])
   const section = state.registrations.find((entry) => entry.options.name === 'settings.section')
   assert.equal(section.options.id, 'extra-context')
-  assert.equal(section.options.order, 25)
+  // 插件分区必须排到 DSH 自带分区之后（内置最大 order = archived-sessions 25）。
+  assert.ok(section.options.order >= 100, `分区 order ${String(section.options.order)} 没有排在内置分区之后`)
   assert.equal(section.options.label, '额外上下文')
   // 导航图标补丁的挂载点：没有它，「额外上下文」在设置页导航里永远是壳层兜底的齿轮
   // （壳层 navIcon 只认 4 个官方 id），这条断言守的就是"补丁必须真的接在树上"。

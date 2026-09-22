@@ -14,10 +14,7 @@ globalThis.window = {
 await import('../client.js')
 
 const PRIMITIVES = {
-  IconChevronDownOutline14: function IconChevronDownOutline14() {
-    return null
-  },
-  Menu: function Menu() {
+  Switch: function Switch() {
     return null
   }
 }
@@ -918,7 +915,7 @@ test('exports a client plugin that mounts the loader and the preference row', ()
   assert.equal(created.length, 1)
   assert.equal(created[0].dataset.plugin, 'dsh-auto-load-history')
   assert.match(created[0].dataset.pluginCss, /^dsh-auto-load-history\//u)
-  assert.match(created[0].textContent, /dshalh_selector/u)
+  assert.match(created[0].textContent, /dshalh_row/u)
   assert.equal(dictionaryCalls.length, 1)
   assert.equal(dictionaryCalls[0].ns, 'dsh-auto-load-history')
   assert.equal(typeof dictionaryCalls[0].dicts.zh['row.title'], 'string')
@@ -936,7 +933,7 @@ test('exports a client plugin that mounts the loader and the preference row', ()
   assert.equal(driver.options.order, 0)
   const row = registrations.find((registration) => registration.options.name === 'settings.general.item')
   assert.equal(row.options.id, 'dsh-auto-load-history')
-  assert.equal(row.options.order, 13)
+  assert.equal(row.options.order, 110)
   assert.equal(row.options.locale, 'dsh-auto-load-history')
   const injected = row.options.inject()
   assert.equal(injected.getEnabled(), true)
@@ -960,23 +957,36 @@ test('drives paging from the Session identity the view hands over', () => {
   for (const disposer of disposers) disposer()
 })
 
-test('renders the preference row through the shipped settings chrome', () => {
+test('renders the preference row as a shipped switch after every shipped row', () => {
   const { registrations, disposers } = mountBundle()
   const row = registrations.find((registration) => registration.options.name === 'settings.general.item')
+  // Shipped General rows run from permission (-20) to composer-enter (20); plugin
+  // rows must never be interleaved with them.
+  assert.ok(row.options.order >= 100, `row order ${String(row.options.order)} is not after every shipped row`)
+  const writes = []
   const element = row.component({
     getEnabled: () => true,
     subscribeEnabled: () => () => {},
-    setEnabled: () => {},
+    setEnabled: (next) => writes.push(next),
     t: (key) => key
   })
   assert.equal(element.props['data-dsh-auto-load-history-row'], '')
   assert.equal(element.children[0].children[0].children[0], 'row.title')
   assert.equal(element.children[0].children[1].children[0], 'row.description')
-  assert.equal(element.children[1].props.selectedId, 'on')
-  assert.deepEqual(element.children[1].props.items, [
-    { id: 'on', label: 'row.option.automatic' },
-    { id: 'off', label: 'row.option.manual' }
-  ])
-  assert.equal(element.children[1].props.anchor.props.className, 'dshalh_selector')
+  // The control is the primitive itself, not a hand-rolled button or a menu.
+  assert.equal(element.children[1].type, PRIMITIVES.Switch)
+  assert.equal(element.children[1].props.checked, true)
+  assert.equal(element.children[1].props.label, 'row.switch')
+  element.children[1].props.onChange(false)
+  assert.deepEqual(writes, [false])
+  const offRow = row.component({
+    getEnabled: () => false,
+    subscribeEnabled: () => () => {},
+    setEnabled: (next) => writes.push(next),
+    t: (key) => key
+  })
+  assert.equal(offRow.children[1].props.checked, false)
+  offRow.children[1].props.onChange(true)
+  assert.deepEqual(writes, [false, true])
   for (const disposer of disposers) disposer()
 })

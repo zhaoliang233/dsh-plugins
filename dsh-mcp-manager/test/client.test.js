@@ -198,8 +198,9 @@ test('bundle 注册的两个 slot 与设置分区契约一致', () => {
   assert.deepEqual(
     plain(registered).map((item) => [item.name, item.id, item.order, item.label]),
     [
-      ['settings.section', 'mcp-manager', 26, 'MCP 服务器'],
-      ['settings.action', 'mcp-manager-nav-icon', 26, undefined]
+      // order ≥ 100 = 排到 DSH 自带分区（最大 25）之后。
+      ['settings.section', 'mcp-manager', 110, 'MCP 服务器'],
+      ['settings.action', 'mcp-manager-nav-icon', 110, undefined]
     ]
   )
 })

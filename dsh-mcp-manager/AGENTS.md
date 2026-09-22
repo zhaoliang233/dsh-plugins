@@ -65,7 +65,7 @@
 | `lib/plan.js` | 纯逻辑：设置与已挂载实例的对账计划（挂/卸/拦/不变） |
 | `lib/mount-manager.js` | 运行态：`ctx.plugin` 挂载、`fiber.dispose` 卸载、凭据解析、`ctx.tools.view()` 取工具名、捕获 mcp-client 日志 |
 | `lib/targets.js` | 纯逻辑：把 loader 里的 MCP 行投影成只读视图（脱敏：URL 去查询串、stdio 只给可执行文件名与参数个数、env/header 只给键名） |
-| `client.js` | 单文件 CJS 惰性 bundle：设置分区、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
+| `client.js` | 单文件 CJS 惰性 bundle：设置分区（`settings.section` order 110 = 插件设置入口一律 ≥ 100、排在 DSH 自带分区之后）、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
 | `test/harness.js` | 测试用的小 React 运行时（可渲染、可点击），守住"接线"这一类缺陷 |
 | `scripts/gui-flow.mjs` | 真机 GUI 验收（CDP + 无头 Chrome），不进发布物 |
 | `scripts/fixture-mcp-server.mjs` | 自检用的最小 stdio MCP 服务器（只服务 dev 脚本，不进发布物） |

@@ -6,7 +6,7 @@
 
 1. 在会话作用域 list slot `conversation.session.header.actions` 里放一个渲染 `null` 的驱动组件，从 slot props 拿到当前显示的 `sessionId`；
 2. 订阅该会话的生命周期快照，用公开的 `SessionFace.loadThrough(seq)`（回退 `SessionFace.loadOlder()`）分批把整段历史拉完，并在每批落地后锚定住读者的阅读位置；
-3. 在 `settings.general.item` 注册一行偏好（自动 / 手动）。
+3. 在 `settings.general.item` 注册一行偏好（标题 + 说明 + 官方 `Switch` 开关）。
 
 不替换核心会话视图、消息 renderer、Slot occupant，也不改 DSH 源码。
 
@@ -64,7 +64,9 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 ## 样式与设置行
 
-CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 的同一套声明复刻（`.dshalh_row/rowText/title/desc/selector/chevron`），只用 `--dsw-alias-*` token；`<style data-plugin-css="dsh-auto-load-history/AutoLoadHistoryRow.css">` 挂在 head，卸载时移除。控件用 `@deepseek-ai/dsh-client-ui-primitives` 的 `Menu` + `IconChevronDownOutline14`，与 transcript-view / permission 两行同构；`package.json#dsh.client.inject` 因此不必单列 primitives——它是浏览器**平台静态 seed** 的词之一，`require` 直接命中 seed，不依赖 boot graph 里有没有别的包带它。行顺序 `order: 13`，紧跟 `transcript-view: 12`（它服务的就是那个排版选项）。
+CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 的同一套声明复刻（`.dshalh_row/rowText/title/desc`），只用 `--dsw-alias-*` token；`<style data-plugin-css="dsh-auto-load-history/AutoLoadHistoryRow.css">` 挂在 head，卸载时移除。控件是 `@deepseek-ai/dsh-client-ui-primitives` 的官方 `Switch`（`{ checked, onChange, label }`，36×20、`aria-checked` 驱动配色），插件**不写任何控件样式**、也不自绘按钮或菜单——与 `dsh-extra-context` 的两个开关同款；`package.json#dsh.client.inject` 因此不必单列 primitives——它是浏览器**平台静态 seed** 的词之一，`require` 直接命中 seed，不依赖 boot graph 里有没有别的包带它。
+
+行顺序 `order: 110`（插件设置入口一律 ≥ 100，排在 DSH 自带项之后；内置行最大是 `composer-enter: 20`）。**别再按“紧挨它服务的那个选项”去取 order**（0.1.4 用的是 13，插在 transcript-view 12 与 composer-enter 20 中间，被用户要求改到内置项之后），约定见根 `AGENTS.md` 的 Slot 章节。
 
 ## 切回会话为何会重新分页（0.1.6-alpha.2 的 DSH 行为，非本插件所致）
 
@@ -104,7 +106,7 @@ npm run publish:check     # check + test + pack:check
 ./install.sh
 ```
 
-单元测试覆盖（30 个）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
+单元测试覆盖（35 个）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
 
 真实浏览器验证（`0.1.6-alpha.2`，`--port 0` 隔离服务器 + headless CDP，2026-09-18）：
 
@@ -122,7 +124,7 @@ npm run publish:check     # check + test + pack:check
 GUI 验证清单（挂载并重启后）：
 
 1. 打开历史很长的会话：顶部「加载更早」按钮消失（`hasMore` 已清），紧凑排版立即折叠每个回合的思考过程；
-2. 设置 → 通用出现「会话历史」行，切到「手动」后新开会话不再自动补齐、切回「自动」后当前会话继续补齐；
+2. 设置 → 通用**最下方**（DSH 自带行之后）出现「会话历史」开关：关掉后新开会话不再自动补齐、再打开后当前会话继续补齐；
 3. 加载中途向上滚动：视口停在你的位置不动（新历史插入不推走内容），停手约 1 秒后运行自行继续，滚回底部则立即继续；
 4. 刷新页面后偏好保持；另一个标签页切换偏好后本页跟随；
 5. Chat ↔ Trajectory 切换、会话切换、流式回答期间无报错、无重复分页。
