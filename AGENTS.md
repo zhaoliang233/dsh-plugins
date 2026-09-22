@@ -59,9 +59,11 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- 当前运行 `@deepseek-ai/dsh 0.1.6-alpha.1`；逐包核对 `0.1.5-rc.2 → 0.1.6-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.6-alpha.1 <0.1.7`，其中 `0.1.6-alpha.1` 是逐版本验证版本。同线后续版本允许带警告运行；跨到 `0.1.7` 前必须重新读取源码和实时契约再扩大范围。
-- 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。
-- 声明必须四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门、插件内文档。
+- 当前运行 `@deepseek-ai/dsh 0.1.7-alpha.1`；逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.7-alpha.1 <0.1.8`，其中 `0.1.7-alpha.1` 是逐版本验证版本。同线后续 prerelease 允许带警告运行；跨到 `0.1.8` 前必须重新读取源码和实时契约再扩大范围。
+- 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。
+- 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
+- 声明必须四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门（`DSH_COMPATIBILITY_RANGE` + `DSH_VERIFIED_VERSIONS`）、插件内文档。
+- **按能力取资源仍是默认写法**：官方图标名、客户端服务字段、slot 契约都会随发布线改名（例：0.1.7 把图标从数字档位改成档位词），取值处写候选兜底（见 `dsh-chat-archive-manager/client.js` 的 `iconOf()`），让代码不因一个名字消失就静默变空白。
 
 ## 发布与分发（npm / OIDC）
 
@@ -126,7 +128,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 - 全局 Slot：`shell.overlay`（`dsh-client-ui-layout` 声明，`{kind:'list', scope:'root'}`，AppFrame 渲染为绝对定位全屏层，z-index 20，`pointer-events:none`、子元素 auto）——全局弹窗/横幅的落点；`sidebar.footer.action` 可放侧边栏底部按钮。
 - 子 Slot 由父 entry 的 `children` 表在运行期声明：注册方必须用 `ctx.slots.inject('<slot>', () => ctx.slots.register({ name: '<slot>', ... }, Component))` 等待声明，不要直接 `register` 或依赖 client bundle 顺序。两者的副作用都归调用方 fiber，随插件卸载清理。
 - 注册规则（按 slot 类型）：list slot **必须带 `id`**（否则 apply 抛 `list slot "..." requires options.id`，插件加载失败、浏览器显示 "Failed to load plugins"）；single slot 不需要额外字段；keyed slot 需要 `key`；chain slot 需要 `select`。
-- **设置入口一律排在 DSH 自带项之后（用户规则）**：插件贡献的 `settings.section` / `settings.general.item` / `settings.plugins.tab` 的 `order` 都 **≥ 100**。DSH `0.1.6-alpha.2` 内置项：分区 general 0 / models 10 / plugins 15 / agent-presets 20 / archived-sessions 25，通用行 permission −20 / language 0 / appearance 10 / font-size 11 / transcript-view 12 / composer-enter 20，插件页 tab all 10。同一个 slot 里多个插件不要复用同一档 order（壳层是 `sort((a,b) => a.order - b.order)` 的稳定排序，并列时只能靠注册顺序决胜）；需要固定次序就 100 / 110 / 120 往上排。**升级 DSH 后重新读一遍内置项的 order 上限**，别把插件行插到内置行中间。
+- **设置入口一律排在 DSH 自带项之后（用户规则）**：插件贡献的 `settings.section` / `settings.general.item` / `settings.plugins.tab` 的 `order` 都 **≥ 100**。DSH `0.1.7-alpha.1` 内置项：分区 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（0.1.6 的最大项 `archived-sessions` 25 已被 DSH 删除），通用行 permission −20 / appearance 10 / font-size 11 / transcript-view 12 / performance-usage 13 / link-opening 14 / developer-tools 15 / composer-enter 20 / current-version 100，插件页 tab all 10。同一个 slot 里多个插件不要复用同一档 order（壳层是 `sort((a,b) => a.order - b.order)` 的稳定排序，并列时只能靠注册顺序决胜）；需要固定次序就 100 / 110 / 120 往上排。**升级 DSH 后重新读一遍内置项的 order 上限**，别把插件行插到内置行中间。
 
 ### 子代理委派纪律
 
