@@ -19,7 +19,7 @@
 | `dsh-local-plugin-manager/` | 在设置页启停或卸载当前 web profile 中的本地 link 插件 |
 | `dsh-sticky-user-bubble/` | 阅读长对话时把已滚出顶部的用户气泡固定在阅读区顶部 |
 | `dsh-mobile-compat/` | 为精确声明的 DSH 版本提供移动抽屉、Settings、Composer、触控与安全区兼容层 |
-| `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，使“紧凑”排版立即折叠每个回合的思考过程（设置→通用末尾的总开关可关闭） |
+| `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，顶部「加载更早」不再常驻（设置→通用末尾的总开关可关闭） |
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |
 | `dsh-mcp-manager/` | 设置页管理 MCP 服务器：增删改、启停、连接与工具状态、凭据走 credentials，不改 profile 配置、不重启即生效（**未发布**） |
 
@@ -35,16 +35,16 @@ dsh plugin --profile web remove dsh-sticky-user-bubble     # 卸载
 
 ## 工作区工具（非插件）
 
-`tools/dsh-icons/`：从已安装 DSH 提取**内置图标全集**（名字/档位/画布/SVG 源码/谁在用）→ 可 diff 快照 `icons.json` + 可交互预览页 `preview.html`；`check.js` 在 DSH 升级后核对漂移，并拦下“插件 require 了不存在的图标”。详见 `tools/dsh-icons/README.md`。
+`tools/dsh-icons/`：从已安装 DSH 提取**内置图标全集**（名字/字重档位/画布/SVG 源码/谁在用）→ 可 diff 快照 `icons.json` + 可交互预览页 `preview.html`；`check.js` 在 DSH 升级后核对漂移，并拦下“插件 require 了不存在的图标”。详见 `tools/dsh-icons/README.md`。
 
 ```bash
 node tools/dsh-icons/build.js            # DSH 升/降级后重新提取
 node tools/dsh-icons/check.js            # 漂移检查（0=无漂移，1=有漂移）
-open tools/dsh-icons/preview.html        # 选图标：搜索/档位/真实尺寸/深浅背景，点卡片复制名字
+open tools/dsh-icons/preview.html        # 选图标：搜索/字重档位/真实尺寸/深浅背景，点卡片复制名字
 node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导航图标补丁的几何（无需真实 GUI）
 ```
 
-**选或换图标前先在预览页确认名字存在**：图标来自浏览器侧 `__ModuleLoader__` seed 的 `dsh-client-ui-primitives` 冻结导出对象，没被打进去的名字 `require` 回来是 `undefined`，组件会静默渲染成空白。设置页分区想要自己的图标只能走 DOM 补丁（壳层 `settings.section` 没有 `icon` 选项），现成实现、关键事实与离线几何验证见该工具 README。
+**选或换图标前先在预览页确认名字存在**：图标来自浏览器侧 `__ModuleLoader__` seed 的 `dsh-client-ui-primitives` 冻结导出对象，没被打进去的名字 `require` 回来是 `undefined`，组件会静默渲染成空白。**0.1.7 把旧的数字档位（`IconXxx14`/`16`/`20`）换成了字重档位 `…Medium`（描边 1.3）/`…Regular`（描边 1），同一行里的图标必须同字重档位**；换图标的取值处写候选链兜底（`iconOf()`），别直接解构。设置页分区想要自己的图标只能走 DOM 补丁（壳层 `settings.section` 没有 `icon` 选项），现成实现、关键事实与离线几何验证见该工具 README。
 
 ## 环境事实
 
@@ -109,6 +109,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 ### 宿主插件要点
 
 - 插件对象 `export default { name, inject, apply(ctx) }`；`inject` **必须声明**要用到的服务（如 `['tools','systemPrompt']`），否则 apply 在 services 就绪前运行、注册被静默跳过（踩过此坑）。
+- **要导出 `Config`（0.1.7 起插件设置的 schema）时必须同时挂在 default 对象上**：`Loader.unwrapExports()` 对"既有 default 又有命名导出"的模块返回 **default 对象**，而 `registry.plugin()` 只从那个对象读 `runtime.Config`。只写 `export const Config` 会让 `settings.describe()` 认定该条目没有 schema → 条目进不了配置表单 → 状态接口 `writable:false`、设置页动作控件永久禁用、所有写入被拒（2026-09-22 用户实测反馈）。`dsh-extra-context` 有回归守卫（`test/manifest.test.js`）。
 - 只在部分 profile 出现的服务不要放进顶层 `inject`：需随服务出现/替换自动重绑时用 `ctx.inject(['name'], childCtx => ...)`，只做一次性探测才用 `ctx.get('name')`。
 - **字节级 base64 必须自实现**（查表法）：宿主 `btoa` 是 `Buffer.from(s,'utf-8')` 实现，会把二进制当 UTF-8 文本二次编码、损坏图片字节（踩过此坑）。
 - Cordis 4 没有 `service/ready` 事件；新代码用动态 `ctx.inject` 管理生命周期。
