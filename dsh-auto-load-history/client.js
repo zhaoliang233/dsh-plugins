@@ -1,11 +1,11 @@
 // dsh-auto-load-history — browser half loaded by dsh-client-modules.
 // One job: as soon as the viewed Session is open, page its whole history in.
-// DSH only clears `hasMore` through the top "Load earlier" button or a turn-rail
-// jump, and the compact transcript refuses to fold any Turn while history is
-// incomplete (`ChatNodeSeat`: `!historyIncomplete`), so a reader either pages by
-// hand or never sees the compact view. This plugin automates that paging through
-// the public client Session face and adds one Settings → General switch that
-// turns the behavior off.
+// DSH ships the window in pages (`maxMessages: 200` per request) and only clears
+// `hasMore` through the top "Load earlier" button or a turn-rail jump, so a long
+// Session opens with just the tail of the conversation and the reader has to page
+// backwards by hand to reach anything older. This plugin automates that paging
+// through the public client Session face and adds one Settings → General switch
+// that turns the behavior off.
 //
 // Which Session is being viewed is a view-owned fact: the client Controller
 // stopped publishing a `current` selection in its list snapshot (0.1.6-alpha.2),
@@ -64,8 +64,7 @@ window.__ModuleLoader__.load({
      * who scrolled away pauses paging, but only while they are actually driving the
      * viewport: once they settle, the run resumes on its own (the anchor correction
      * below keeps their place), so a brief scroll never leaves the history half
-     * loaded — and half-loaded is exactly what keeps the compact transcript from
-     * folding its Turns.
+     * loaded.
      */
     const READER_IDLE_MS = 1000
     /**
@@ -75,12 +74,12 @@ window.__ModuleLoader__.load({
      */
     const ANCHOR_ATTRIBUTES = ['chatAnchorKey', 'turnTail']
     /**
-     * Older events pulled per run. The Controller serves a run as a continuous
-     * sequence of 200-event prepends and each prepend commits a render, so a single
-     * run that swallows a whole huge history blocks the main thread for seconds —
-     * scrolling stops responding right when the load lands. Batching keeps every
-     * commit small, and the gap below lets the browser lay out and take input between
-     * batches.
+     * Older events pulled per run. The Controller serves `loadThrough` in 200-event
+     * pages (0.1.7 accumulates them and commits one prepend when the run settles),
+     * so a single run that swallows a whole huge history still lands as one large
+     * commit — scrolling stops responding right when the load lands. Batching keeps
+     * every commit small, and the gap below lets the browser lay out and take input
+     * between batches.
      */
     const BATCH_EVENTS = 600
     /** Quiet gap between runs, so layout and input are not starved by the next batch. */
@@ -96,12 +95,12 @@ window.__ModuleLoader__.load({
     const MAX_BINDING_RETRIES = 30
     const LOCALE_ZH = {
       'row.title': '会话历史',
-      'row.description': '打开会话时自动加载全部历史，让「紧凑」排版立即折叠每个回合的思考过程。',
+      'row.description': '打开会话时自动加载全部历史，顶部「加载更早」不再常驻。',
       'row.switch': '自动加载会话历史'
     }
     const LOCALE_EN = {
       'row.title': 'Session history',
-      'row.description': 'Load the whole history when a session opens, so Compact folds each turn’s process immediately.',
+      'row.description': 'Load the whole history when a session opens, so “Load earlier” does not stay at the top.',
       'row.switch': 'Load session history automatically'
     }
 
@@ -666,8 +665,7 @@ window.__ModuleLoader__.load({
        * Arm (or re-arm) the reader-intent expiry. A reader mid-scroll pauses the run,
        * but a reader who merely stopped looking — settled, no input for
        * `READER_IDLE_MS` — must not leave the history half loaded: the anchor
-       * correction keeps their place, and an unfinished window is exactly what stops
-       * the compact transcript from folding.
+       * correction keeps their place and the run picks up where it paused.
        */
       function armReaderIdle() {
         if (setTimeoutFn === null) return

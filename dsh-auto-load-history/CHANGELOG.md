@@ -2,6 +2,14 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.1.5] - 2026-09-22
+
+### 变更
+
+- **兼容线移到 `>=0.1.7-alpha.1 <0.1.8`**（`0.1.7-alpha.1` 已逐版本核对）：`package.json`、`engines.dsh`、`install.sh` 版本门与 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS` 四处同源更新，范围外保持 inert。
+- **插件定位改为「打开会话时自动补齐整段历史」**：DSH 0.1.7 删除了 `historyIncomplete`/`compactTranscript` 门禁，紧凑排版改为按回合判断（`turnStarted || turnClosed`），"历史不全就不折叠"这个前提已不存在。补齐行为本身保留，只有文案、注释与文档不再声称它服务于折叠。
+- 注释同步 0.1.7 的 `loadThrough` 语义：控制器在调用内累积 200 条/页、结算时一次性 prepend（不再每页各提交一次渲染），因此 `BATCH_EVENTS = 600` 的分批仍按"一次调用拉多少"生效。
+
 ## [0.1.4] - 2026-09-18
 
 ### 变更

@@ -18,13 +18,15 @@
 
 slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent store 私有字段）或推断 `sessions.retainInfo()` 的 `mainView` 引用计数都属于依赖私有实现，不采用。
 
-## 为什么必须“全部加载完成”
+## 为什么要把整段历史补齐
 
-`dsh-client-ui-chat/lib/client.js`（0.1.6-alpha.2）：`:1567` 的 `processWindowReady` 要求 `compactTranscript && … && !historyIncomplete`，而 `:2556` 的 `historyIncomplete: hasMore`——即 **`hasMore` 不为 false 时，紧凑折叠对所有回合都不生效**，这正是本插件存在的理由。
+历史原因：0.1.6 线时本插件的理由是折叠门禁（`processWindowReady … && !historyIncomplete`）。**该门禁在 0.1.7 已被删除**：紧凑/详细/展开三档改由 `derivePresentationPolicy()` 的纯查表给出（`foldCompletedTurns: true` 对所有档位成立），`processWindowReady` 现在只要求 `foldCompleted` 与「本回合已开始或已结束」（`turnStarted || turnClosed`）——折叠不再是本插件的理由。
+
+现在的理由是**把整段历史真正取回来**：顶部「加载更早」不再常驻，页面内查找、复制、回看更早内容都不需要再手动翻页。
 
 清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`maxMessages: 50`，`dsh-api-session-controller/lib/client.js:1756`）和回合导航未加载圆点的 `loadThrough(seq)`（每页 200、循环到覆盖目标 seq，同文件 `:1775`）。服务端 `paginate` 用 `cut > 0` 决定 `hasMore`（同包 `lib/index.js:1570`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。
 
-## 依赖的契约（0.1.6-alpha.2 已核对）
+## 依赖的契约（0.1.7-alpha.1 已核对）
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
@@ -70,7 +72,7 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 ## 切回会话为何会重新分页（0.1.6-alpha.2 的 DSH 行为，非本插件所致）
 
-0.1.6-alpha.2 用引用计数管理会话生命周期：`uiWorkspace.replaceMain()` 切会话时先 `retain(新会话)` 再 `previous?.release()`（`dsh-client-ui-workspace/lib/client.js:189`、`:213`），而 `SessionReference.release()` 的契约是「Release once; **the final reference starts local scope and history teardown**」。于是离开会话即拆除其历史窗口，切回时 `hasMore` 回到 `true`、必须重新分页补齐（观感就是"之前加载好的又要加载一遍"；补齐期间 `hasMore` 未清、紧凑折叠还不生效，高度会短暂变大）。alpha.1 的 `pruneScopes()` 只在会话「no-longer-eligible」（被移除/归档）时拆除、`watched` 还延迟拆除，普通切换不拆——所以旧版切回是完整的。
+0.1.6-alpha.2 用引用计数管理会话生命周期：`uiWorkspace.replaceMain()` 切会话时先 `retain(新会话)` 再 `previous?.release()`（`dsh-client-ui-workspace/lib/client.js:189`、`:213`），而 `SessionReference.release()` 的契约是「Release once; **the final reference starts local scope and history teardown**」。于是离开会话即拆除其历史窗口，切回时 `hasMore` 回到 `true`、必须重新分页补齐（观感就是"之前加载好的又要加载一遍"；补齐期间 `hasMore` 未清，高度会短暂变大）。alpha.1 的 `pruneScopes()` 只在会话「no-longer-eligible」（被移除/归档）时拆除、`watched` 还延迟拆除，普通切换不拆——所以旧版切回是完整的。
 
 **本插件刻意不 `retain`**：只借用 `binding(id)`（契约注明不延长生命周期）、调 `loadOlder()`，保持引用计数与 DSH 语义不变。**不要为了"切回不重新加载"去 retain 会话**（2026-09-18 与用户确认保持现状）：那会让插件成为生命周期持有者——多留一个会话窗口的内存，并把归档/删除会话的本地拆除推迟到插件放手。
 
@@ -92,7 +94,7 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 ## 发布线
 
-`>=0.1.6-alpha.1 <0.1.7`，`0.1.6-alpha.2` 已逐版本核对并在真实浏览器中验证（0.1.2 版实现曾验证 `0.1.6-alpha.1`，其 slot 声明与 `binding(id)` 已静态核对与 alpha.2 一致，但当前实现未在 alpha.1 上运行验证）；同线后续版本带警告运行，客户端能力检查（`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源。
+`>=0.1.7-alpha.1 <0.1.8`，`0.1.7-alpha.1` 已逐版本核对。逐项核对结果：`ISession.loadThrough(seq)`/`loadOlder()` 仍在（页大小仍 200/50，语义不变，但 0.1.7 改为在一次调用内累积页面、结算时一次性 `prependWindow`，不再每页各提交一次渲染——`BATCH_EVENTS = 600` 的含义因此变成“一次调用拉多少”，插件侧无需改动）；`SessionSnapshot` 仍带 `openState/removed/hasMore/loadingOlder`；会话作用域 list slot `conversation.session.header.actions`、`ctx.sessions.binding(id).session/.eventSource`、`settings.general.item`、renderer 的 `bindInjectSources` 透传与 `locale` 座位、`[data-conversation-scroll]` 均在。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源。
 
 ## 发布与安装路线
 
@@ -123,7 +125,7 @@ npm run publish:check     # check + test + pack:check
 
 GUI 验证清单（挂载并重启后）：
 
-1. 打开历史很长的会话：顶部「加载更早」按钮消失（`hasMore` 已清），紧凑排版立即折叠每个回合的思考过程；
+1. 打开历史很长的会话：顶部「加载更早」按钮消失（`hasMore` 已清）；
 2. 设置 → 通用**最下方**（DSH 自带行之后）出现「会话历史」开关：关掉后新开会话不再自动补齐、再打开后当前会话继续补齐；
 3. 加载中途向上滚动：视口停在你的位置不动（新历史插入不推走内容），停手约 1 秒后运行自行继续，滚回底部则立即继续；
 4. 刷新页面后偏好保持；另一个标签页切换偏好后本页跟随；

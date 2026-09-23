@@ -3,7 +3,8 @@ set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 DSH_PROFILE="${DSH_PROFILE:-web}"
-DSH_COMPATIBILITY_RANGE=">=0.1.6-alpha.1 <0.1.7"
+DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"
+DSH_VERIFIED_VERSIONS="0.1.7-alpha.1"
 
 echo "== dsh-auto-load-history 安装 =="
 echo "  插件目录: $PLUGIN_DIR"
@@ -24,8 +25,8 @@ is_compatible_dsh_version() {
   local version="$1"
   local channel
   local sequence
-  if [[ "$version" == "0.1.6" ]]; then return 0; fi
-  if [[ "$version" =~ ^0\.1\.6-(alpha|beta|rc)\.(0|[1-9][0-9]*)$ ]]; then
+  if [[ "$version" == "0.1.7" ]]; then return 0; fi
+  if [[ "$version" =~ ^0\.1\.7-(alpha|beta|rc)\.(0|[1-9][0-9]*)$ ]]; then
     channel="${BASH_REMATCH[1]}"
     sequence="${BASH_REMATCH[2]}"
     if [[ "$channel" == "alpha" && "$sequence" -lt 1 ]]; then return 1; fi
@@ -37,8 +38,17 @@ if ! is_compatible_dsh_version "$NORMALIZED_DSH_VERSION"; then
   printf '错误: 支持的 DSH 范围为 %s，当前为 %s。\n' "$DSH_COMPATIBILITY_RANGE" "$ACTUAL_DSH_VERSION" >&2
   exit 1
 fi
-if [[ "$NORMALIZED_DSH_VERSION" != "0.1.6-alpha.1" ]]; then
-  printf '警告: DSH %s 位于兼容发布线内，但尚未列入逐版本验证清单；客户端结构与能力检查仍是最终依据。\n' "$ACTUAL_DSH_VERSION" >&2
+is_verified_dsh_version() {
+  local version="$1"
+  local verified
+  for verified in $DSH_VERIFIED_VERSIONS; do
+    [[ "$version" == "$verified" ]] && return 0
+  done
+  return 1
+}
+if ! is_verified_dsh_version "$NORMALIZED_DSH_VERSION"; then
+  printf '警告: DSH %s 位于兼容发布线 %s 内，但尚未列入逐版本验证清单（%s）；客户端结构与能力检查仍是最终依据。\n' \
+    "$ACTUAL_DSH_VERSION" "$DSH_COMPATIBILITY_RANGE" "$DSH_VERIFIED_VERSIONS" >&2
 fi
 
 npm run publish:check --prefix "$PLUGIN_DIR"
