@@ -2,6 +2,15 @@
 
 本文件记录本项目的所有变更。
 
+## [0.1.6] - 2026-09-22
+
+### 变更
+
+- **适配 DSH 0.1.7 的设置模型**：`ctx.settings.register()` 与客户端 `settingsScope` 都已从 DSH 删除，设置改为「profile 条目配置表单」——插件导出 schemastery `Config`（`enabled`/`segments`/`maxBytes` 三个字段声明 `.volatile()`，改设置不重启插件），宿主读 `ctx.config.<字段>.get()` 的实时值并用 `settings.configure({ auto: false })` 表明自己提供设置分区；客户端改用 `ctx.configForms.get('dsh-extra-context')` 的 `mutate` 写入（自带 revision 栅栏与排队）。
+- **旧数据只读兜底**：0.1.7 把设置文档换成 profile 配置时按条目 id 迁移，旧 `settings.yaml` 的 `extra-context:` 段名与条目 id `dsh-extra-context` 不同名，因此没被带走。插件现在会从 `$DSH_HOME/settings.yaml.imported` 读那一段作为兜底，**字段级**生效：某个字段一旦在设置页写过就以设置为准，其余字段继续沿用旧值。它只读不写。
+- **图标名适配 0.1.7 的改名**（数字档位 → 字重档位：`IconCloseFill14` → `IconCloseFillMedium` 等）：改为按能力取用（`iconOf()` 候选序列），名字消失时退化成不渲染的空组件，不再让整个面板因为一个图标名变化而失效。
+- 兼容线移到 `>=0.1.7-alpha.1 <0.1.8`（`0.1.7-alpha.1` 已逐版本核对），四处同源更新，范围外保持 inert。
+
 ## [0.1.5] - 2026-09-20
 
 ### 修复

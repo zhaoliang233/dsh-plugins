@@ -4,20 +4,24 @@
  * 职责：把「额外说明与上下文」注册成进程级的 system prompt section，
  * 让所有会话、子代理、workflow 子步骤都带上它；同时提供设置页所需的状态接口。
  *
- * 关键机制（已按 DSH 0.1.6-alpha.1 源码核对）：
+ * 关键机制（已按 DSH 0.1.7-alpha.1 源码核对）：
  * - `ctx.systemPrompt.section()` 注册在调用者 fiber 的全局层，对所有 agent 生效；
  *   scoped（agent 级）同名 section 才会覆盖它。本插件只注册全局层，不参与 agent preset。
  * - section 的 `text` 可以是函数，每次组装实时求值，因此设置改动无需重新注册。
  * - 该函数在每次 prompt 组装时被调用，抛错会让模型请求整体失败，故渲染路径全部防御性读取。
+ * - **设置就是本插件在 profile 里的条目配置**（0.1.7 起 DSH 的 settings 文档被
+ *   profile 配置表单取代）：模块导出 `Config`（schemastery，字段声明 `.volatile()`），
+ *   由 loader 做「只改 volatile 字段就不重启插件」的就地更新，插件侧读
+ *   `ctx.config.<字段>.get()` 拿实时值；设置页写入走客户端 `configForms`。
  *
  * @module dsh-extra-context
  */
 
 import { createRequire } from 'node:module'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 
@@ -53,7 +57,13 @@ export {
 
 export const STATUS_PATH = '/dsh-extra-context/status'
 export const CLIENT_HEADER = 'x-dsh-extra-context-client'
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
+export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
+/**
+ * 设置条目的 id：0.1.7 起「设置」就是 profile 里这个插件条目的配置，
+ * 客户端 `ctx.configForms.get(<id>)` 与宿主 `settings.describe()` 的 `ns` 都是它。
+ * 与 `SETTINGS_NAMESPACE`（旧的 `settings.yaml` 段名）不同，后者现在只用于读旧数据。
+ */
+export const SETTINGS_ENTRY = 'dsh-extra-context'
 
 /** 本插件真正用得上的服务；settings 是可选服务，单独用 ctx.inject 管理生命周期。 */
 export const inject = ['systemPrompt']
@@ -65,14 +75,14 @@ const DEFAULT_ENTRY_PATH = fileURLToPath(import.meta.url)
  * @param {unknown} version
  * @returns {{supported: boolean, verified: boolean, normalized?: string}}
  */
-export const VERIFIED_DSH_VERSIONS = ['0.1.6-alpha.1']
+export const VERIFIED_DSH_VERSIONS = ['0.1.7-alpha.1']
 
 export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }
   const normalized = version.split('+', 1)[0]
   const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
-  if (normalized === '0.1.6') return { supported: true, verified, normalized }
-  const prerelease = /^0\.1\.6-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
+  if (normalized === '0.1.7') return { supported: true, verified, normalized }
+  const prerelease = /^0\.1\.7-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
   if (prerelease === null) return { supported: false, verified: false, normalized }
   const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= 1
   return { supported, verified: supported && verified, normalized }
@@ -121,100 +131,157 @@ async function realpathSafe(path) {
 }
 
 /**
- * 从 DSH 安装里加载 schemastery。
+ * 从 DSH 安装里加载一个 Node 包（schemastery / js-yaml）。
  *
  * 宿主插件不声明 @deepseek-ai/* 依赖，裸 import 会 ERR_MODULE_NOT_FOUND；
- * 而 settings 命名空间的 schema 必须是真正的 schemastery 对象
- * （describe() 会调 schema.toJSON()，客户端用同一方言 rehydrate），
+ * 而 profile 条目的 schema 必须是真正的 schemastery 对象
+ * （`settings.describe()` 会调 `schema.toJSON()`，浏览器用同一方言 rehydrate），
  * 所以按 DSH 安装内的绝对路径动态 import。
  *
  * **必须经 `pathToFileURL` 转成 file:// URL 再 import（Windows 上的真实缺陷）**：
  * `require.resolve` 返回的是**文件系统路径**，而 ESM 装载器只接受带协议的说明符。
  * Windows 下 `import('C:\\…\\schemastery\\lib\\index.cjs')` 会把 `C:` 当成协议，
- * 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Node 24 实测）。异常被下面的 try/catch 吞掉后
- * schema 变 null，`ctx.inject(['settings'])` 里 fail closed 直接 return，
- * 于是 settings 命名空间静默不注册：状态接口 `writable:false`，设置页的
- * 「+ 添加上下文」与右侧总开关被 `disabled: busy || !writable` 永久禁用（用户实测反馈）。
+ * 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`（Node 24 实测）。异常被吞掉后 schema 变 null，
+ * 条目在 `settings.describe()` 里不出现 → 设置页读写被禁用（用户实测反馈）。
+ * POSIX 上裸绝对路径能 import，所以这个缺陷只在 Windows 暴露——**别再退回 `import(resolved)`**。
  * @param {string} dshRoot
+ * @param {string} name
  * @returns {Promise<any>}
  */
-async function loadSchemastery(dshRoot) {
+export async function loadDshModule(dshRoot, name) {
   const anchor = join(dshRoot, 'package.json')
   const require = createRequire(anchor)
-  const resolved = require.resolve('@deepseek-ai/schemastery')
+  const resolved = require.resolve(name)
   const imported = await import(pathToFileURL(resolved).href)
   return imported.default ?? imported
 }
 
+async function loadSchemastery(dshRoot) {
+  return loadDshModule(dshRoot, '@deepseek-ai/schemastery')
+}
+
 /**
- * 构造设置命名空间的 schema（与设置页共享同一份方言）。
+ * 同步定位正在运行的 DSH 安装根目录。
+ *
+ * 首选与工作区其它插件同款的方式：`process.argv[1]`（CLI 入口）realpath 后向上 ≤4 层。
+ * 测试进程（`node --test`）与从别处加载插件时 argv[1] 不是 DSH 入口，因此补一条
+ * **PATH 上的 `dsh`** 的兜底——它同样指向真正的安装（bin 软链 realpath 后即包内 lib/bin.js）。
+ * 两条都失败时返回 undefined：调用方按"没有 schema"降级，绝不抛错。
+ * @param {string} [entryPath]
+ * @returns {string|undefined}
+ */
+export function locateDshRootSync(entryPath = process.argv[1]) {
+  const walkUp = (start) => {
+    let directory = start
+    for (let depth = 0; depth < 4; depth += 1) {
+      try {
+        const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+        if (manifest?.name === '@deepseek-ai/dsh') return directory
+      } catch {
+        // 读不到/不是 JSON：继续向上
+      }
+      const parent = dirname(directory)
+      if (parent === directory) break
+      directory = parent
+    }
+    return undefined
+  }
+  if (typeof entryPath === 'string' && entryPath.trim() !== '') {
+    try {
+      const found = walkUp(dirname(realpathSync(entryPath)))
+      if (found !== undefined) return found
+    } catch {
+      // 入口不存在：落到 PATH 探测
+    }
+  }
+  const pathValue = typeof process.env.PATH === 'string' ? process.env.PATH : ''
+  for (const entry of pathValue.split(delimiter)) {
+    if (entry === '') continue
+    try {
+      const candidate = realpathSync(join(entry, 'dsh'))
+      const found = walkUp(dirname(candidate))
+      if (found !== undefined) return found
+    } catch {
+      // 该目录下没有可执行的 dsh
+    }
+  }
+  return undefined
+}
+
+/**
+ * 本插件在 profile 里的条目 schema。
+ *
+ * 三个字段都声明 `.volatile()`：Cordis loader 遇到「只有 volatile 字段变化」时就地更新
+ * 运行中 fiber 的引用（不重启插件），所以我们读 `ctx.config.<字段>.get()` 永远是最新值。
+ * 数组字段同样可以整体声明 volatile（客户端把 `segments` 当作一个字段整份写回）。
+ * schema 在模块作用域构造：loader 在 `plugin()` 时读 `plugin.Config`，那时 import 已求值完。
+ */
+const schemastery = await (async () => {
+  try {
+    const root = locateDshRootSync()
+    if (root === undefined) return null
+    return await loadSchemastery(root)
+  } catch {
+    return null
+  }
+})()
+
+export const Config = schemastery === null ? undefined : createConfigSchema(schemastery)
+
+/**
+ * 构造条目 schema。分段只有 id / enabled / text：`label`（分段名称）已从界面、
+ * 客户端规范化与这里一并移除。schemastery 对未知键是"原样保留"
+ * （object 非 strict 时会 merge），所以老数据里的 label 键不会让校验失败，
+ * 只是不再被声明、也不再被读写。
  * @param {any} z
  * @returns {any}
  */
-function createSettingsSchema(z) {
-  // 分段只有 id / enabled / text：`label`（分段名称）已从界面、客户端规范化与
-  // 这里一并移除。schemastery 对未知键是"原样保留"（object 非 strict 时会 merge），
-  // 所以老设置文件里的 label 键不会让校验失败，只是不再被声明、也不再被读写。
+export function createConfigSchema(z) {
   const segment = z.object({
     id: z.string().default(''),
     enabled: z.boolean().default(true),
     text: z.string().default('')
   })
   return z.object({
-    enabled: z.boolean().default(DEFAULT_SETTINGS.enabled),
-    segments: z.array(segment).default([]),
-    maxBytes: z.number().default(DEFAULT_SETTINGS.maxBytes)
+    enabled: z.boolean().default(DEFAULT_SETTINGS.enabled).volatile(),
+    segments: z.array(segment).default([]).volatile(),
+    maxBytes: z.number().default(DEFAULT_SETTINGS.maxBytes).volatile()
+  })
+}
+
+/**
+ * 字段级合成生效值。
+ *
+ * 三个来源的优先级（0.1.7 的原生设置模型 + 一次性迁移读取）：
+ * 1. 用户在设置页写过的字段（profile 条目配置里的 override，`describe().user` 的键）——最高；
+ * 2. 旧 `$DSH_HOME/settings.yaml.imported` 里 `extra-context:` 段的同名字段——只在用户
+ *    还没在设置页写过该字段时生效（0.1.7 的设置文档被 profile 配置取代，段名与条目 id
+ *    不同名，DSH 自己的迁移没能带上它，所以这里做只读兜底）；
+ * 3. 其余字段用实时解析值（schema 默认 + 组合层）。
+ *
+ * 字段级而不是整份替换：用户只动总开关时，迁移来的 `segments` 必须留下——
+ * 整份替换会让“只切了个开关，规则全没了”。
+ * @param {object} resolved 实时解析值（normalizeSettings 口径）
+ * @param {Set<string>} explicitFields 用户在设置页显式写过的字段名
+ * @param {object|undefined} legacySection 旧 settings.yaml.imported 的 extra-context 段
+ * @returns {ReturnType<typeof normalizeSettings>}
+ */
+export function mergeEffectiveSettings(resolved, explicitFields, legacySection) {
+  const base = normalizeSettings(resolved)
+  const legacy = legacySection !== null && typeof legacySection === 'object' ? legacySection : undefined
+  const pick = (field) => {
+    if (explicitFields.has(field)) return base[field]
+    if (legacy !== undefined && Object.prototype.hasOwnProperty.call(legacy, field)) return legacy[field]
+    return base[field]
+  }
+  return normalizeSettings({
+    enabled: pick('enabled'),
+    segments: pick('segments'),
+    maxBytes: pick('maxBytes')
   })
 }
 
 /** 读取请求头（兼容不同 Node 请求实现）。 */
-/**
- * 用户层显式写过的字段名。
- *
- * 用 describe() 的 `user` 层判断"用户是否表达过意图"：字段只要出现就说明
- * 用户动过它——哪怕值是空数组。describe 不可用时退化为 scope 解析值本身。
- * @param {any} settings settings 服务
- * @param {string} namespace 命名空间
- * @param {any} scope 命名空间 owner scope
- * @returns {Set<string>}
- */
-function explicitUserFields(settings, namespace, scope, log) {
-  if (typeof settings?.describe === 'function') {
-    let rows
-    try {
-      rows = settings.describe({ redactSecrets: true }) ?? []
-    } catch (error) {
-      // describe 存在但**调用失败**：这时绝不能退到 scope.get() 兜底。
-      // scope.get() 是 resolved 值（恒含全部字段），会被判成"用户写过"，
-      // 于是组合层 config 被整体丢弃——正是我们要避免的那个缺陷的另一条分支。
-      // 判据"未知"时唯一的保守选择是：当作没写过，保留组合层。
-      log?.('warn', `settings.describe() failed (${messageOf(error)}); treating user settings as unconfigured and keeping the composition config`)
-      return new Set()
-    }
-    const mine = rows.find((row) => row.ns === namespace)
-    const user = mine?.user
-    // 关键：describe 可用时，**只有它**能判定"用户写过什么"。
-    // 真实 describe 在"用户从未写过该段"时不给 user 键；此时必须返回空集合，
-    // 绝不能回退到 scope.get()——那是 resolved 值（恒含全部字段），
-    // 会被误判成"用户写过"，从而用空默认值覆盖掉组合层 config。
-    return user !== null && typeof user === 'object' ? new Set(Object.keys(user)) : new Set()
-  }
-  // describe **不存在**（服务没提供这个方法）：只能退化为读当前解析值的字段名。
-  // 这条兜底比"当作没写过"更激进，只在没有更好信息时使用。
-  try {
-    const value = scope?.get?.()
-    if (value !== null && typeof value === 'object') return new Set(Object.keys(value))
-  } catch {
-    // 完全无从判断：等价于"未显式配置"。
-  }
-  return new Set()
-}
-
-/** 设置段是否已有实际内容（空 segments 视为未配置）。 */
-function isConfigured(settings) {
-  return effectiveSegments(settings).length > 0
-}
-
 function requestHeader(request, name) {
   const headers = request?.headers
   if (headers === undefined || headers === null) return undefined
@@ -276,19 +343,68 @@ function createCompactionNoteMessage(text) {
 
 /**
  * 组装插件运行时。
- * @param {{ ctx: any, schema: any, initial: object, log: (level: string, message: string) => void }} input
+ * @param {{ ctx: any, config: object, legacy: { path: string, present: boolean, section?: object, error?: string }, log: (level: string, message: string) => void }} input
  * @returns {Promise<() => Promise<void>>}
  */
 async function createRuntime(input) {
-  const { ctx, schema, initial, log } = input
-  let current = normalizeSettings(initial)
-  let settingsScope = null
+  const { ctx, config, legacy, log } = input
+  let settingsService = null
+
+  /**
+   * 读 volatile 字段的实时值。
+   *
+   * 0.1.7 里这些字段在运行中的 config 上是 volatile 引用（cosmokit），
+   * loader 就地更新它们，所以 `ref.get()` 永远是最新值——不需要订阅
+   * `loader/volatile-update`，也不需要维护本地快照。测试桩会直接给普通值。
+   */
+  function readField(name, fallback) {
+    const value = config?.[name]
+    if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
+      try {
+        return value.get()
+      } catch {
+        return fallback
+      }
+    }
+    return value === undefined ? fallback : value
+  }
+
+  /** 实时解析值（schema 默认 + 组合层 + 用户 override，全部由 loader 合成）。 */
+  function liveResolved() {
+    return normalizeSettings({
+      enabled: readField('enabled', DEFAULT_SETTINGS.enabled),
+      segments: readField('segments', DEFAULT_SETTINGS.segments),
+      maxBytes: readField('maxBytes', DEFAULT_SETTINGS.maxBytes)
+    })
+  }
+
+  /** `settings.describe()` 里本插件这一条（供"用户写过哪些字段"与诊断使用）。 */
+  function ownEntry() {
+    if (typeof settingsService?.describe !== 'function') return undefined
+    try {
+      const rows = settingsService.describe({ redactSecrets: true }) ?? []
+      return rows.find((row) => row.ns === SETTINGS_ENTRY)
+    } catch (error) {
+      // describe 抛错时判据未知：保守地当作用户没写过，保留迁移值与解析值。
+      log('warn', `settings.describe() failed (${messageOf(error)}); treating user settings as unconfigured`)
+      return undefined
+    }
+  }
+
+  /** 生效设置：用户 override → 旧 settings.yaml 迁移段 → 实时解析值（字段级）。 */
+  function effectiveSettings() {
+    const entry = ownEntry()
+    const explicit = entry?.user !== null && typeof entry?.user === 'object'
+      ? new Set(Object.keys(entry.user))
+      : new Set()
+    return mergeEffectiveSettings(liveResolved(), explicit, legacy.section)
+  }
 
   // 全局 system prompt section：进程级，一次注册对所有 agent 生效。
-  // text 用函数形式，每次组装读取最新快照，因此设置改动即时生效、无需重注册。
+  // text 用函数形式，每次组装实时读取 volatile 引用，因此设置改动即时生效、无需重注册。
   /** 实际贡献给 system prompt 的内容（防御性读取，脏数据退化为空串）。 */
   function renderForPrompt() {
-    return renderExtraContext(normalizeSettings(current))
+    return renderExtraContext(effectiveSettings())
   }
 
   const disposer = ctx.systemPrompt.section({
@@ -311,52 +427,6 @@ async function createRuntime(input) {
       }
     }
   })
-
-  /**
-   * 写入设置：优先走 settings 命名空间（设置页与配置兼容、带 revision 保护），
-   * 没有 settings 服务时退化为仅更新内存快照（本次进程内仍生效）。
-   */
-  async function write(patch) {
-    if (settingsScope === null) {
-      current = normalizeSettings({ ...current, ...patch })
-      return
-    }
-    await settingsScope.update(patch)
-    current = normalizeSettings(settingsScope.get())
-  }
-
-  /**
-   * 同步一次设置快照。
-   *
-   * 判据是"用户层是否显式写过字段"，而不是"解析值是否为空"。
-   * 否则用户在设置页把分段全部删除（写入 segments: []）后，这里会把空数组
-   * 当成"尚未配置"，静默回退到组合层默认值——表现为"这条规则删不掉"。
-   * 只有从未写过任何字段时才回退到组合层 initial。
-   * @param {unknown} resolved 解析后的设置值
-   * @param {Set<string>} [explicitFields] 用户在设置文档里显式写过的字段名
-   */
-  function applyResolved(resolved, explicitFields) {
-    const next = normalizeSettings(resolved)
-    const touched = explicitFields !== undefined && explicitFields.size > 0
-    if (!touched && !isConfigured(next)) return
-
-    // 字段级合并：**只让用户显式写过的字段**覆盖组合层，其余字段保留组合层值。
-    //
-    // 曾经这里是 `current = next` 整体替换。由于注册时不传 base，resolved 里
-    // 不含组合层内容，于是用户在设置页只动一个开关，组合层 config 里的基线规则
-    // 就被整体丢掉——而文档承诺的是"其余字段回落到组合层值"，两边直接矛盾。
-    if (touched) {
-      const merged = { ...initial }
-      for (const field of explicitFields) {
-        if (Object.prototype.hasOwnProperty.call(next, field)) merged[field] = next[field]
-      }
-      current = normalizeSettings(merged)
-      return
-    }
-    current = next
-  }
-
-  let settingsService = null
 
   /**
    * 压缩摘要请求的补充指令（用户实测反馈：压缩之后模型的过程性回复变成英文）。
@@ -385,7 +455,7 @@ async function createRuntime(input) {
       try {
         // 只认摘要调用；session-title 等其它 purpose 一律不动。
         if (options?.purpose === COMPACTION_PURPOSE && Array.isArray(options.messages)) {
-          const note = renderCompactionNote(current)
+          const note = renderCompactionNote(effectiveSettings())
           if (note !== '') {
             // 追加而不是替换：只有排在 DSH 那条英文指令之后才可能覆盖它。
             // `options` 是 summarizer 每次新建的普通对象（未冻结），而 `llm/stream`
@@ -407,27 +477,20 @@ async function createRuntime(input) {
     settingsCtx.effect(() => () => {
       settingsService = null
     }, `${PLUGIN_NAME}: settings reference`)
-    if (typeof settings?.register !== 'function') {
-      log('warn', 'settings service present but not usable; extra context persists in memory only for this process')
+    if (typeof settings?.configure !== 'function') {
+      log('warn', 'settings service present but not usable; the settings page stays read-only for this process')
       return
     }
-    if (schema === null) {
-      log('warn', 'schemastery schema unavailable; settings namespace not registered')
+    if (Config === undefined) {
+      log('warn', 'schemastery schema unavailable; the plugin entry exposes no editable fields')
       return
     }
-    // 不传 base：设置文件里没有这一段时，解析值就是 schema 默认（空 segments）。
-    // 这正是「尚未配置」的表示，此时保留 initial（组合层配置）作为生效值。
-    const scope = settings.register(SETTINGS_NAMESPACE, schema, { applies: 'live' })
-    settingsScope = scope
-    const userFields = () => explicitUserFields(settings, SETTINGS_NAMESPACE, scope, log)
-    applyResolved(scope.get(), userFields())
-    scope.watch((next) => {
-      applyResolved(next, userFields())
-    })
-    settingsCtx.effect(() => () => {
-      settingsScope = null
-    }, `${PLUGIN_NAME}: settings scope`)
-    log('info', `settings namespace "${SETTINGS_NAMESPACE}" registered (live)`)
+    // 本插件自己提供设置分区（id `extra-context`），所以不要壳层再按 schema
+    // 自动生成一个通用页面：同一个条目出现两个设置页会让人不知道该信哪个。
+    settingsCtx.effect(
+      () => settingsCtx.settings.configure({ auto: false }, ctx.fiber),
+      `${PLUGIN_NAME}: settings presentation`
+    )
     return undefined
   })
 
@@ -457,16 +520,18 @@ async function createRuntime(input) {
         try {
           // buildStatus 与 renderForPrompt 走同一条渲染路径，因此状态里的
           // rendered/bytes/estimatedTokens/overBudget/source 就是实际注入口径。
-          const status = buildStatus(current, { sectionOrder: SECTION_ORDER })
+          const status = buildStatus(effectiveSettings(), { sectionOrder: SECTION_ORDER })
           const body = {
             ok: true,
-            writable: settingsScope !== null,
+            // 可写 = 本插件条目在 describe 里（schema 已导出且条目处于活动状态）。
+            // 满足这一条，客户端的 `configForms.get(<条目 id>)` 就能读能写。
+            writable: ownEntry() !== undefined,
             ...status
           }
           if (debug) {
-            // `?debug=1`：把宿主真实注册的命名空间描述原样返回。
+            // `?debug=1`：把宿主真实看到的条目描述原样返回。
             // 用于比对"宿主存的"与"浏览器读的"，避免在两侧之间来回猜。
-            body.debug = describeHostNamespace()
+            body.debug = describeHostEntry()
           }
           sendJson(response, 200, body)
         } catch (error) {
@@ -478,47 +543,35 @@ async function createRuntime(input) {
   })
 
   /**
-   * 宿主侧权威视图：本命名空间在 settings 服务里的 resolved / user / base 与 revision。
-   * 与浏览器 settings.describe 的响应同源，用于定位"存了但读到 0"这类分层故障。
+   * 宿主侧权威视图：本条目在 settings 服务里的 value / user / base 与 revision，
+   * 加上旧 settings.yaml 迁移段的读取状态。与浏览器 configForms 的响应同源，
+   * 用于定位"存了但读到 0"这类分层故障。
    */
-  function describeHostNamespace() {
+  function describeHostEntry() {
+    const live = liveResolved()
     const out = {
       servicePresent: settingsService !== null,
-      scopePresent: settingsScope !== null,
-      appliedSegments: normalizeSettings(current).segments.length,
-      renderedBytes: byteLength(renderForPrompt())
+      entry: SETTINGS_ENTRY,
+      schemaPresent: Config !== undefined,
+      appliedSegments: effectiveSettings().segments.length,
+      renderedBytes: byteLength(renderForPrompt()),
+      liveSegments: live.segments.length
     }
+    const entry = ownEntry()
     try {
       out.describeSupported = typeof settingsService?.describe === 'function'
-      const rows = settingsService?.describe?.({ redactSecrets: true }) ?? []
-      const mine = rows.find((row) => row.ns === SETTINGS_NAMESPACE)
-      out.namespaceCount = rows.length
-      out.namespacePresent = mine !== undefined
-      // 服务端"注册了哪些命名空间"的完整清单：与浏览器拿到的那份比对，
-      // 才能判定是宿主没注册，还是浏览器读到了过期快照。
-      out.providerNamespaceCount = rows.length
-      out.providerNamespaces = rows.map((row) => row.ns)
-      out.resolvedSegments = Array.isArray(mine?.value?.segments) ? mine.value.segments.length : 'n/a'
-      out.userSegments = Array.isArray(mine?.user?.segments) ? mine.user.segments.length : 'n/a'
-      out.resolvedValue = mine?.value
-      out.userValue = mine?.user
-      out.revision = mine?.revision
-      out.namespaces = rows.map((row) => row.ns)
+      out.entryPresent = entry !== undefined
+      out.autoGenerate = entry?.autoGenerate
+      out.resolvedValue = entry?.value
+      out.userValue = entry?.user
+      out.baseValue = entry?.base
+      out.revision = entry?.revision
     } catch (error) {
       out.error = messageOf(error)
     }
-    try {
-      // 用 DSH_HOME 约定解析，不依赖未定义的辅助函数（曾调用不存在的 resolveDshHome，
-      // 被 try/catch 吞掉后 debug 面板永远缺少这两个字段）。
-      const home = typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME.trim() !== ''
-        ? process.env.DSH_HOME.trim()
-        : join(homedir(), '.dsh')
-      const settingsPath = join(home, 'settings.yaml')
-      out.settingsFile = settingsPath
-      out.settingsFileExists = existsSync(settingsPath)
-    } catch (error) {
-      out.settingsFileError = messageOf(error)
-    }
+    out.legacyPath = legacy.path
+    out.legacyPresent = legacy.present === true
+    if (legacy.error !== undefined) out.legacyError = legacy.error
     return out
   }
 
@@ -547,28 +600,46 @@ export async function applyCompatibleRuntime(ctx, config = {}, options = {}) {
     throw new Error(`${PLUGIN_NAME}: incompatible DSH runtime, missing ${missing.join(', ')}`)
   }
 
-  let dshRoot
-  try {
-    const manifest = await readDshPackage(options.entryPath ?? process.argv[1])
-    dshRoot = manifest.root
-  } catch (error) {
-    log('warn', `cannot locate the DSH install, settings integration degraded: ${messageOf(error)}`)
+  if (Config === undefined) {
+    log('warn', 'schemastery unavailable; the plugin entry exposes no editable settings (the settings page stays read-only)')
   }
 
-  let z = null
-  if (dshRoot !== undefined) {
-    try {
-      z = await loadSchemastery(dshRoot)
-    } catch (error) {
-      log('warn', `cannot load schemastery from the DSH install: ${messageOf(error)}`)
-    }
-  }
-
-  // 无 settings 服务时的兜底：仅更新内存快照（本次进程内仍生效，重启后丢失）。
-  const initial = normalizeSettings(config ?? DEFAULT_SETTINGS)
-  const schema = z === null ? null : createSettingsSchema(z)
-  const runtime = await createRuntime({ ctx, schema, initial, log })
+  const legacy = await readLegacySection(options.entryPath ?? process.argv[1], log)
+  const runtime = await createRuntime({ ctx, config, legacy, log })
   ctx.effect(() => runtime, `${PLUGIN_NAME}: runtime`)
+}
+
+/**
+ * 读取旧 `$DSH_HOME/settings.yaml.imported` 里 `extra-context:` 段（只读，一次性迁移）。
+ *
+ * 0.1.7 把「设置文档」换成了 profile 配置表单：DSH 自己的迁移按**条目 id** 找目标，
+ * 而本插件旧的 settings 段名是 `extra-context`、条目 id 是 `dsh-extra-context`，
+ * 于是那一段留在 `settings.yaml.imported` 里没有被带过来。用户在设置页首次保存后，
+ * 值就落到条目配置里（`describe().user` 出现该字段），迁移段即不再参与。
+ * 任何读取/解析失败都只降级为"没有迁移值"，绝不影响 section 注册。
+ * @param {string} entryPath
+ * @param {(level: string, message: string) => void} log
+ * @returns {Promise<{path: string, present: boolean, section?: object, error?: string}>}
+ */
+export async function readLegacySection(entryPath, log) {
+  const home = typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME.trim() !== ''
+    ? process.env.DSH_HOME.trim()
+    : join(homedir(), '.dsh')
+  const path = join(home, 'settings.yaml.imported')
+  if (!existsSync(path)) return { path, present: false }
+  try {
+    const root = locateDshRootSync(entryPath)
+    if (root === undefined) return { path, present: false, error: 'cannot locate the DSH install to parse the legacy settings file' }
+    const yaml = await loadDshModule(root, 'js-yaml')
+    const document = yaml.load(await readFile(path, 'utf8')) ?? {}
+    const section = document !== null && typeof document === 'object' ? document[SETTINGS_NAMESPACE] : undefined
+    if (section === undefined || section === null || typeof section !== 'object') return { path, present: false }
+    log('info', `legacy settings section "${SETTINGS_NAMESPACE}" found in ${path}; it applies until each field is saved from the settings page`)
+    return { path, present: true, section }
+  } catch (error) {
+    log('warn', `cannot read the legacy settings file ${path}: ${messageOf(error)}`)
+    return { path, present: false, error: messageOf(error) }
+  }
 }
 
 /**
@@ -622,6 +693,13 @@ export async function apply(ctx, config = {}) {
 export default {
   name: PLUGIN_NAME,
   inject,
+  // **Config 必须挂在这里**：Cordis 的 `Loader.unwrapExports()` 对"同时有 default 与命名导出"的
+  // 模块返回的是 `default` 对象（`e = e.default ?? e` 之后 `!e.__esModule` 即为它），
+  // 而 `registry.plugin()` 只从**那个对象**上读 `runtime.Config`。只导出命名 `Config`
+  // 会让 `settings.describe()` 认为本条目没有 schema，于是条目不进表单：
+  // 状态接口 `writable:false`、设置页「+ 添加上下文」与总开关永久禁用、
+  // 任何写入被拒（真实缺陷，用户实测反馈）。
+  Config,
   apply
 }
 

@@ -50,7 +50,9 @@ dsh plugin --profile web remove dsh-extra-context     # 卸载
 
 > **首次安装必须重启 `dsh web`**：新增插件会改变 profile 的 bundle 列表，而 bundle 列表只在启动时读取（`patchReload` 只热重载 patch 文件）。在 Warp 里 `Ctrl+C` 后重新执行 `dsh web --no-open`，然后刷新页面。
 
-从源码运行：`./install.sh` 会先做兼容性与打包检查，再通过官方 profile manager 挂载 `link:<源码目录>`；`./uninstall.sh` 移除（同样需要重启 `dsh web` 才彻底生效）。卸载只移除 profile 依赖与 bundle 层；`settings.yaml` 里的 `extra-context:` 段是你自己的数据，不会被删除。
+从源码运行：`./install.sh` 会先做兼容性与打包检查，再通过官方 profile manager 挂载 `link:<源码目录>`；`./uninstall.sh` 移除（同样需要重启 `dsh web` 才彻底生效）。卸载只移除 profile 依赖与 bundle 层；规则存在 profile 配置里 `dsh-extra-context` 这一行的 `config` 段，卸载不会删除它。
+
+要求：DeepSeek Harness Web `>=0.1.7-alpha.1 <0.1.8`（`0.1.7-alpha.1` 已逐版本核对），Node.js 20 或更高。范围外保持 inert。
 
 ## 使用
 

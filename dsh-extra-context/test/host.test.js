@@ -96,32 +96,32 @@ const STUB_SCHEMASTERY_SOURCE = [
   ''
 ].join('\n')
 
-test('版本门只放行已核对的 0.1.6 兼容线', () => {
-  assert.deepEqual(classifyDshVersion('0.1.6-alpha.1'), { supported: true, verified: true, normalized: '0.1.6-alpha.1' })
+test('版本门只放行已核对的 0.1.7 兼容线', () => {
+  assert.deepEqual(classifyDshVersion('0.1.7-alpha.1'), { supported: true, verified: true, normalized: '0.1.7-alpha.1' })
   // 当前部署实际运行的版本：必须落在"已逐版本核对"清单里，
   // 否则每次启动都退化成"同线未验证"告警，等于没核对。
-  assert.equal(classifyDshVersion('0.1.6-rc.1').supported, true, '同线更早的 rc 可运行')
-  assert.equal(classifyDshVersion('0.1.6-rc.1').verified, false, '但不得自称已核对')
-  assert.equal(classifyDshVersion('0.1.6-alpha.0').supported, false, '兼容线下界之前必须挡住')
-  assert.equal(classifyDshVersion('0.1.6-beta.2').supported, true)
-  assert.equal(classifyDshVersion('0.1.6-beta.2').verified, false)
-  assert.equal(classifyDshVersion('0.1.6').supported, true)
-  assert.equal(classifyDshVersion('0.1.5-alpha.1').supported, false, '上一发布线必须挡住')
+  assert.equal(classifyDshVersion('0.1.7-alpha.2').supported, true, '同线 alpha 可运行')
+  assert.equal(classifyDshVersion('0.1.7-alpha.2').verified, false, '但不得自称已核对')
+  assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false, '兼容线下界之前必须挡住')
+  assert.equal(classifyDshVersion('0.1.7-beta.2').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-beta.2').verified, false)
+  assert.equal(classifyDshVersion('0.1.7').supported, true)
+  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, false, '上一发布线必须挡住')
   assert.equal(classifyDshVersion('0.1.4').supported, false)
   assert.equal(classifyDshVersion('1.0.0').supported, false)
   assert.equal(classifyDshVersion(undefined).supported, false)
-  assert.equal(classifyDshVersion('0.1.6-alpha.1+local').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-alpha.1+local').supported, true)
 })
 test('从 CLI 入口向上定位 DSH 安装目录', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-extra-context-'))
   try {
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.6-alpha.1' }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.7-alpha.1' }))
     const nested = join(root, 'lib', 'bin')
     await mkdir(nested, { recursive: true })
     const entry = join(nested, 'bin.js')
     await writeFile(entry, '')
     const located = await readDshPackage(entry)
-    assert.equal(located.version, '0.1.6-alpha.1')
+    assert.equal(located.version, '0.1.7-alpha.1')
     // 比较 realpath 之后的真实根，而不是 tmpdir() 的原始字符串：
     // Windows 的 tmpdir 可能是 8.3 短路径（C:\Users\ADMINI~1\…），而实现在定位入口时
     // 做了 realpath（展开成长路径），直接 endsWith 会假失败；macOS 的 /private/var 同理。
@@ -234,8 +234,26 @@ test('createSegmentId 只在没有冲突时给出 segment，其余依次退让',
   assert.equal(createSegmentId(['anything-else']), 'segment', '与已有 id 无关时仍用基名')
 })
 
-/** 构造一个足以跑通宿主装配的伪 Cordis 上下文。 */
-function createFakeCtx() {
+/**
+ * 构造一个足以跑通宿主装配的伪 Cordis 上下文（0.1.7 的设置模型）。
+ *
+ * 关键形状：apply 收到的 `config` 里，volatile 字段是 `{ get() }`（cosmokit 的引用）。
+ * loader 只改 volatile 字段时会**就地**更新这些引用而不重启插件，所以测试用
+ * `state.setConfig(patch)` 模拟一次设置写入，然后直接读 section 文本即可。
+ * 用户显式写过的字段来自 `settings.describe()` 的 `user` 层（profile 条目 override），
+ * 旧 `settings.yaml.imported` 的迁移段由 `legacy` 注入。
+ */
+function createFakeCtx(options = {}) {
+  const values = {
+    enabled: true,
+    segments: [],
+    maxBytes: DEFAULT_MAX_BYTES,
+    ...(options.config ?? {})
+  }
+  const config = {}
+  for (const key of Object.keys(values)) {
+    config[key] = { get: () => values[key] }
+  }
   const state = {
     section: null,
     tools: [],
@@ -243,19 +261,12 @@ function createFakeCtx() {
     effects: [],
     injections: [],
     warnings: [],
-    registers: []
-  }
-  const scope = {
-    get: () => state.value,
-    watch(callback) {
-      state.watcher = callback
-      return () => {
-        state.watcher = null
-      }
-    },
-    update: async (patch) => {
-      state.value = { ...state.value, ...patch }
-      state.watcher?.(state.value, state.value)
+    presentations: [],
+    describeRows: options.describeRows ?? [],
+    legacy: options.legacy ?? { path: join(tmpdir(), 'settings.yaml.imported'), present: false },
+    config,
+    setConfig(patch) {
+      Object.assign(values, patch)
     }
   }
   const ctx = {
@@ -264,6 +275,7 @@ function createFakeCtx() {
       warn: (message) => state.warnings.push(`warn:${message}`),
       error: (message) => state.warnings.push(`error:${message}`)
     },
+    fiber: { id: 'dsh-extra-context' },
     systemPrompt: {
       section(definition) {
         state.section = definition
@@ -300,18 +312,18 @@ function createFakeCtx() {
       if (names.includes('settings')) {
         callback({
           settings: {
-            register(ns, schema, options) {
-              state.registers.push({ ns, schema, options })
-              state.value = options?.base ?? {}
-              return scope
+            // 0.1.7：设置页的自动生成由实例级展示策略控制，不再有 register()。
+            configure(presentation) {
+              state.presentations.push(presentation)
+              return () => {
+                state.presentations = state.presentations.filter((item) => item !== presentation)
+              }
             },
-            // describe 的 user 层：用于判定"用户是否显式写过字段"
+            // describe() 的 user 层 = 用户在 profile 条目里显式写过的字段。
+            // 忠实模拟真实行为：用户从未写过时该键不存在（而不是空对象）。
             describe() {
               if (typeof state.describeOverride === 'function') return state.describeOverride()
-              // 忠实模拟真实 describe：用户从未写过该段时**不返回 user 键**
-              // （曾写成 state.user ?? state.value，把"没写过"伪装成"写过"，
-              //  从而掩盖了"组合层 config 被丢弃"的缺陷）。
-              return [{ ns: SETTINGS_NAMESPACE, value: state.value, user: state.user }]
+              return state.describeRows
             }
           },
           effect: (factory) => {
@@ -375,8 +387,46 @@ function createFakeCtx() {
       state.effects.push(factory())
     }
   }
-  return { ctx, state, scope }
+  return { ctx, state, config }
 }
+
+/**
+ * 在隔离的 DSH_HOME 里跑一段逻辑。
+ *
+ * 运行时会在 `$DSH_HOME/settings.yaml.imported` 里找旧 `extra-context:` 段（迁移读取），
+ * 而测试不能受开发机上真实旧设置文件的影响——夹具必须自带一个空 home。
+ */
+async function withIsolatedHome(run) {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-extra-context-home-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  try {
+    return await run(home)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+/** 跑一次装配：把伪 ctx + volatile config + 迁移段交给插件运行时。 */
+async function mountRuntime({ ctx, config, state }, options = {}) {
+  return createRuntime({
+    ctx,
+    config,
+    legacy: options.legacy ?? state.legacy,
+    log: options.log ?? ((level, message) => state.warnings.push(`${level}:${message}`))
+  })
+}
+
+/**
+ * 让 `describe()` 报告"用户在设置页写过这些字段"。
+ * `user` 里出现的字段才会盖过迁移段与解析值。
+ */
+function setUserFields(state, user) {
+  state.describeRows = [{ ns: 'dsh-extra-context', value: {}, user }]
+}
+
 
 /** 让 systemPrompt section 的 text 函数解析成字符串。 */
 function sectionText(state) {
@@ -415,20 +465,21 @@ function compactionOptions(extra = {}) {
     ...extra
   }
 }
-test('装配注册全局 section，并跟随设置热更新', async () => {
-  const { ctx, state } = createFakeCtx()
-  await createRuntime({ ctx, schema: { fake: true }, initial: { segments: [] }, log: () => {} })
+test('装配注册全局 section，并跟随 volatile 配置热更新', async () => {
+  const harness = createFakeCtx()
+  const { ctx, state } = harness
+  await mountRuntime(harness)
 
   assert.equal(state.section.name, SECTION_NAME)
   assert.equal(state.section.order, SECTION_ORDER)
   assert.equal(state.injections.some((names) => names.includes('settings')), true)
-  assert.equal(state.registers.length, 1)
-  assert.equal(state.registers[0].ns, SETTINGS_NAMESPACE)
-  assert.equal(state.registers[0].options.applies, 'live')
+  // 0.1.7：条目 schema 就是模块导出的 Config；settings 只用来声明"不走自动生成页"。
+  assert.deepEqual(state.presentations, [{ auto: false }])
   assert.equal(sectionText(state), '')
 
   // 设置改动必须即时反映到下一次 prompt 组装，无需重新注册 section。
-  state.watcher?.({ segments: [{ id: 'a', label: 'L', enabled: true, order: 1, text: 'hello' }] }, {})
+  setUserFields(state, { segments: [{ id: 'a', enabled: true, text: 'hello' }] })
+  state.setConfig({ segments: [{ id: 'a', enabled: true, text: 'hello' }] })
   assert.equal(sectionText(state).includes('hello'), true)
   assert.equal(state.section.name, SECTION_NAME)
 })
@@ -440,7 +491,7 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
     // （cosmokit 等）都能解析，测的是真实 schema 方言而不是手写假对象。
     // Windows 下目录符号链接需要开发者模式/管理员（EPERM），junction 不需要任何特权。
     const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir'
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.6-alpha.1' }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.7-alpha.1' }))
     const entryDirectory = join(root, 'lib', 'bin')
     await mkdir(entryDirectory, { recursive: true })
     const entry = join(entryDirectory, 'bin.js')
@@ -455,27 +506,32 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
     }
 
     const { applyCompatibleRuntime } = await import('../lib/index.js')
-    const { ctx, state } = createFakeCtx()
-    const config = { enabled: true, segments: [{ id: 'seed', enabled: true, order: 1, text: '组合层基线' }], maxBytes: 1024 }
-    await applyCompatibleRuntime(ctx, config, { entryPath: entry })
+    const harness = createFakeCtx({ config: { segments: [{ id: 'seed', enabled: true, text: '设置层文本' }] } })
+    const { ctx, state, config } = harness
+    await withIsolatedHome(() => applyCompatibleRuntime(ctx, config, { entryPath: entry }))
 
     assert.equal(state.section.name, SECTION_NAME)
     assert.equal(state.section.order, SECTION_ORDER)
-  
-    assert.equal(state.registers.length, 1, 'settings 命名空间应已注册')
-    assert.equal(state.registers[0].ns, SETTINGS_NAMESPACE)
-    const schema = state.registers[0].schema
-    assert.equal(typeof schema.toJSON, 'function', '注册的必须是真正的 schemastery schema')
-    assert.equal(typeof schema.toJSON().uid, 'number')
-    // 分段形状只声明 id/enabled/text：label 已从设置 schema 移除
-    // （schemastery 对未知键是"原样保留"，所以老文件里的 label 不会让校验失败，只是不再被声明）
-    assert.equal(JSON.stringify(schema.toJSON()).includes('"label"'), false, '设置 schema 不得再声明 label 字段')
+    assert.deepEqual(state.presentations, [{ auto: false }], 'settings 服务可用时必须声明不走自动生成页')
 
-    // 「尚未配置」时保留组合层基线；用户写入后以设置为准。
-    assert.equal(sectionText(state).includes('组合层基线'), true)
-    state.watcher?.({ segments: [{ id: 'a', enabled: true, order: 1, text: '设置层文本' }], maxBytes: 1024, enabled: true }, {})
+    // 模块导出的 Config 必须是真的 schemastery schema（loader 用它做条目校验与表单投影）。
+    const { Config } = await import('../lib/index.js')
+    assert.equal(typeof Config?.toJSON, 'function', '导出的必须是真正的 schemastery schema')
+    assert.equal(typeof Config.toJSON().uid, 'number')
+    // 分段形状只声明 id/enabled/text：label 已从设置 schema 移除
+    // （schemastery 对未知键是"原样保留"，所以老数据里的 label 不会让校验失败，只是不再被声明）
+    assert.equal(JSON.stringify(Config.toJSON()).includes('"label"'), false, '条目 schema 不得再声明 label 字段')
+    // 三个字段都必须是 volatile：否则改设置会重启插件（等于每次改设置都重装一次）。
+    for (const key of ['enabled', 'segments', 'maxBytes']) {
+      assert.equal(Config.dict[key].meta.volatile, true, `${key} 必须声明 volatile`)
+    }
+
+    // 用户在设置页写入即落进 profile 条目配置（describe 的 user 层 + 解析值同步变化）。
     assert.equal(sectionText(state).includes('设置层文本'), true)
-    assert.equal(sectionText(state).includes('组合层基线'), false)
+    setUserFields(state, { segments: [{ id: 'a', enabled: true, text: '改后的文本' }] })
+    state.setConfig({ segments: [{ id: 'a', enabled: true, text: '改后的文本' }] })
+    assert.equal(sectionText(state).includes('改后的文本'), true)
+    assert.equal(sectionText(state).includes('设置层文本'), false)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -483,200 +539,179 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
 /**
  * Windows 装载路径回归护栏。
  *
- * 真实缺陷：`loadSchemastery` 曾把 `require.resolve` 的返回值（文件系统路径）直接交给
+ * 真实缺陷：装载器曾把 `require.resolve` 的返回值（文件系统路径）直接交给
  * `import()`。Windows 上 `C:` 会被当成 URL 协议，抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，
- * 异常被捕获后 schema 变 null → settings 命名空间静默不注册 → 状态接口 `writable:false`
- * → 设置页「+ 添加上下文」与右侧总开关被永久禁用（用户实测反馈）。修法是 `pathToFileURL`。
+ * 异常被捕获后 schema 变 null → 条目在 `settings.describe()` 里不出现 →
+ * 设置页读写被禁用（用户实测反馈）。修法是 `pathToFileURL`。
  *
- * 这里的假 DSH 根**不需要真 schemastery**：只要 node_modules 里有一个真实的包，
- * `require.resolve` 就会返回绝对文件路径，正好复现那条装载路径——装载失败时
- * `state.registers` 为 0，本用例即失败（Windows 上改回 `import(resolved)` 会立刻变红）。
+ * 这里用一个只含桩 schemastery 的假 DSH 根直接调装载器：装载失败本用例即红
+ * （Windows 上改回 `import(resolved)` 会立刻失败）。
  */
-test('装载 schemastery 必须经 file URL：绝对路径直接 import 会让 settings 命名空间静默丢失', async () => {
+test('装载 DSH 内的包必须经 file URL：绝对路径直接 import 在 Windows 上会失败', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-extra-context-import-'))
   try {
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.6-alpha.1' }))
-    const entryDirectory = join(root, 'lib', 'bin')
-    await mkdir(entryDirectory, { recursive: true })
-    const entry = join(entryDirectory, 'bin.js')
-    await writeFile(entry, '')
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.7-alpha.1' }))
     const stubRoot = join(root, 'node_modules', '@deepseek-ai', 'schemastery')
     await mkdir(join(stubRoot, 'lib'), { recursive: true })
     await writeFile(join(stubRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/schemastery', version: '0.0.0-stub', main: 'lib/index.cjs' }))
     await writeFile(join(stubRoot, 'lib', 'index.cjs'), STUB_SCHEMASTERY_SOURCE)
 
-    const { applyCompatibleRuntime } = await import('../lib/index.js')
-    const { ctx, state } = createFakeCtx()
-    await applyCompatibleRuntime(ctx, {}, { entryPath: entry })
-
-    assert.equal(state.registers.length, 1, 'schemastery 装载成功后 settings 命名空间必须注册（装载失败这里会是 0）')
-    assert.equal(state.registers[0].ns, SETTINGS_NAMESPACE)
-    assert.equal(state.registers[0].options.applies, 'live')
-    assert.equal(typeof state.registers[0].schema.toJSON, 'function')
+    const { loadDshModule } = await import('../lib/index.js')
+    const z = await loadDshModule(root, '@deepseek-ai/schemastery')
+    assert.equal(typeof z.toJSON, 'function', '假 DSH 根里的桩 schemastery 必须装载成功')
+    await assert.rejects(() => loadDshModule(root, '@deepseek-ai/does-not-exist'), /Cannot find|MODULE_NOT_FOUND/u)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
-test('删除全部分段后必须保持空，不得回退到组合层默认', async () => {
+test('删除全部分段后必须保持空，不得回退到迁移段或默认', async () => {
   // 这是用户实测到的缺陷：界面删掉最后一条规则后，它又自己回来了——
-  // 根因是"解析值为空"被误判成"尚未配置"，于是回退到组合层 initial。
-  const { ctx, state } = createFakeCtx()
-  await createRuntime({
-    ctx,
-    schema: { fake: true },
-    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, order: 10, text: '组合层基线' }], maxBytes: 8192 },
-    log: () => {}
-  })
-  // 用户一开始显式写过 segments，所以组合层基线生效
-  state.user = { segments: [{ id: 'seed', enabled: true, order: 10, text: '组合层基线' }] }
-  state.watcher?.(state.user, {})
-  assert.equal(sectionText(state).includes('组合层基线'), true)
+  // 根因是"解析值为空"被误判成"尚未配置"，于是回退到基线值。
+  const legacy = {
+    path: join(tmpdir(), 'settings.yaml.imported'),
+    present: true,
+    section: { segments: [{ id: 'seed', enabled: true, text: '迁移段基线' }] }
+  }
+  const harness = createFakeCtx({ legacy })
+  const { state } = harness
+  await mountRuntime(harness)
+  // 还没在设置页写过：迁移段生效
+  assert.equal(sectionText(state).includes('迁移段基线'), true)
 
   // 用户在设置页把分段全部删除：显式写入空数组，必须真的清空
-  state.user = { segments: [] }
-  state.value = { segments: [] }
-  state.watcher?.(state.value, {})
-  assert.equal(sectionText(state), '', '显式删除后不得回退到组合层默认值')
+  setUserFields(state, { segments: [] })
+  state.setConfig({ segments: [] })
+  assert.equal(sectionText(state), '', '显式删除后不得回退到迁移段或默认值')
 
-  // 只有"从未写过任何字段"时才使用组合层 initial
-  const { ctx: fresh, state: freshState } = createFakeCtx()
-  await createRuntime({
-    ctx: fresh,
-    schema: { fake: true },
-    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, order: 10, text: '组合层基线' }], maxBytes: 8192 },
-    log: () => {}
-  })
-  freshState.user = {}
-  freshState.value = { sequencesNeverWritten: true }
-  freshState.watcher?.(freshState.value, {})
-  assert.equal(sectionText(freshState).includes('组合层基线'), true, '未配置过时仍应使用组合层基线')
+  // 只有"从未写过该字段"时才使用迁移段
+  const fresh = createFakeCtx({ legacy })
+  await mountRuntime(fresh)
+  assert.equal(sectionText(fresh.state).includes('迁移段基线'), true, '未配置过时仍应使用迁移段')
 })
+
 test('默认设置不含任何预置分段', async () => {
   const { DEFAULT_SETTINGS } = await import('../lib/rules.js')
   assert.deepEqual([...DEFAULT_SETTINGS.segments], [], '新安装不应凭空出现一条删不掉的规则')
 })
 
-test('F1 回归：用户从未写过时，组合层 config 必须生效（不得被空默认为覆盖）', async () => {
-  // 真实缺陷：explicitUserFields 在 describe 未给 user 键时回退到 scope.get()，
-  // 而那是 resolved 值（恒含全部字段）→ 被判"用户写过"→ 组合层 config 被丢弃。
-  const { ctx, state } = createFakeCtx()
-  await createRuntime({
-    ctx,
-    schema: { fake: true },
-    initial: { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 },
-    log: () => {}
-  })
+test('F1 回归：用户从未写过时，旧 settings.yaml 迁移段必须生效（不得被空默认为覆盖）', async () => {
+  // 真实缺陷：判定"用户写过什么"时误用解析值（恒含全部字段）→ 被判"用户写过"→
+  // 迁移段/基线被空默认覆盖。现在判据只有 describe().user 的键。
+  const legacy = {
+    path: join(tmpdir(), 'settings.yaml.imported'),
+    present: true,
+    section: { segments: [{ id: 'seed', enabled: true, text: '迁移段基线' }], enabled: true }
+  }
+  const harness = createFakeCtx({ legacy })
+  const { state } = harness
+  await mountRuntime(harness)
   // 模拟真实 DSH 的行为：用户从未写过 → describe 的行里**没有** user 键
-  state.user = undefined
-  state.value = { enabled: true, segments: [], maxBytes: 8192 }   // resolved 值
-  state.watcher?.(state.value, {})
-  assert.equal(sectionText(state).includes('组合层基线'), true, '从未配置时组合层 config 必须生效')
+  state.describeRows = [{ ns: 'dsh-extra-context', value: { enabled: true, segments: [], maxBytes: 8192 } }]
+  assert.equal(sectionText(state).includes('迁移段基线'), true, '从未配置时迁移段必须生效')
 })
 
-test('回归护栏：describe 调用失败时必须保留组合层，而不是回退到解析值', async () => {
-  // 真实缺陷：describe 抛错时 rows 变 undefined，代码会继续走到"describe 不可用"的
-  // 兜底分支读 scope.get()——那是 resolved 值（恒含全部字段），于是被判"用户写过"，
-  // 组合层 config 被整体丢弃。注释当时写的是"较保守，宁可保留组合层基线"，与实际相反。
-  const { ctx, state } = createFakeCtx()
-  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 }
+test('回归护栏：describe 调用失败时必须保留迁移段，而不是回退到解析值', async () => {
+  // 真实缺陷：describe 抛错时 rows 变 undefined，代码继续走到"describe 不可用"的
+  // 兜底分支读解析值——那是 resolved 值（恒含全部字段），于是被判"用户写过"，
+  // 迁移段被整体丢弃。
+  const legacy = {
+    path: join(tmpdir(), 'settings.yaml.imported'),
+    present: true,
+    section: { segments: [{ id: 'seed', enabled: true, text: '迁移段基线' }] }
+  }
+  const harness = createFakeCtx({ legacy })
+  const { state } = harness
   state.describeOverride = () => { throw new Error('describe boom') }
-  await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-  state.value = { enabled: true, segments: [], maxBytes: 8192 }
-  state.watcher?.(state.value, {})
-  assert.equal(sectionText(state).includes('组合层基线'), true, 'describe 失败时组合层必须保留')
+  await mountRuntime(harness)
+  state.setConfig({ enabled: true, segments: [], maxBytes: 8192 })
+  assert.equal(sectionText(state).includes('迁移段基线'), true, 'describe 失败时迁移段必须保留')
 })
 
-test('回归护栏：用户只改一个字段，组合层 config 的其余字段必须保留', async () => {
-  // 真实缺陷：applyResolved 曾经是 `current = next` 整体替换。因为注册时不传 base，
-  // resolved 里没有组合层内容，于是用户在设置页只动一个开关，组合层 config 里的
-  // 基线规则就整体消失——而文档承诺的是"其余字段回落到组合层值"。
-  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 }
+test('回归护栏：用户只改一个字段，迁移段的其余字段必须保留', async () => {
+  // 真实缺陷：曾经是整体替换。用户在设置页只动一个开关，迁移段里的基线规则
+  // 就整体消失——而文档承诺的是"其余字段回落到基线值"。
+  const legacy = {
+    path: join(tmpdir(), 'settings.yaml.imported'),
+    present: true,
+    section: { segments: [{ id: 'seed', enabled: true, text: '迁移段基线' }], maxBytes: 8192 }
+  }
 
   // ① 只写 enabled → 基线规则必须保留
   {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-    state.user = { enabled: true }
-    state.value = { enabled: true, segments: [], maxBytes: 8192 }
-    state.watcher?.(state.value, {})
-    assert.equal(sectionText(state).includes('组合层基线'), true, '只改开关时基线规则必须保留')
+    const harness = createFakeCtx({ legacy })
+    await mountRuntime(harness)
+    setUserFields(harness.state, { enabled: true })
+    harness.state.setConfig({ enabled: true, segments: [], maxBytes: 8192 })
+    assert.equal(sectionText(harness.state).includes('迁移段基线'), true, '只改开关时基线规则必须保留')
   }
 
   // ② 只写 maxBytes → 基线规则同样必须保留（字段级合并，不是整体替换）
   {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-    state.user = { maxBytes: 4096 }
-    state.value = { enabled: true, segments: [], maxBytes: 4096 }
-    state.watcher?.(state.value, {})
-    assert.equal(sectionText(state).includes('组合层基线'), true, '只写 maxBytes 时基线规则必须保留')
+    const harness = createFakeCtx({ legacy })
+    await mountRuntime(harness)
+    setUserFields(harness.state, { maxBytes: 4096 })
+    harness.state.setConfig({ enabled: true, segments: [], maxBytes: 4096 })
+    assert.equal(sectionText(harness.state).includes('迁移段基线'), true, '只写 maxBytes 时基线规则必须保留')
   }
 
   // ③ 显式写 segments → 以用户为准（用户能覆盖基线，规则删得掉）
   {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-    state.user = { segments: [{ id: 'mine', enabled: true, text: '用户自己的规则' }] }
-    state.value = { enabled: true, segments: [{ id: 'mine', enabled: true, text: '用户自己的规则' }], maxBytes: 8192 }
-    state.watcher?.(state.value, {})
-    const text = sectionText(state)
+    const harness = createFakeCtx({ legacy })
+    await mountRuntime(harness)
+    setUserFields(harness.state, { segments: [{ id: 'mine', enabled: true, text: '用户自己的规则' }] })
+    harness.state.setConfig({ enabled: true, segments: [{ id: 'mine', enabled: true, text: '用户自己的规则' }], maxBytes: 8192 })
+    const text = sectionText(harness.state)
     assert.equal(text.includes('用户自己的规则'), true, '用户写的规则必须生效')
-    assert.equal(text.includes('组合层基线'), false, '显式覆盖 segments 后不得再回落到基线（否则规则删不掉）')
+    assert.equal(text.includes('迁移段基线'), false, '显式覆盖 segments 后不得再回落到基线（否则规则删不掉）')
   }
 
-  // ④ 显式写空 segments → 同样以用户为准（删除语义）
-  {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-    state.user = { segments: [] }
-    state.value = { enabled: true, segments: [], maxBytes: 8192 }
-    state.watcher?.(state.value, {})
-    assert.equal(sectionText(state).includes('组合层基线'), false, '用户显式清空后基线不得复活')
-  }
 })
 
-test('describe 的各种形状都必须安全：user 为空/为 null/为数组/不含本命名空间', async () => {
-  // 判定"用户是否显式配置过"完全依赖 describe 的返回形状，而它是外部服务给的。
-  // 这里逐个形状验证:任何形状都不得抛错，也不得把"没写过"误判成"写过"。
-  const initial = { enabled: true, segments: [{ id: 'seed', enabled: true, text: '组合层基线' }], maxBytes: 8192 }
+test('describe 的各种形状都必须安全：user 为空/为 null/为数组/不含本条目', async () => {
+  // 判定"用户是否显式配置过"完全依赖 describe 返回的 user 层，而它是外部服务给的。
+  // 这里逐个形状验证：任何形状都不得抛错，也不得把"没写过"误判成"写过"。
+  const legacy = {
+    path: join(tmpdir(), 'settings.yaml.imported'),
+    present: true,
+    section: { segments: [{ id: 'seed', enabled: true, text: '迁移段基线' }] }
+  }
   const resolved = { enabled: true, segments: [], maxBytes: 8192 }
 
-  // ① 无 user 键 / user 为空对象 / user 为 null / user 是数组 → 都算"没写过"，组合层必须生效
+  // ① 无 user 键 / user 为空对象 / user 为 null / user 是数组 → 都算"没写过"，迁移段必须生效
   for (const user of [undefined, {}, null, []]) {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-    state.user = user
-    state.value = resolved
-    state.watcher?.(state.value, {})
-    assert.equal(sectionText(state).includes('组合层基线'), true,
-      `user=${JSON.stringify(user)} 时必须保留组合层配置（视为未配置）`)
+    const harness = createFakeCtx({ legacy })
+    await mountRuntime(harness)
+    harness.state.describeRows = [{ ns: 'dsh-extra-context', value: resolved, user }]
+    harness.state.setConfig(resolved)
+    assert.equal(sectionText(harness.state).includes('迁移段基线'), true,
+      `user=${JSON.stringify(user)} 时必须保留迁移段配置（视为未配置）`)
   }
 
-  // ② user 明确含 segments → 用户写过，以用户值为准（组合层让位）
+  // ② user 明确含 segments → 用户写过，以用户值为准（迁移段让位）
   {
-    const { ctx, state } = createFakeCtx()
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-    state.user = { segments: [] }
-    state.value = resolved
-    state.watcher?.(state.value, {})
-    assert.equal(sectionText(state).includes('组合层基线'), false, '用户写过 segments 时以用户值为准')
+    const harness = createFakeCtx({ legacy })
+    await mountRuntime(harness)
+    setUserFields(harness.state, { segments: [] })
+    harness.state.setConfig(resolved)
+    assert.equal(sectionText(harness.state).includes('迁移段基线'), false, '用户写过 segments 时以用户值为准')
   }
 
-  // ③ describe 不含本命名空间 → 等同于"没写过"，不得抛错
+  // ③ describe 不含本条目 → 等同于"没写过"，不得抛错
   {
-    const { ctx, state } = createFakeCtx()
-    state.describeOverride = () => [{ ns: 'other-namespace', value: {} }]
-    await createRuntime({ ctx, schema: { fake: true }, initial, log: () => {} })
-    state.value = resolved
-    state.watcher?.(state.value, {})
-    assert.equal(sectionText(state).includes('组合层基线'), true, '命名空间不在 describe 结果里时必须保留组合层配置')
+    const harness = createFakeCtx({ legacy })
+    harness.state.describeOverride = () => [{ ns: 'other-entry', value: {} }]
+    await mountRuntime(harness)
+    harness.state.setConfig(resolved)
+    assert.equal(sectionText(harness.state).includes('迁移段基线'), true, '本条目不在 describe 结果里时必须保留迁移段')
   }
 })
 
 test('状态路由的鉴权与状态码语义：405/403/200/?debug=1/500', async () => {
   // 这是插件唯一对外暴露的入口，此前它的 handler 从未被调用过（桩直接把 route 丢掉）。
-  const { ctx, state } = createFakeCtx()
-  await createRuntime({ ctx, schema: { fake: true }, initial: undefined, log: () => {} })
+  const harness = createFakeCtx()
+  const { state } = harness
+  state.describeRows = [{ ns: 'dsh-extra-context', value: { enabled: true, segments: [], maxBytes: 8192 } }]
+  await mountRuntime(harness)
 
   // 非 GET → 405，并给出 Allow
   const post = state.probeRoute({ method: 'POST' })
@@ -703,16 +738,16 @@ test('状态路由的鉴权与状态码语义：405/403/200/?debug=1/500', async
   const debug = state.probeRoute({ url: `${STATUS_PATH}?debug=1` })
   assert.equal(debug.status, 200)
   assert.equal(typeof debug.body.debug, 'object', 'debug=1 必须带命名空间描述')
-  assert.equal(typeof debug.body.debug.settingsFile, 'string', '必须给出设置文件路径（曾因调用未定义函数而缺失）')
-  assert.equal(debug.body.debug.scopePresent, true, '必须报告本命名空间是否已注册')
+  assert.equal(typeof debug.body.debug.legacyPath, 'string', '必须给出旧 settings.yaml 的路径（迁移排查用）')
+  assert.equal(debug.body.debug.entryPresent, true, '必须报告本条目是否可配置')
+  assert.equal(debug.body.debug.schemaPresent, true, '必须报告条目 schema 是否存在')
 
   // 渲染抛错 → 500：诊断接口不允许把异常抛回给 HTTP 层（会变成未处理异常）
-  state.value = {
+  state.setConfig({
     enabled: true,
     segments: [{ id: 'bad', enabled: true, text: { toString() { throw new Error('render boom') } } }],
     maxBytes: 8192
-  }
-  state.watcher?.(state.value, {})
+  })
   const boom = state.probeRoute()
   assert.equal(boom.threw, null, 'handler 不得把异常抛出去')
   assert.equal(boom.status === 200 || boom.status === 500, true, '要么正常降级返回，要么明确报 500')
@@ -721,12 +756,12 @@ test('状态路由的鉴权与状态码语义：405/403/200/?debug=1/500', async
 
 test('版本门 fail closed：不支持的版本必须完全 inert（不注册任何东西）', async () => {
   // 版本门此前只测了纯函数：不支持时"什么都不注册"这条契约没有任何守卫。
-  for (const version of ['0.1.4', '1.0.0', '0.1.7-alpha.1', '0.1.6-alpha.0', undefined, 'nonsense']) {
+  for (const version of ['0.1.4', '1.0.0', '0.1.6-alpha.2', '0.1.7-alpha.0', undefined, 'nonsense']) {
     const { ctx, state } = createFakeCtx()
     await applyForVersion(ctx, version, {})
     assert.equal(state.section, null, `${String(version)}：不支持时不得注册 section`)
     assert.equal(state.tools.length, 0, `${String(version)}：不支持时不得注册工具`)
-    assert.equal(state.registers.length, 0, `${String(version)}：不支持时不得注册设置命名空间`)
+    assert.deepEqual(state.presentations, [], `${String(version)}：不支持时不得声明设置展示策略`)
     assert.equal(state.route, undefined, `${String(version)}：不支持时不得注册路由`)
     assert.equal(state.warnings.some((w) => w.includes('unsupported DSH')), true, `${String(version)}：必须留下 error 日志`)
   }
@@ -734,12 +769,12 @@ test('版本门 fail closed：不支持的版本必须完全 inert（不注册�
 
 test('版本门放行时：同线未验证版本继续运行但必须告警', async () => {
   const { ctx, state } = createFakeCtx()
-  await applyForVersion(ctx, '0.1.6-rc.1', {})
+  await applyForVersion(ctx, '0.1.7-rc.1', {})
   assert.notEqual(state.section, null, '同线未验证版本必须继续运行')
   assert.equal(state.warnings.some((w) => w.includes('not individually verified')), true, '必须留下未验证告警')
 
   const verified = createFakeCtx()
-  await applyForVersion(verified.ctx, '0.1.6-alpha.1', {})
+  await applyForVersion(verified.ctx, '0.1.7-alpha.1', {})
   assert.notEqual(verified.state.section, null, '已核对版本必须运行')
   assert.equal(verified.state.warnings.some((w) => w.includes('not individually verified')), false, '已核对版本不得告警')
 })
@@ -754,7 +789,7 @@ test('入口定位失败时必须 inert，而不是带着未知版本继续跑',
 
 test('卸载可逆：注册的清理函数必须可调用且不抛错', async () => {
   const { ctx, state } = createFakeCtx()
-  await applyForVersion(ctx, '0.1.6-alpha.1', {})
+  await applyForVersion(ctx, '0.1.7-alpha.1', {})
   assert.equal(state.effects.length > 0, true, '必须有注册在 effect 上的清理函数')
   // 真实部署里这些清理函数由 Cordis 在停用 fiber 时调用；这里逐个调用，
   // 确认它们不会抛错（抛错会让卸载流程中断，留下残影）。
@@ -814,13 +849,9 @@ test('压缩摘要补充指令：纯函数只拼生效分段，关掉或空内�
 })
 
 test('压缩摘要补充指令：只在 purpose=compaction 的请求末尾追加一条 user 消息', async () => {
-  const { ctx, state } = createFakeCtx()
-  await createRuntime({
-    ctx,
-    schema: { fake: true },
-    initial: { segments: [{ id: 'a', enabled: true, text: '所有展示给我看的部分都必须使用中文' }] },
-    log: () => {}
-  })
+  const harness = createFakeCtx({ config: { segments: [{ id: 'a', enabled: true, text: '所有展示给我看的部分都必须使用中文' }] } })
+  const { state } = harness
+  await mountRuntime(harness)
   assert.equal(state.injections.some((names) => names.includes('llm')), true, '必须按可选服务注入 llm')
 
   const options = compactionOptions()
@@ -890,19 +921,15 @@ test('压缩摘要补充指令：其它 purpose、关掉开关、脏 options 都
 })
 
 test('压缩摘要补充指令：设置热更新后立即使用新文本', async () => {
-  const { ctx, state } = createFakeCtx()
-  await createRuntime({
-    ctx,
-    schema: { fake: true },
-    initial: { segments: [{ id: 'a', enabled: true, text: '旧规则' }] },
-    log: () => {}
-  })
+  const harness = createFakeCtx({ config: { segments: [{ id: 'a', enabled: true, text: '旧规则' }] } })
+  const { state } = harness
+  await mountRuntime(harness)
 
   const first = compactionOptions()
   runLlmStream(state, first)
   assert.equal(first.messages.at(-1).content[0].text.includes('旧规则'), true)
 
-  state.watcher?.({ segments: [{ id: 'a', enabled: true, text: '新规则' }] }, {})
+  state.setConfig({ segments: [{ id: 'a', enabled: true, text: '新规则' }] })
   const second = compactionOptions()
   runLlmStream(state, second)
   assert.equal(second.messages.at(-1).content[0].text.includes('新规则'), true, '必须用最新设置')

@@ -32,8 +32,8 @@ test('插件身份与发布面', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.1.6-alpha.1 <0.1.7',
-    verifiedVersions: ['0.1.6-alpha.1'],
+    range: '>=0.1.7-alpha.1 <0.1.8',
+    verifiedVersions: ['0.1.7-alpha.1'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
@@ -45,6 +45,18 @@ test('插件身份与发布面', () => {
   // schema 静默变 null → settings 命名空间不注册 → 设置页动作按钮永久禁用。
   // 这条断言在 POSIX 上也会失败（那边裸绝对路径能 import，缺陷更隐蔽），故必须留。
   assert.equal(hostSource.includes('await import(pathToFileURL(resolved).href)'), true, 'schemastery 必须经 file URL 动态 import')
+})
+
+test('Config 必须挂在 default 导出上：loader 只从 unwrap 后的插件对象读 runtime.Config', async () => {
+  // 真实缺陷（用户实测反馈）：插件同时有 default 与命名导出时，Cordis 的
+  // `Loader.unwrapExports()` 返回的是 default 对象，而 `registry.plugin()` 只从
+  // 那个对象上读 `runtime.Config`。只写 `export const Config` 会让
+  // `settings.describe()` 判定本条目没有 schema → 条目不进配置表单 →
+  // 状态接口 `writable:false`、设置页动作控件永久禁用、写入全部被拒。
+  const module = await import('../lib/index.js')
+  assert.notEqual(module.Config, undefined, '模块必须导出 Config（schemastery schema）')
+  assert.equal(typeof module.Config.toJSON, 'function', 'Config 必须是真正的 schemastery 对象')
+  assert.equal(module.default.Config, module.Config, 'Config 必须同时挂在 default 导出上（loader 取的是 default 对象）')
 })
 
 test('安装脚本与运行时的"已验证版本清单"必须同源', () => {
@@ -68,9 +80,10 @@ test('安装脚本与运行时的"已验证版本清单"必须同源', () => {
 })
 
 test('安装与卸载脚本走官方 profile 管理', () => {
-  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.6-alpha.1 <0.1.7"'), true)
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
-  assert.equal(installScript.includes('0\\.1\\.6-(alpha|beta|rc)'), true)
+  assert.equal(installScript.includes('0\\.1\\.7-(alpha|beta|rc)'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1"'), true)
   assert.equal(installScript.includes('npm run publish:check --prefix "$PLUGIN_DIR"'), true)
   assert.equal(installScript.includes('dsh plugin --profile "$DSH_PROFILE" add "link:$PLUGIN_DIR" --config.minimumReleaseAge=0'), true)
   assert.equal(installScript.includes('必须重启 dsh web'), true)
@@ -85,7 +98,9 @@ test('客户端 bundle 结构与宿主路由契约一致', () => {
   assert.equal(clientBundle.includes(`const STATUS_PATH = '${STATUS_PATH}'`), true)
   assert.equal(clientBundle.includes(`const CLIENT_HEADER = '${CLIENT_HEADER}'`), true)
   assert.equal(clientBundle.includes("exports.inject = inject"), true)
-  assert.equal(clientBundle.includes('ctx.settingsScope.bind('), true)
+  // 0.1.7：settingsScope 已被删除，改成条目级配置表单
+  assert.equal(clientBundle.includes('ctx.configForms.get(SETTINGS_ENTRY)'), true)
+  assert.equal(clientBundle.includes('ctx.settingsScope'), false, '不得再引用已删除的 settingsScope 服务')
   assert.equal(clientBundle.includes("ctx.slots.inject('settings.section'"), true)
   // 导航图标补丁的挂载点：壳层只给 4 个官方 id 配图标，缺了它这一行会一直显示齿轮
   assert.equal(clientBundle.includes("ctx.slots.inject('settings.action'"), true)
