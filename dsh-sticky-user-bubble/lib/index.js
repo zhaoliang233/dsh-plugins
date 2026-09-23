@@ -3,9 +3,9 @@ import { dirname, join } from 'node:path'
 
 export const PLUGIN_NAME = 'dsh-sticky-user-bubble'
 export const inject = []
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
-const VERIFIED_DSH_VERSIONS = new Set(['0.1.6-alpha.1'])
-const DSH_VERSION_PATTERN = /^0\.1\.6(?:-(alpha|beta|rc)\.(0|[1-9]\d*))?$/u
+export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
+const VERIFIED_DSH_VERSIONS = new Set(['0.1.7-alpha.1'])
+const DSH_VERSION_PATTERN = /^0\.1\.7(?:-(alpha|beta|rc)\.(0|[1-9]\d*))?$/u
 const DSH_PRERELEASE_ORDER = { alpha: 0, beta: 1, rc: 2 }
 
 export function classifyDshVersion(version) {

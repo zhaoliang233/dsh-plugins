@@ -2,6 +2,13 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.1.6] - 2026-09-22
+
+### 变更
+
+- **兼容线移到 `>=0.1.7-alpha.1 <0.1.8`**（`0.1.7-alpha.1` 已逐版本核对）：`package.json`、`engines.dsh`、`install.sh` 版本门与 `lib/index.js` 四处同源更新，上一发布线（`0.1.6-*`）上的旧版本继续服务旧线，范围外保持 inert。
+- 逐项复核 0.1.7 的契约后确认无需改实现：`ChatSnapshot` 骨架（`order`/`nodes.get(key)`/`locations`/`navigation`/`timeline`/`legacy`）、节点种类 `user`/`steering`、聊天行标记（`data-chat-flow`、`data-chat-flow-key`、`data-chat-flow-kind`、`data-chat-anchor-key`，另新增 `data-chat-node-key`/`data-chat-group-part`）、`[data-conversation-scroll]` 的 scrollport 与内层 16px padding、`[data-composer-seat]`、`shell.overlay`（`z-index:20; pointer-events:none`）、`retainedBy.mainView` 与 `uiConversation.binding(id).target('chat')` 均未变化；`data-ref-chip` + `title` 仍在 primitives 里渲染。
+
 ## [0.1.5] - 2026-09-18
 
 ### 修复
