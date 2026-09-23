@@ -6,14 +6,14 @@ export const PLUGIN_NAME = 'dsh-default-workspace'
 export const DEFAULT_WORKSPACE_TITLE = '通用会话'
 export const LEGACY_WORKSPACE_TITLE = '最近聊天'
 export const STATUS_PATH = '/dsh-default-workspace/status'
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
+export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
 
 export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }
   const normalized = version.split('+', 1)[0]
-  const verified = normalized === '0.1.6-alpha.1'
-  if (normalized === '0.1.6') return { supported: true, verified, normalized }
-  const prerelease = /^0\.1\.6-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
+  const verified = normalized === '0.1.7-alpha.1'
+  if (normalized === '0.1.7') return { supported: true, verified, normalized }
+  const prerelease = /^0\.1\.7-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
   if (prerelease === null) return { supported: false, verified: false, normalized }
   const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= 1
   return { supported, verified: supported && verified, normalized }
@@ -343,7 +343,13 @@ export async function applyCompatibleRuntime(ctx) {
     ok: true,
     workspaceId: workspace.id,
     path: workspace.path,
-    title: workspace.title
+    title: workspace.title,
+    // 0.1.7 起核心自带 `workspaceRegistry.initializeDefault()`：只有「registry 与会话历史
+    // 都为空」时才会自动建一个标题「默认工作区」的 Workspace（目录取
+    // `<documentsDirectory>/deepseek-harness/<名字>`，与本插件的 `$DSH_HOME/workspaces/default`
+    // 不是同一个）。本插件在 Host 启动阶段就先建受管「通用会话」，registry 随即不为空，
+    // 核心那条路径不会触发；这里把能力探测结果如实报出来，便于排查「两个默认工作区」。
+    coreDefaultWorkspace: typeof ctx.workspaceRegistry?.initializeDefault === 'function'
   })
 
   ctx.logger?.info?.(`${PLUGIN_NAME}: managed Workspace ready at ${workspace.path}`)

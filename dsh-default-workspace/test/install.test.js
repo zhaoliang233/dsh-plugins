@@ -51,7 +51,7 @@ printf 'npm:%s\\n' "$*" >> "\${FAKE_INVOCATION_LOG:?}"
 }
 
 test('installer accepts verified alpha.1 and runs the complete gate before profile add', async () => {
-  const fixture = await runInstaller('0.1.6-alpha.1+local.1')
+  const fixture = await runInstaller('0.1.7-alpha.1+local.1')
   try {
     assert.equal(fixture.result.status, 0, fixture.result.stderr)
     assert.equal(fixture.result.stderr, '')
@@ -65,7 +65,7 @@ test('installer accepts verified alpha.1 and runs the complete gate before profi
 })
 
 test('installer warns for an unverified version within the compatible line', async () => {
-  const fixture = await runInstaller('0.1.6-alpha.2')
+  const fixture = await runInstaller('0.1.7-alpha.2')
   try {
     assert.equal(fixture.result.status, 0, fixture.result.stderr)
     assert.match(fixture.result.stderr, /尚未列入逐版本验证清单/u)
@@ -77,11 +77,11 @@ test('installer warns for an unverified version within the compatible line', asy
 })
 
 test('installer rejects earlier and adjacent release lines before profile changes', async () => {
-  for (const version of ['0.1.4', '0.1.6-alpha.0', '0.1.7-alpha.1']) {
+  for (const version of ['0.1.4', '0.1.7-alpha.0', '0.1.6-alpha.2']) {
     const fixture = await runInstaller(version)
     try {
       assert.equal(fixture.result.status, 1)
-      assert.match(fixture.result.stderr, />=0\.1\.6-alpha\.1 <0\.1\.7/u)
+      assert.match(fixture.result.stderr, />=0\.1\.7-alpha\.1 <0\.1\.8/u)
       assert.equal(fixture.invocations, '')
     } finally {
       await fixture.cleanup()

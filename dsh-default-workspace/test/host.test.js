@@ -14,6 +14,43 @@ import {
   statusRequestRejection
 } from '../lib/index.js'
 
+test('status snapshot reports whether core owns a default-Workspace initializer', async () => {
+  // 0.1.7 起核心自带 initializeDefault()（registry 与会话历史皆空时自动建「默认工作区」）。
+  // 插件的受管「通用会话」与它不是同一个目录，这里只把能力探测结果如实报出来。
+  const managed = new FakeWorkspace('managed', '/managed', DEFAULT_WORKSPACE_TITLE)
+  const registry = new FakeRegistry([managed])
+
+  async function statusOf(candidate) {
+    let payload
+    const ctx = {
+      workspaceRegistry: candidate,
+      logger: { info() {}, warn() {}, error() {} },
+      effect: (factory) => factory(),
+      inject: (names, callback) => callback({
+        connection: { requestRejection: () => undefined },
+        webServer: { register: (route) => { payload = route; return () => {} } },
+        effect: (factory) => factory()
+      })
+    }
+    await applyForVersion(ctx, '0.1.7-alpha.1')
+    return payload
+  }
+
+  const withoutCore = await statusOf(registry)
+  assert.equal(withoutCore.handler instanceof Function, true)
+  const emptyResponse = { writeHead() {}, end(body) { this.body = JSON.parse(body) } }
+  withoutCore.handler({ method: 'GET' }, emptyResponse)
+  assert.equal(emptyResponse.body.coreDefaultWorkspace, false)
+
+  const registryWithCore = new FakeRegistry([managed])
+  registryWithCore.initializeDefault = async () => managed
+  const withCore = await statusOf(registryWithCore)
+  const coreResponse = { writeHead() {}, end(body) { this.body = JSON.parse(body) } }
+  withCore.handler({ method: 'GET' }, coreResponse)
+  assert.equal(coreResponse.body.coreDefaultWorkspace, true)
+  assert.equal(coreResponse.body.title, DEFAULT_WORKSPACE_TITLE)
+})
+
 class FakeWorkspace {
   constructor(id, path, title) {
     this.id = id
@@ -64,13 +101,15 @@ class FakeRegistry {
 }
 
 test('runtime version gate stays inert outside the audited release line', async () => {
-  assert.deepEqual(classifyDshVersion('0.1.6-alpha.1+local'), {
-    supported: true, verified: true, normalized: '0.1.6-alpha.1'
+  assert.deepEqual(classifyDshVersion('0.1.7-alpha.1+local'), {
+    supported: true, verified: true, normalized: '0.1.7-alpha.1'
   })
-  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, true)
-  assert.equal(classifyDshVersion('0.1.6-alpha.0').supported, false)
-  assert.equal(classifyDshVersion('0.1.4').supported, false)
-  assert.equal(classifyDshVersion('0.1.5-alpha.1').supported, false, 'previous release line is now outside')
+  assert.equal(classifyDshVersion('0.1.7-alpha.2').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-alpha.2').verified, false, 'same line but not individually verified')
+  assert.equal(classifyDshVersion('0.1.7-beta.0').supported, true)
+  assert.equal(classifyDshVersion('0.1.7').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false)
+  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, false, 'previous release line is now outside')
 
   let sideEffects = 0
   await applyForVersion({
@@ -81,7 +120,7 @@ test('runtime version gate stays inert outside the audited release line', async 
       async create() { sideEffects += 1 },
       list() { sideEffects += 1; return [] }
     }
-  }, '0.1.7-alpha.1')
+  }, '0.1.6-alpha.2')
   assert.equal(sideEffects, 0)
 })
 
