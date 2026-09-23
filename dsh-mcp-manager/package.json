@@ -31,10 +31,9 @@
   "dshCompatibility": {
     "policy": "compatible-release-line",
     "package": "@deepseek-ai/dsh",
-    "range": ">=0.1.6-alpha.1 <0.1.7",
+    "range": ">=0.1.7-alpha.1 <0.1.8",
     "verifiedVersions": [
-      "0.1.6-alpha.1",
-      "0.1.6-alpha.2"
+      "0.1.7-alpha.2"
     ],
     "futureVersionsRequireCapabilityChecks": true
   },
@@ -57,7 +56,7 @@
   },
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.1.6-alpha.1 <0.1.7"
+    "dsh": ">=0.1.7-alpha.1 <0.1.8"
   },
   "publishConfig": {
     "access": "public"

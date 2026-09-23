@@ -219,10 +219,10 @@ test('bundle 注册的两个 slot 与设置分区契约一致', () => {
   const { exports } = loadBundle({ document: createStyleDocument() })
   // remote.credentials 必须单独声明：客户端的 Cordis 里带点号的命名空间本身就是服务名，
   // 少写它会在读 ctx.remote.credentials 时同步抛错（凭据区"点保存没反应"的真因）
-  assert.deepEqual(plain(exports.inject), ['slots', 'settingsScope', 'remote', 'remote.credentials'])
+  assert.deepEqual(plain(exports.inject), ['slots', 'configForms', 'remote', 'remote.credentials'])
   const registered = []
   const ctx = {
-    settingsScope: { bind: (spec) => ({ spec, getSnapshot: () => ({ value: {} }), subscribe: () => () => {}, set: async () => {} }) },
+    configForms: { get: (id) => ({ id, getSnapshot: () => ({ value: {} }), subscribe: () => () => {}, mutate: async () => {} }) },
     slots: {
       inject: (name, callback) => {
         callback()
@@ -246,11 +246,11 @@ test('bundle 注册的两个 slot 与设置分区契约一致', () => {
   )
 })
 
-test('设置命名空间绑定契约：namespace 与客户端 decode', () => {
+test('设置条目契约：configForms 用本插件的 profile 条目 id，decodeSettings 仍做防御性规范化', () => {
   const { exports } = loadBundle({ document: createStyleDocument() })
-  let bound = null
+  let requested = null
   exports.apply({
-    settingsScope: { bind: (spec) => (bound = spec, { getSnapshot: () => ({ value: {} }), subscribe: () => () => {}, set: async () => {} }) },
+    configForms: { get: (id) => (requested = id, { getSnapshot: () => ({ value: {} }), subscribe: () => () => {}, mutate: async () => {} }) },
     slots: { inject: (name, cb) => cb(), register: () => {} },
     effect: (fn) => {
       fn()
@@ -258,9 +258,11 @@ test('设置命名空间绑定契约：namespace 与客户端 decode', () => {
     },
     remote: {}
   })
-  assert.equal(bound.namespace, 'mcp-manager')
-  assert.equal(typeof bound.decode, 'function')
-  assert.equal(bound.decode({ servers: [{ serverName: 'a', command: 'node' }] }).servers[0].transport, 'stdio')
+  // 0.1.7 起插件的设置就是 profile 里这一条条目的 config：客户端按**条目 id** 取表，
+  // 宿主 `settings.describe()` 的 ns 也是它（宿主侧的同源断言在 host.test.js）。
+  assert.equal(requested, 'dsh-mcp-manager')
+  const { decodeSettings } = exports.__internals
+  assert.equal(decodeSettings({ servers: [{ serverName: 'a', command: 'node' }] }).servers[0].transport, 'stdio')
 })
 
 test('decodeSettings / normalizeServer 对脏数据防御性读取', () => {
@@ -363,7 +365,7 @@ test('样式表打 data-plugin 标签并按引用计数清理（否则会被别�
   const { exports } = loadBundle({ document: doc })
   const disposers = []
   const ctx = {
-    settingsScope: undefined,
+    configForms: undefined,
     slots: { inject: (name, cb) => cb(), register: () => {} },
     effect: (fn) => {
       disposers.push(fn())
@@ -390,7 +392,7 @@ test('样式表打 data-plugin 标签并按引用计数清理（否则会被别�
 
 test('mcp-manager 的 profile 行与状态路由常量与宿主半体同源', () => {
   const { __internals } = loadBundle().exports
-  assert.equal(__internals.SETTINGS_NAMESPACE, 'mcp-manager')
+  assert.equal(__internals.SETTINGS_ENTRY, 'dsh-mcp-manager')
   assert.equal(__internals.STATUS_PATH, '/dsh-mcp-manager/status')
   assert.equal(__internals.ACTION_PATH, '/dsh-mcp-manager/action')
   assert.equal(__internals.CLIENT_HEADER, 'x-dsh-mcp-manager-client')
@@ -475,7 +477,7 @@ async function mountSection(options = {}) {
     }
   }
   const ctx = {
-    settingsScope: { bind: () => scope },
+    configForms: { get: () => scope },
     slots: {
       inject: (name, callback) => callback(),
       register: (slotOptions, Component) => {
@@ -747,7 +749,7 @@ test('凭据区：拿不到凭据服务时给出可读原因，而不是静默�
     const harness = createHarness()
     const registered = []
     const ctx = {
-      settingsScope: { bind: () => ({ getSnapshot: () => ({ value: { enabled: true, servers: [] } }), subscribe: () => () => {}, mutate: async () => {} }) },
+      configForms: { get: () => ({ getSnapshot: () => ({ value: { enabled: true, servers: [] } }), subscribe: () => () => {}, mutate: async () => {} }) },
       slots: { inject: (name, callback) => callback(), register: (slotOptions, Component) => registered.push({ slotOptions, Component }) },
       effect: (fn) => { fn() },
       get remote() {

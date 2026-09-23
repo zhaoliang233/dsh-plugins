@@ -18,9 +18,9 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 /** 与本包 manifest 的 `dshCompatibility.range` / `engines.dsh` 同源。 */
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
+export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
 /** 逐版本核对过的 DSH 版本（其它同线版本带警告运行）。 */
-export const VERIFIED_DSH_VERSIONS = ['0.1.6-alpha.1']
+export const VERIFIED_DSH_VERSIONS = ['0.1.7-alpha.2']
 
 /**
  * 判定 DSH 版本是否落在已核对契约的兼容线内。
@@ -31,8 +31,8 @@ export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }
   const normalized = version.split('+', 1)[0]
   const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
-  if (normalized === '0.1.6') return { supported: true, verified, normalized }
-  const prerelease = /^0\.1\.6-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
+  if (normalized === '0.1.7') return { supported: true, verified, normalized }
+  const prerelease = /^0\.1\.7-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
   if (prerelease === null) return { supported: false, verified: false, normalized }
   const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= 1
   return { supported, verified: supported && verified, normalized }

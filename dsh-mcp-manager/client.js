@@ -5,11 +5,12 @@
  * 把 profile 组合里已有的 MCP 条目导入到托管清单。
  *
  * 数据流（三条各自独立）：
- * 1. 清单真相 = settings 命名空间 `mcp-manager`，经 `ctx.settingsScope` 读写
- *    （带 revision 栅栏，写入即触发宿主对账）；
+ * 1. 清单真相 = 本插件在 profile 里的**条目 config**（`settings.describe()` 的 `ns`
+ *    与 `ctx.configForms.get()` 用的都是条目 id `dsh-mcp-manager`），经
+ *    `ctx.configForms.get(<条目 id>)` 读写（带 revision 栅栏，写入即触发宿主对账）；
  * 2. 运行态（是否挂载、工具、最近日志、与组合层重名）来自宿主状态路由；
  * 3. 凭据值经 `ctx.remote.credentials` 写进 credentials 存储，
- *    settings 里只留 `credential:KEY` 占位符。
+ *    条目 config 里只留 `credential:KEY` 占位符。
  */
 
 window.__ModuleLoader__.load({
@@ -47,7 +48,13 @@ window.__ModuleLoader__.load({
     const { Modal, Tooltip } = primitives
 
     const PLUGIN_ID = 'dsh-mcp-manager'
-    const SETTINGS_NAMESPACE = 'mcp-manager'
+    /**
+     * 本插件在 profile 里的条目 id —— 0.1.7 起插件的设置就是条目 config，
+     * `configForms.get(<条目 id>)` 与宿主 `settings.describe()` 的 `ns` 都是它。
+     * 客户端 bundle 与宿主半体各写一遍字面量（bundle 不能 import 宿主模块），
+     * 两处必须同源：`test/client.test.js` 与 `test/host.test.js` 各有一条断言。
+     */
+    const SETTINGS_ENTRY = 'dsh-mcp-manager'
     const STATUS_PATH = '/dsh-mcp-manager/status'
     const ACTION_PATH = '/dsh-mcp-manager/action'
     const CLIENT_HEADER = 'x-dsh-mcp-manager-client'
@@ -516,35 +523,39 @@ window.__ModuleLoader__.load({
     const useSection = () => React.useContext(SectionContext)
 
     /** 一个 O(n) 的乐观写入队列：成功后由设置镜像回灌，失败则报错并读回。 */
-    function useSettings(scope, onError) {
-      const [snapshot, setSnapshot] = React.useState(() => decodeSettings(scope?.getSnapshot?.()?.value))
+    function useSettings(controller, onError) {
+      const [snapshot, setSnapshot] = React.useState(() => decodeSettings(controller?.getSnapshot?.()?.value))
       const [busy, setBusy] = React.useState(false)
       React.useEffect(() => {
-        if (scope === null || scope === undefined) return undefined
-        setSnapshot(decodeSettings(scope.getSnapshot()?.value))
-        return scope.subscribe(() => setSnapshot(decodeSettings(scope.getSnapshot()?.value)))
-      }, [scope])
+        if (controller === null || controller === undefined) return undefined
+        const sync = () => setSnapshot(decodeSettings(controller.getSnapshot()?.value))
+        sync()
+        return controller.subscribe(sync)
+      }, [controller])
       const write = React.useCallback(
         async (next) => {
-          if (scope === null || scope === undefined) {
-            onError?.('设置接口不可用：宿主没有挂载 settings 服务')
+          if (controller === null || controller === undefined) {
+            onError?.('设置接口不可用：宿主里这一条没有可写 schema（宿主日志里有 dsh-mcp-manager: 前缀的告警）')
             return
           }
           setBusy(true)
           setSnapshot(next)
           try {
             // 一次原子写入：两次 set 会有两个 revision 栅栏，中途失败就会留下半套配置。
-            await scope.mutate([
+            const accepted = await controller.mutate([
               { op: 'set', path: ['servers'], value: next.servers },
               { op: 'set', path: ['enabled'], value: next.enabled }
             ])
+            // 0.1.7 的 mutate 用返回值表示"宿主是否接受"，被拒时**不抛错**；
+            // 漏掉这层判断会让界面把"没写进去"当成功（随后的状态刷新才暴露）。
+            if (accepted === false) onError?.('写入被宿主拒绝：这一条当前不可写（刷新页面重试，或看宿主日志）。')
           } catch (error) {
             onError?.(`写入失败：${String(error?.message ?? error)}`)
           } finally {
             setBusy(false)
           }
         },
-        [scope, onError]
+        [controller, onError]
       )
       return { snapshot, setSnapshot, busy, write }
     }
@@ -1881,7 +1892,7 @@ window.__ModuleLoader__.load({
               `${runtimeText(runtime)}${status?.mcpModule?.errors?.length ? `\n${status.mcpModule.errors.join('\n')}` : ''}`
             ),
         status?.settingsAvailable === false
-          ? React.createElement('div', { className: 'dmm-error' }, '宿主没有挂载 settings 服务，改动无法持久化。')
+          ? React.createElement('div', { className: 'dmm-error' }, '宿主这一条没有可写的设置 schema，改动无法持久化（请看宿主日志）。')
           : null,
         error === '' ? null : React.createElement('div', { className: 'dmm-error' }, error),
         React.createElement(
@@ -2186,14 +2197,15 @@ window.__ModuleLoader__.load({
      * 外面包 `ctx?.remote?.credentials` 也拦不住，表现就是"点保存完全没反应"（用户实测踩到）。
      * 官方同一套数据面的写法见 `dsh-client-ui-settings-plugins/lib/client.js` 的 inject 数组。
      */
-    const inject = ['slots', 'settingsScope', 'remote', 'remote.credentials']
+    const inject = ['slots', 'configForms', 'remote', 'remote.credentials']
 
     function apply(ctx) {
-      const scope = typeof ctx.settingsScope?.bind === 'function'
-        ? ctx.settingsScope.bind({ namespace: SETTINGS_NAMESPACE, decode: decodeSettings })
-        : null
+      // 本插件的设置就是 profile 里 `dsh-mcp-manager` 条目的 config：官方客户端通道是
+      // `configForms.get(<条目 id>)`（自带 revision 栅栏与写入排队）。0.1.6 的
+      // `settingsScope.bind({ namespace, decode })` 已不存在，所以这里按能力探测。
+      const controller = typeof ctx.configForms?.get === 'function' ? ctx.configForms.get(SETTINGS_ENTRY) : null
       installStyles(ctx)
-      const contextValue = { ctx, scope }
+      const contextValue = { ctx, scope: controller }
       const Section = () =>
         React.createElement(
           SectionErrorBoundary,
@@ -2251,7 +2263,7 @@ window.__ModuleLoader__.load({
       ACTION_PATH,
       CLIENT_HEADER,
       CSRF_HEADER,
-      SETTINGS_NAMESPACE,
+      SETTINGS_ENTRY,
       SECTION_ID,
       SECTION_LABEL,
       styleText

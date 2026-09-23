@@ -4,11 +4,14 @@
  * 职责：把「MCP 服务器清单」做成设置页可维护的数据，并在运行时投影成真正
  * 运行的 MCP 客户端实例——不写用户的 profile patch、不需要重启宿主。
  *
- * 关键机制（已按 DSH 0.1.6-alpha.1 源码核对，并在隔离环境实机验证）：
- * - settings 命名空间是唯一真相；挂载状态是它的投影（`lib/plan.js` 对账）；
+ * 关键机制（已按 DSH 0.1.7-alpha.2 源码核对，并在隔离环境实机验证）：
+ * - **设置就是本条目在 profile 里的 config**：模块导出 schemastery `Config`，
+ *   字段全部 `.volatile()`，loader 在「只有 volatile 字段变化」时就地更新运行中
+ *   fiber 的引用并发出 `loader/volatile-update`，插件据此重跑一次对账；
+ * - settings 清单仍是唯一真相，挂载状态是它的投影（`lib/plan.js` 对账）；
  * - 挂载走 `ctx.plugin(mcpModule, config)`，卸载走 `fiber.dispose()`；
  * - 凭据占位符 `credential:<KEY>` 在挂载时经 `ctx.credentials.resolve()` 换成明文，
- *   settings.yaml 里只留键名；
+ *   条目 config 里只留键名；
  * - profile 组合里已有的 MCP 行（cordis.patch.yml 手写 insert）只读展示，
  *   不回显任何值（组合层的 `!!js` 求值后可能是明文密钥）。
  *
@@ -30,7 +33,7 @@ import {
   DEFAULT_SETTINGS,
   PLUGIN_NAME,
   SERVER_NAME_PATTERN,
-  SETTINGS_NAMESPACE,
+  SETTINGS_ENTRY,
   describeServer,
   newServerId,
   normalizeServer,
@@ -44,7 +47,7 @@ export {
   DSH_COMPATIBILITY_RANGE,
   PLUGIN_NAME,
   SERVER_NAME_PATTERN,
-  SETTINGS_NAMESPACE,
+  SETTINGS_ENTRY,
   VERIFIED_DSH_VERSIONS,
   classifyDshVersion,
   describeServer,
@@ -63,6 +66,26 @@ export const inject = ['tools']
 
 /** 动作白名单：状态接口会把它告诉客户端，双方能力不匹配时能提前说清楚。 */
 export const ACTIONS = Object.freeze(['reconcile', 'verify', 'import'])
+
+/**
+ * 本插件在 profile 里的条目 schema（0.1.7 起「设置」就是条目本身的 config）。
+ *
+ * 两个字段都声明 `.volatile()`：loader 遇到「只有 volatile 字段变化」时就地更新运行中
+ * fiber 的引用（不重启插件），所以 `config.<字段>.get()` 永远是最新值，设置页的写入
+ * 也因此不需要重启宿主。**schema 必须在模块作用域构造**——loader 在 `plugin()` 时读
+ * `plugin.Config`，那时 import 已经求值完；放到 `apply()` 里构造等于没有 schema，
+ * 条目会进不了 `settings.describe()`（设置页读写被禁用、状态接口 `writable:false`）。
+ */
+const schemastery = await (async () => {
+  try {
+    const { root } = await readDshPackage()
+    return await loadSchemastery(root)
+  } catch {
+    return null
+  }
+})()
+
+export const Config = schemastery === null ? undefined : createConfigSchema(schemastery)
 
 /**
  * 把配置文件里已声明的一条 MCP 配置完整导入成草稿。
@@ -145,7 +168,8 @@ export function apply(ctx, config = {}) {
     /** @type {any} */
     mountManager: null,
     /** @type {any} */
-    settingsScope: null,
+    settingsService: null,
+    settingsAvailable: false,
     /** @type {any} */
     credentials: null,
     /** @type {any} */
@@ -155,15 +179,36 @@ export function apply(ctx, config = {}) {
 
   state.csrfToken = randomToken()
 
-  const settingsView = () => {
-    if (state.settingsScope !== null) {
+  /**
+   * 读 volatile 字段的实时值。
+   *
+   * 0.1.7 里条目 config 的字段是 volatile 引用（cosmokit）：loader 遇到「只有 volatile
+   * 字段变化」时就地更新它们，所以 `ref.get()` 永远是最新值——不需要订阅事件来维护
+   * 本地快照。测试桩会直接给普通值，所以两种形态都要认。
+   */
+  const readField = (name, fallback) => {
+    const value = config?.[name]
+    if (value !== null && typeof value === 'object' && typeof value.get === 'function') {
       try {
-        return normalizeSettings(state.settingsScope.get())
-      } catch (error) {
-        state.lastError = `读取设置失败：${String(error?.message ?? error)}`
+        return value.get()
+      } catch {
+        return fallback
       }
     }
-    return normalizeSettings(config)
+    return value === undefined ? fallback : value
+  }
+
+  /** 清单的实时值（= 本条目 config 解析后的结果）。 */
+  const settingsView = () => {
+    try {
+      return normalizeSettings({
+        enabled: readField('enabled', DEFAULT_SETTINGS.enabled),
+        servers: readField('servers', DEFAULT_SETTINGS.servers)
+      })
+    } catch (error) {
+      state.lastError = `读取设置失败：${String(error?.message ?? error)}`
+      return normalizeSettings(DEFAULT_SETTINGS)
+    }
   }
 
   /** profile 组合里已声明的 MCP 行（只读视图）。 */
@@ -276,28 +321,37 @@ export function apply(ctx, config = {}) {
     })
     state.runtime = 'ready'
 
-    // settings 命名空间是唯一真相；任何写入都触发一次对账。
-    const z = await loadSchemastery()
+    // 0.1.7 起设置就是本条目 config：没有需要注册的命名空间，只需要向壳层声明
+    // 「本实例自带设置页」（`settings.section` 里已有 `mcp-manager`），否则官方表单
+    // 会再自动生成一页，同一个条目出现两个设置页。
     ctx.inject(['settings'], (settingsCtx) => {
-      if (z === null) {
-        log('warn', 'schemastery 不可用，无法注册设置命名空间；本次进程内只能用组合层配置')
-        return
+      const settings = settingsCtx.settings
+      state.settingsService = settings ?? null
+      state.settingsAvailable = settings !== undefined && Config !== undefined
+      settingsCtx.effect(() => () => {
+        state.settingsService = null
+        state.settingsAvailable = false
+      }, `${PLUGIN_NAME}: settings reference`)
+      if (Config === undefined) {
+        log('warn', 'schemastery 不可用：本条目没有可编辑 schema，设置页无法持久化改动')
       }
-      try {
-        const scope = settingsCtx.settings.register(SETTINGS_NAMESPACE, createSettingsSchema(z), { applies: 'live' })
-        state.settingsScope = scope
-        settingsCtx.effect(() => () => {
-          state.settingsScope = null
-        }, `${PLUGIN_NAME}: settings scope`)
-        scope.watch(() => {
-          void reconcile('settings')
-        })
-        void reconcile('startup')
-      } catch (error) {
-        state.lastError = `注册设置命名空间失败：${String(error?.message ?? error)}`
-        log('error', state.lastError)
+      if (typeof settings?.configure === 'function') {
+        settingsCtx.effect(
+          () => settings.configure({ auto: false }, ctx.fiber),
+          `${PLUGIN_NAME}: settings presentation`
+        )
       }
     })
+
+    // 设置写入落成条目 config 的 volatile 字段：loader 就地更新运行中 fiber 的引用后
+    // 发出这个事件，它就是"改设置 → 重新对账"的触发源（0.1.6 的 settings scope watch 已不存在）。
+    ctx.on('loader/volatile-update', () => {
+      void reconcile('settings')
+    })
+
+    // 启动对账：清单（条目 config，含组合层默认值）→ 运行实例。
+    // 与设置服务是否可用无关：没有 settings 服务时照样按条目 config 挂载服务器。
+    void reconcile('startup')
 
     registerRoutes(ctx, state, {
       profileTargets,
@@ -477,7 +531,7 @@ export function statusPayload(state, hooks) {
     versionSupported: state.versionSupported,
     compatibilityRange: DSH_COMPATIBILITY_RANGE,
     verifiedVersions: VERIFIED_DSH_VERSIONS,
-    settingsAvailable: state.settingsScope !== null,
+    settingsAvailable: state.settingsAvailable === true,
     mcpModule: { ok: state.module !== null, strategy: state.moduleStrategy ?? '', errors: state.loadErrors },
     lastError: state.lastError,
     lastReconcile: state.lastReconcile,
@@ -597,11 +651,16 @@ function randomToken() {
 
 /**
  * 按 DSH 安装的绝对路径加载 schemastery（宿主侧 schema 必须是真正的 schemastery 对象）。
+ *
+ * 在**模块作用域**调用：loader 在 `plugin()` 时读 `plugin.Config`，所以 schema 必须
+ * 在模块求值期就构造好。装载失败时 `Config` 为 undefined——插件照常运行（挂载与
+ * 状态页都可用），只是设置页写不进去，状态接口会给出 `settingsAvailable:false`。
+ *
+ * @param {string} root `@deepseek-ai/dsh` 的安装目录
  * @returns {Promise<any | null>}
  */
-async function loadSchemastery() {
+async function loadSchemastery(root) {
   try {
-    const { root } = await readDshPackage()
     const require = createRequire(join(root, 'package.json'))
     const imported = await import(require.resolve('@deepseek-ai/schemastery'))
     return imported.default ?? imported
@@ -611,11 +670,16 @@ async function loadSchemastery() {
 }
 
 /**
- * 设置命名空间的 schema。字段与 store.normalizeServer 一一对应。
+ * 本条目（= 设置命名空间）的 schema。字段与 store.normalizeServer 一一对应。
+ *
+ * 所有可写字段都 `.volatile()`：只有这样 loader 才会把「设置页写入」当作 volatile
+ * 变化就地更新（不重启插件、已挂载的连接不闪断）；漏掉 `.volatile()` 的字段会让更新
+ * 走"重启插件"的生命周期，全部实例重建。
+ *
  * @param {any} z
  * @returns {any}
  */
-export function createSettingsSchema(z) {
+export function createConfigSchema(z) {
   const server = z.object({
     id: z.string().default(''),
     label: z.string().default(''),
@@ -632,7 +696,7 @@ export function createSettingsSchema(z) {
     failOnStartupError: z.boolean().default(false)
   })
   return z.object({
-    enabled: z.boolean().default(true),
-    servers: z.array(server).default([])
+    enabled: z.boolean().default(true).volatile(),
+    servers: z.array(server).default([]).volatile()
   })
 }

@@ -2,7 +2,7 @@
  * 纯逻辑：服务器条目的规范化、校验、凭据占位符、挂载配置生成。
  *
  * 本文件不依赖 Cordis、不碰文件系统，可被 `node --test` 独立驱动。
- * 契约与 @deepseek-ai/dsh-mcp-client 的 Config schema 对齐（0.1.6-alpha.1）：
+ * 契约与 @deepseek-ai/dsh-mcp-client 的 Config schema 对齐（0.1.7-alpha.2）：
  * - serverName 必须匹配 /^[A-Za-z0-9_-]{1,32}$/，且在一个注册作用域内唯一；
  * - stdio 必填 command，streamable-http 必填 url；
  * - toolCallTimeoutMs 默认 60000，failOnStartupError 默认 false。
@@ -11,7 +11,15 @@
  */
 
 export const PLUGIN_NAME = 'dsh-mcp-manager'
-export const SETTINGS_NAMESPACE = 'mcp-manager'
+/**
+ * 本插件在 profile 里的条目 id——也是设置的命名空间。
+ *
+ * 0.1.7 起插件的设置**就是条目本身的 config**：宿主 `settings.describe()` 的 `ns`
+ * 与客户端 `ctx.configForms.get(id)` 用的都是这个 id（bundle 提供的条目默认取包名）。
+ * 0.1.6 的 `settings.register('mcp-manager', …)` 独立命名空间已不存在，
+ * 所以清单的落盘位置从 `~/.dsh/settings.yaml` 变成 profile 的 `cordis.patch.yml`。
+ */
+export const SETTINGS_ENTRY = 'dsh-mcp-manager'
 
 /** 与 dsh-mcp-client 的 SERVER_NAME_PATTERN 同源。 */
 export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/

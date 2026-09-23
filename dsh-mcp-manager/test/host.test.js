@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
+import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import {
@@ -9,24 +10,43 @@ import {
   statusPayload,
   CSRF_HEADER,
   MAX_BODY_BYTES,
+  PLUGIN_NAME,
+  SETTINGS_ENTRY,
   clientRequestRejection,
   classifyDshVersion,
-  createSettingsSchema,
+  createConfigSchema,
   readJsonBody,
   sameOriginRequest
 } from '../lib/index.js'
 import { unwrapModule } from '../lib/dsh.js'
 
-test('版本门：线内通过、线外拒绝，且只把 0.1.6-alpha.1 当逐版本验证版本', () => {
-  assert.deepEqual(classifyDshVersion('0.1.6-alpha.1'), { supported: true, verified: true, normalized: '0.1.6-alpha.1' })
-  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, true)
-  assert.equal(classifyDshVersion('0.1.6-rc.3').supported, true)
-  assert.equal(classifyDshVersion('0.1.6').supported, true)
-  assert.equal(classifyDshVersion('0.1.6-alpha.0').supported, false, 'alpha.0 早于已核对契约')
-  assert.equal(classifyDshVersion('0.1.5').supported, false)
-  assert.equal(classifyDshVersion('0.1.7-alpha.1').supported, false)
+test('版本门：线内通过、线外拒绝，且只把已核对过的 0.1.7-alpha.2 当逐版本验证版本', () => {
+  assert.deepEqual(classifyDshVersion('0.1.7-alpha.2'), { supported: true, verified: true, normalized: '0.1.7-alpha.2' })
+  assert.deepEqual(classifyDshVersion('0.1.7-alpha.1'), { supported: true, verified: false, normalized: '0.1.7-alpha.1' })
+  assert.equal(classifyDshVersion('0.1.7-beta.1').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-rc.3').supported, true)
+  assert.equal(classifyDshVersion('0.1.7').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false, 'alpha.0 早于已核对契约')
+  assert.equal(classifyDshVersion('0.1.6').supported, false, '上一发布线不再支持')
+  assert.equal(classifyDshVersion('0.1.8-alpha.1').supported, false, '跨发布线要重新核对契约后再放行')
   assert.equal(classifyDshVersion(undefined).supported, false)
-  assert.equal(classifyDshVersion('0.1.6+build9').supported, true, '构建元数据不影响判定')
+  assert.equal(classifyDshVersion('0.1.7+build9').supported, true, '构建元数据不影响判定')
+})
+
+test('设置条目 id 与包名同源（客户端 bundle 里的字面量必须一致）', () => {
+  assert.equal(SETTINGS_ENTRY, 'dsh-mcp-manager')
+  assert.equal(SETTINGS_ENTRY, PLUGIN_NAME)
+})
+
+test('manifest 守卫：Config 必须是模块导出，且设置字段都声明 volatile', async () => {
+  // 0.1.7 的 loader 在 `plugin()` 时从**插件对象**读 `runtime.Config`：只写内部函数
+  // 而不导出，条目就拿不到 schema（设置页读写被禁用、状态接口 writable:false）。
+  // 字段漏 `.volatile()` 则会走"重启插件"的更新路径：改一条设置就把所有实例重建。
+  const source = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
+  assert.match(source, /^export const Config = /mu)
+  const schema = source.slice(source.indexOf('export function createConfigSchema'))
+  assert.match(schema, /enabled: z\.boolean\(\)\.default\(true\)\.volatile\(\)/u)
+  assert.match(schema, /servers: z\.array\(server\)\.default\(\[\]\)\.volatile\(\)/u)
 })
 
 test('同源判定：loopback + sec-fetch-site + origin/host 三者一致', () => {
@@ -84,7 +104,7 @@ test('unwrapModule：ESM 命名空间直接用，CommonJS 取 default', () => {
   assert.equal(unwrapModule(undefined), undefined)
 })
 
-test('settings schema 与 store 的字段同构，并给出默认值', async (t) => {
+test('条目 config schema 与 store 的字段同构，并给出默认值', async (t) => {
   const root = await findDshRoot()
   if (root === undefined) {
     t.skip('本机没有 DSH 安装，跳过需要 schemastery 的用例')
@@ -92,13 +112,17 @@ test('settings schema 与 store 的字段同构，并给出默认值', async (t)
   }
   const require = createRequire(join(root, 'package.json'))
   const z = (await import(require.resolve('@deepseek-ai/schemastery'))).default
-  const schema = createSettingsSchema(z)
+  const schema = createConfigSchema(z)
   const value = schema({ servers: [{ serverName: 'alpha', command: 'node' }] })
-  assert.equal(value.enabled, true)
-  assert.equal(value.servers[0].transport, 'stdio')
-  assert.equal(value.servers[0].toolCallTimeoutMs, 60_000)
-  assert.deepEqual(value.servers[0].args, [])
-  assert.deepEqual(value.servers[0].env, {})
+  // `.volatile()` 的字段在解析结果里是 **cosmokit 引用对象**（loader 就地把新值写进这些
+  // 引用），宿主半体读实时值靠的正是它的 `.get()`——这条断言就是那个假设的守卫。
+  const read = (field) => (field !== null && typeof field === 'object' && typeof field.get === 'function' ? field.get() : field)
+  assert.equal(read(value.enabled), true)
+  const servers = read(value.servers)
+  assert.equal(servers[0].transport, 'stdio')
+  assert.equal(servers[0].toolCallTimeoutMs, 60_000)
+  assert.deepEqual(servers[0].args, [])
+  assert.deepEqual(servers[0].env, {})
 })
 
 /**
@@ -140,14 +164,14 @@ test('statusPayload：与配置文件同名的托管条目要给出即时提示�
   const state = {
     csrfToken: 'tok',
     runtime: 'ready',
-    version: '0.1.6-alpha.1',
+    version: '0.1.7-alpha.2',
     versionSupported: true,
     module: {},
     moduleStrategy: 'loader-import',
     loadErrors: [],
     lastError: '',
     lastReconcile: null,
-    settingsScope: {},
+    settingsAvailable: true,
     mountManager: { status: () => [] }
   }
   const payload = statusPayload(state, {
@@ -176,7 +200,7 @@ test('statusPayload：没有同名时不产生提示', () => {
     loadErrors: [],
     lastError: '',
     lastReconcile: null,
-    settingsScope: {},
+    settingsAvailable: true,
     mountManager: { status: () => [] }
   }
   const payload = statusPayload(state, {

@@ -1,11 +1,11 @@
 # dsh-mcp-manager — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.1.6-alpha.1`，兼容线 `>=0.1.6-alpha.1 <0.1.7`；逐版本验证过 `0.1.6-alpha.1` 与 `0.1.6-alpha.2`（后者跑过完整单测 + 真机 GUI 验收）。
+> 目标 DSH `0.1.7-alpha.2`，兼容线 `>=0.1.7-alpha.1 <0.1.8`；逐版本验证过 `0.1.7-alpha.2`（跑过完整单测 + 真机 GUI 验收）。
 
 ## 一句话
 
-把「MCP 服务器清单」做成设置页可维护的数据（settings 命名空间 `mcp-manager`），并在 host 面把它投影成真正运行的 `@deepseek-ai/dsh-mcp-client` 实例——不改用户的 profile patch，不需要重启宿主。
+把「MCP 服务器清单」做成设置页可维护的数据（**本插件在 profile 里的条目配置**），并在 host 面把它投影成真正运行的 `@deepseek-ai/dsh-mcp-client` 实例——不改用户手写的组合层条目，不需要重启宿主。
 
 ## 已核对的契约（不是猜测）
 
@@ -21,7 +21,10 @@
 | `ctx.loader.import(name)` 以 profile 目录为解析锚点（源码 `link:` 安装也能解析内部包）；`createRequire(<DSH 安装>/package.json)` 是兜底 | `cordis-plugin-loader/lib/index.js:269-283,746-751`；`dsh-app-boot/lib/index.js:2551` |
 | 凭据：`ctx.credentials.resolve/describe/set/unset`；`credentialRef` 的 brand 在运行期是空操作（普通字符串即可）；优先级「进程环境 > .credentials.yaml > .env（只读兜底）」 | `dsh-credentials/lib/index.js:21-24`；`dsh-brand/lib/index.js`；`dsh-credentials-local/lib/index.js:473-519` |
 | 浏览器侧凭据数据面是生成式 remote：`ctx.remote.credentials.describe([ref])` / `.set(ref, value)` / `.unset(ref)`，返回 `{ok,value,error}`，value 是 `{configured,writable,source}` | `dsh-api-settings-controller/lib/index.js:146-180`；`typert.remote-client.js:112-175`；官方用法见 `dsh-client-ui-settings-plugins/lib/client.js:1507,1547` |
-| 设置命名空间：`settings.register(ns, schema, {applies:'live'})` → `{get,watch,update,replace}`；客户端 `settingsScope.bind({namespace, decode})` → `{getSnapshot,subscribe,set,unset,mutate}`，写入带 revision 栅栏 | `dsh-settings/lib/types/index.d.ts`；`dsh-client-ui-settings/lib/client.js:1015-1044,1169-1179` |
+| 设置**就是条目 config**（0.1.7 起）：插件在模块作用域导出 schemastery `Config`，loader 在 `plugin()` 时读 `plugin.Config`；`settings.describe()` 的 `ns` = 条目 id，客户端 `ctx.configForms.get(id)` → `{getSnapshot,subscribe,mutate,set,unset}`；0.1.6 的 `settings.register(ns, schema)` 与客户端 `settingsScope` 都已不存在 | `dsh-settings/lib/index.js` 的 `describe/update/replace/mutate`；`dsh-config-editor/lib/index.js` 的 `documentPath/edit`；`dsh-client-ui-settings/lib/client.js` 的 `configForms` 服务与 `lib/types/client/config-form-types.d.ts` |
+| **字段声明 `.volatile()` 才免重启**：loader 在「只有 volatile 字段变化」时就地更新运行中 fiber 的引用（`_commitVolatile`）并发出 `loader/volatile-update`（payload 是变化字段路径）；schema 解析结果里 volatile 字段是 cosmokit 引用对象，读实时值靠 `ref.get()` | `cordis-plugin-loader/lib/index.js:365-425` |
+| 官方设置写入的落盘位置就是 profile 的 patch（`profileContext.patchPath`）：`withFileLock(package.json)` + YAML Document 保注释 + `!!js` tag 还原，只改**自己条目**的 `config`，写后 `reconcileProfilePatches` | `dsh-config-editor/lib/index.js:85-125` |
+| 设置条目要在 `settings.describe()` 里出现，才可写（否则客户端快照 `status:'unavailable'`、动作控件禁用）；`settings.configure({auto:false}, fiber)` 用来声明「本实例自带设置页」 | `dsh-settings/lib/index.js` 的 `describe/configure` |
 | 设置页导航图标只能做 DOM 补丁：壳层 `navIcon(id)` 只白名单 4 个官方 id，`settings.section` 没有 `icon` 选项 | `dsh-client-ui-settings-general/lib/client.js` 的 `rows`/`navIcon`；完整手法见 `dsh-extra-context/AGENTS.md`「实现事实 4」 |
 | `ctx.webServer.register({kind,path,handler})` 重复路径 throw；浏览器边界要先过 `connection.requestRejection`，再 loopback/同源/固定客户端头 | `dsh-host-webserver/lib/index.js:171-183`；`dsh-local-plugin-manager/AGENTS.md`「安全」 |
 | Loader 条目暴露 `entry.options.{id,name,config}` 与 `entry.fiber.state`（`entry.disabled` 表示未启用） | `cordis-plugin-loader/lib/index.js:154-176`；`dsh-host-plugin-inventory/lib/index.js:110-117` |
@@ -38,42 +41,42 @@
 | 再挂载同一 serverName | 又能挂上（预留已释放）→ 启停可反复 |
 | 动态挂载 streamable-http（真实 Figma MCP 端点） | 挂载后拿到 `mcp__figma__get_design_context` 等 6 个工具，dispose 后全部消失 |
 
-结论：动态挂载/卸载、两种传输、与 host 全局工具层的关系都已证实。**这份探针不在交付包里**（在 `/tmp/dsh-mcp-spike/`），但它证明了 README 里「不需要重启」的说法。
+结论：动态挂载/卸载、两种传输、与 host 全局工具层的关系都已证实。**这份探针不在交付包里**（在 `/tmp/dsh-mcp-spike/`），但它证明了 README 里「不需要重启」的说法。（这张表是 0.1.6 线做的；0.1.7 线的等价路径由下面那张表和真机 GUI 验收覆盖。）
 
-## 本插件在隔离宿主上的端到端实测（已做）
+## 本插件在隔离宿主上的端到端实测（0.1.7-alpha.2）
 
-再用独立 `DSH_HOME=/tmp/dsh-mcp-spike/home2` + `mcpcheck` profile 装**本插件自己**（`link:`）并启动宿主，逐项核对用户可见承诺：
+用独立 `DSH_HOME=/tmp/dsh-mcp-migrate/home` + 从 web 模板新建的 `mcpcheck` profile 装**本插件自己**（`link:`）并启动宿主（`--port 3099`，全程不碰用户正在用的 3080），逐项核对用户可见承诺：
 
 | 场景 | 实测结果 |
 |---|---|
-| 启动装配 | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、启动对账已跑 |
-| 往 `settings.yaml` 写一条 stdio 服务器 | 对账 `reason=settings` → `mounted:["spike"]`，状态里出现 `mcp__spike__spike_echo`——**改设置即挂载，没重启** |
-| http 条目引用未配置凭据 | 被拦下并说明缺哪个键，不挂载 |
-| 随后写入 `.credentials.yaml` | 对账 `reason=credentials` → 自动挂载，拿到 6 个 Figma 工具；凭据明文**不在**状态载荷里 |
-| 条目 `enabled: false` / 直接被删除 | 分别 `unmounted:["figma"]` / `unmounted:["spike"]`，`servers` 归零 |
-| 组合层手写一行 MCP | `profileTargets` 显示 `include:mcp-patchy`，`endpoint` 去掉了查询串里的 token，只给 header 键名 |
-| 运行期改 profile patch | 4 秒内热加载生效（`patchy` → `patchy2`），刷新页面即可看到 |
-| 托管条目与组合层重名 | 对账把它列入 `blocked`，状态接口另给一条纯读的 `conflictNote` |
+| 启动装配 | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`dshVersion=0.1.7-alpha.2`、`versionSupported=true` |
+| 直接往 profile 的 `cordis.patch.yml` 写 `- id: dsh-mcp-manager` 的 `config.servers` | 4~6 秒内热加载：`lastReconcile.reason=settings` → `mounted:["spike"]`，拿到 `mcp__spike__spike_echo` 等 20 个工具——**证明 `loader/volatile-update` 事件确实到达插件并触发对账**（换线时最关键、最容易静默失效的一环） |
+| 组合层手写一行 MCP（URL 查询串带 token + `Authorization: Bearer …`） | `profileTargets` 给出 `include:mcp-patchy`、`endpoint` 去掉查询串、`headerKeys:["Authorization"]`；整个状态载荷里 `SHOULD-NOT-LEAK` 出现 0 次 |
+| 官方设置写入路径（真机 GUI 里的新增/编辑/启停/删除） | 客户端 `configForms.get('dsh-mcp-manager').mutate` → 宿主 `settings.mutate` → `configEditor` 写 profile patch → `loader/volatile-update` → 对账；`live.state=mounted`、工具 20 个 |
+| 写入落盘形态 | 官方 `configEditor` 把值写进该 profile 的 `cordis.patch.yml` 里 `dsh-mcp-manager` 那一条的 `config`——与用户手写的 MCP 条目**同文件、不同条目**；手写注释与 `!!js` 表达式未被触碰 |
+| 真机 GUI 验收（`scripts/gui-flow.mjs`：CDP + 无头 Chrome） | **52/52 通过**（含导入脱敏、验证前置、浮层 228x145 在面板内、20 个工具名齐全、可滚动） |
+
+> 0.1.6 线那张旧表（`/tmp/dsh-mcp-spike/home2`，往 `settings.yaml` 写条目、按 `settings` scope 的 watch 对账）已随换线失效：那条链在 0.1.7 里不存在了。
 
 ## 结构
 
 | 文件 | 职责 |
 |---|---|
-| `lib/index.js` | Cordis 入口：版本门、异步装配（加载 mcp-client + schemastery）、settings 命名空间注册与 watch、状态/动作路由、HTTP 安全细节 |
+| `lib/index.js` | Cordis 入口：**模块作用域**导出 schemastery `Config`、版本门、异步装配（加载 mcp-client）、`loader/volatile-update` → 对账、状态/动作路由、HTTP 安全细节 |
 | `lib/dsh.js` | DSH 安装定位、版本门分类、`loader.import` → 安装绝对路径的两级模块加载、插件对象解包 |
 | `lib/store.js` | 纯逻辑：规范化、校验、`credential:KEY` 占位符、`mountConfigFor`（生成 mcp-client Config）、状态投影（不回显值） |
 | `lib/plan.js` | 纯逻辑：设置与已挂载实例的对账计划（挂/卸/拦/不变） |
 | `lib/mount-manager.js` | 运行态：`ctx.plugin` 挂载、`fiber.dispose` 卸载、凭据解析、`ctx.tools.view()` 取工具名、捕获 mcp-client 日志 |
 | `lib/targets.js` | 纯逻辑：把 loader 里的 MCP 行投影成只读视图（脱敏：URL 去查询串、stdio 只给可执行文件名与参数个数、env/header 只给键名） |
-| `client.js` | 单文件 CJS 惰性 bundle：设置分区（`settings.section` order 110 = 插件设置入口一律 ≥ 100、排在 DSH 自带分区之后）、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
+| `client.js` | 单文件 CJS 惰性 bundle：设置分区（`settings.section` order 110 = 插件设置入口一律 ≥ 100、排在 DSH 自带分区之后）、经 `configForms.get('dsh-mcp-manager')` 读写条目配置、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
 | `test/harness.js` | 测试用的小 React 运行时（可渲染、可点击），守住"接线"这一类缺陷 |
 | `scripts/gui-flow.mjs` | 真机 GUI 验收（CDP + 无头 Chrome），不进发布物 |
 | `scripts/fixture-mcp-server.mjs` | 自检用的最小 stdio MCP 服务器（只服务 dev 脚本，不进发布物） |
 
 ## 关键实现事实
 
-1. **settings 是唯一真相，运行态是它的投影。** 任何写入都只产生一份对账计划（`plan.js`），由挂载管理器执行；组件不直接挂载东西。对账幂等：配置指纹（`canonicalJson(config)`）相同就不动。
-2. **"验证前置"是配置层不变量，别把它简化掉**：客户端里唯一能写 `servers` 内容的路径是 `saveDraft()`，它在 `verification.status !== 'ok'` 时直接 return；宿主侧 `verify` 又先跑 `validateServer` + serverName 冲突检查再探针，所以"验证通过"⇒"校验通过"。其余写路径只动 `enabled`（开关）或整体删除。**结论：正常使用下，托管清单里不可能出现"配置不完整"的条目**。它仍可能来自三种外部情况——旧版本（验证前置之前）存下的条目、手工编辑 `~/.dsh/settings.yaml`、别的进程写同一命名空间——此时界面如实显示"被拦 + 原因 + 铅笔可改"，而不是替用户删数据。
+1. **条目 config（= 设置）是唯一真相，运行态是它的投影。** 0.1.7 里这份真相由 loader 的 volatile 引用承载：写入 → `loader/volatile-update` → `reconcile('settings')`；任何写入都只产生一份对账计划（`plan.js`），由挂载管理器执行，组件不直接挂载东西。对账幂等：配置指纹（`canonicalJson(config)`）相同就不动。
+2. **"验证前置"是配置层不变量，别把它简化掉**：客户端里唯一能写 `servers` 内容的路径是 `saveDraft()`，它在 `verification.status !== 'ok'` 时直接 return；宿主侧 `verify` 又先跑 `validateServer` + serverName 冲突检查再探针，所以"验证通过"⇒"校验通过"。其余写路径只动 `enabled`（开关）或整体删除。**结论：正常使用下，托管清单里不可能出现"配置不完整"的条目**。它仍可能来自三种外部情况——旧版本（验证前置之前）存下的条目、手工编辑 profile 配置里本插件的 `servers`、别的进程写同一段配置——此时界面如实显示"被拦 + 原因 + 铅笔可改"，而不是替用户删数据。
 
 3. **被拦下的条目刻意不进 `wantedIds`。** 否则「把已挂载的条目改坏」会留下旧实例继续跑，界面显示新配置、实际跑旧配置（`test/plan.test.js` 有守卫）。
 4. **改配置走「先卸后挂」**，不做原地 restart：中间态可解释，失败也不会留下半个连接。
@@ -94,6 +97,8 @@
 14. **验证 = 宿主侧一次性探针**（`mountManager.probe()`）：用独立的临时 `serverName`（`probe<随机>`）挂载一份配置，`failOnStartupError: true` 让"连不上"变成确定失败，20 秒超时兜住慢服务器，拿到 `ctx.tools.view()` 里该前缀的工具名后**立刻 dispose**（失败路径也 dispose）。临时名不会发给对端（`serverName` 只是本地命名空间），因此既不与已挂载实例抢预留，也不会在"编辑时保持原名"时撞上自己。
 
 15. **客户端与宿主做动作能力握手**：状态载荷带 `actions`（`['reconcile','verify']`）。客户端在 `actions` **缺失或不含 verify** 时，直接禁用「验证」并在弹窗里提示"宿主进程还是旧版本，去重启 dsh web"——这正是"客户端刷新即新、宿主半体必须重启"这个部署特性造成的中间态（用户实测反馈过：点验证一律报错，看起来像配置坏了）。点击时若仍收到 `400 unknown action`，再兜一层同样的提示（`postAction` 的 catch 里按 `/unknown action/` 识别）。该字段与 `verify` 同时引入，所以"没有该字段"等价于"宿主没有 verify"。
+
+15.5 **两处能力判定要看不同的东西**：`actions` 判断"宿主半体是否够新"（上面那条）；`settingsAvailable` 判断"本条目能不能写"（= `Config` 构造成功 + settings 服务在，见 `statusPayload`），客户端据此显示"改动无法持久化"的红条、快照 `status:'unavailable'` 时也会给出原因。**读实时值只认 volatile 引用**（`readField` 里 `typeof value.get === 'function'` 才调用），因为测试桩给的是普通值。
 
 16. **改 `lib/*.js` 要重启宿主，改 `client.js` 只需刷新页面**：`link:` 安装不复制文件，但宿主半体是启动时加载的模块（profile 的 HMR 根是空数组，不会热更宿主代码），浏览器侧 bundle 每次页面加载都从磁盘重新取。这个差异会让"新客户端 + 旧宿主"短暂并存，见上一条的握手。
 
@@ -133,7 +138,7 @@
 - **导入成功后不再显示"敏感字段已转入凭据库…"这句**（用户反馈：与字段旁的提示重复，而且把凭据键删掉之后它还挂着，成了假消息）。宿主半体（`lib/targets.js`）不再生成它，客户端 `visibleNotes()` 再兜一层过滤——这样"新客户端 + 旧宿主进程"的窗口期内也不会冒出来；其它真告警（如"宿主没有可用的凭据服务"）照旧显示。
 - **弹窗里有第二个「保存」按钮**（凭据行的「保存」保存那枚凭据的值）：两个按钮都要有各自的 `aria-label`（`保存` / `保存凭据 <键>`），否则读屏和测试都会点错（本插件踩过：测试一直点的是凭据行的按钮，于是"保存没写盘"看起来像产品缺陷）。
 - **草稿模型**：`envRows`/`headerRows` 是 `[{name, value}]`（不再是 `envText`/`headersText`），`rowsToRecord()` 会丢掉**名字为空**的行（用户正在输入的行不能变成脏数据），`recordToRows()` 反向回显。行式编辑器刻意不做文本往返：早先的 `parsePairs` 会把没写完的行吞掉。
-- **凭据提示只留一行，但必须写清"直接写的后果"**：用户质疑过「这条提示有没有必要、直接写和进凭据库最终不都是拿到明文吗」。答案是差别在**明文存在哪里、谁能看到**：直接写 → `~/.dsh/settings.yaml` 明文，而且 settings 本来就要发给浏览器（设置页要能编辑），密钥会每次都进页面；写成 `credential:键名` → 值在 `~/.dsh/.credentials.yaml`（0600），settings 与状态接口里只有键名，界面只显示"已配置"，还能被多个条目复用、能复用已有环境变量。所以**不禁止直接写，但要在原地说明后果**，文案压成一句（随开关化改写过）：`密钥点「凭据」：键名自己取，值存进凭据库、界面不回显、可多处复用；直接填写的值会明文存进设置文件。`
+- **凭据提示只留一行，但必须写清"直接写的后果"**：用户质疑过「这条提示有没有必要、直接写和进凭据库最终不都是拿到明文吗」。答案是差别在**明文存在哪里、谁能看到**：直接写 → profile 配置里明文，而这份配置本来就要发给浏览器（设置页要能编辑），密钥会每次都进页面；写成 `credential:键名` → 值在 `~/.dsh/.credentials.yaml`（0600），settings 与状态接口里只有键名，界面只显示"已配置"，还能被多个条目复用、能复用已有环境变量。所以**不禁止直接写，但要在原地说明后果**，文案压成一句（随开关化改写过）：`密钥点「凭据」：键名自己取，值存进凭据库、界面不回显、可多处复用；直接填写的值会明文存进设置文件。`
 - **状态只在列表行显示一次，且要高亮**：编辑弹窗顶部曾有一个「当前状态」块，用户反馈"跟下面的字段挤在一起、也不明显，直接去掉"。现在状态是列表行里的一枚**带底色的小 chip**（`ok` 绿 / `warn` 琥珀 / `error` 红 / 停用灰），完整原因（如"stdio 传输必须填写可执行命令"）挂在 chip 的原生 `title` 上（列表后来改成一行，不再有第二行放全文），编辑弹窗里也能看到。弹窗只在 mcp-client 真的产出过日志时，保留一个折叠的「最近日志」。
 - **工具清单一律放在「已连接 · N 个工具」这个 tag 的官方 `Tooltip` 里**（用户要求：列表改一行、去掉工具说明、浮层挂在 tag 上、用 DSH 自带组件、宽高不出面板、内部可换行可滚动）。走过的弯路与最终做法：
   - 最早是自绘浮层（`.dmm-tools-tip`）：可预期、能用 CDP 悬停断言，但用户明确要求用官方组件，且自绘浮层的宽高没有跟随设置面板。
@@ -150,8 +155,8 @@
 
 ## 已知边界
 
-- **不写用户的 `cordis.patch.yml`**：里面可能有手写注释与 `!!js` 表达式；组合层的 MCP 行只读展示 + 导入，不改写（与 `dsh-local-plugin-manager` 的受管区块策略不同，因为这里没有必须落盘的持久层——托管清单存在 settings 里）。
-- **patch 变化不会触发对账，但会即时提示**：运行期往 patch 里加一条与托管条目同名的行时，状态接口每次读取都会给出 `conflictNote`（纯读，不产生挂载动作）；真正把它列入 `blocked` 并停掉托管实例要等下一次对账（设置/凭据写入或手动「重新对账」）。中间这段时间里，配置文件那一条会自己报 `serverName already in use` 而加载失败。
+- **只写自己那一条，不改写用户手写的行**：`cordis.patch.yml` 里可能有手写注释与 `!!js` 表达式；组合层的 MCP 行只读展示 + 导入，不改写（与 `dsh-local-plugin-manager` 的受管区块策略不同——这里没有必须落盘的持久层，官方设置通道会写本插件自己条目的 `config`，那是官方 `configEditor` 的行为，不是本插件在编辑 YAML）。
+- **别人条目的变化不会触发对账，但会即时提示**：运行期往 patch 里加一条与托管条目同名的行时，状态接口每次读取都会给出 `conflictNote`（纯读，不产生挂载动作）；真正把它列入 `blocked` 并停掉托管实例要等下一次对账（本插件条目 config 变化、凭据写入或手动「重新对账」）。中间这段时间里，配置文件那一条会自己报 `serverName already in use` 而加载失败。
 - **`~/.dsh/.env` 里的 token 仍需重启**才能被 `!!js process.env.X` 看到——那是进程启动快照，与本插件无关；托管条目 + `credential:KEY` 才是免重启路线。
 - **凭据来源为进程环境时只读**：`describe()` 返回 `writable:false`，界面会禁用输入。
 - 删除托管条目不会删除已写入的 `.credentials.yaml` 记录（凭据可能被别的条目共用）。
@@ -163,23 +168,23 @@
 
 ```bash
 npm run check       # node --check ×10 + bash -n ×2
-npm test            # 94 项：store 13 / plan 10 / mount-manager 12 / targets 10 / host 12 / client 37
+npm test            # 99 项：store 13 / plan 10 / mount-manager 12 / targets 10 / host 16 / client 38
 npm run pack:check  # 发布物 = 12 个文件
 npm run publish:check   # = verify + pack:check，已绑定 prepublishOnly
-npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（49 项通过；脚本共 53 个 check）
+npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（0.1.7-alpha.2 上 52/52 通过）
 ```
 
 - `test/mount-manager.test.js` 用假 ctx（`plugin()` 返回可 await/可 dispose 的 fiber）驱动真实对账逻辑，不依赖宿主。
-- `test/client.test.js` 在 `node:vm` 沙箱里加载 bundle（React 用 `test/harness.js` 的**可渲染**运行时），验证 slot 注册、绑定的 namespace/decode、导航补丁的三处同源与可回滚、样式注入与引用计数，以及**真渲染 + 真点击**的接线守卫：点「+」只开弹窗且不写设置且**没有单独的验证按钮**、点保存会先调一次 verify 且通过才写盘、验证失败时不落盘且原因就地显示、每次保存都重新验证（不复用上次结果）、编辑走同一弹窗且预填、宿主缺 `actions`/返回 `unknown action` 时提示重启并禁用保存、开关必须写回停用、删除必须先确认、写完必须等到宿主对账追上（不留在旧结论上）。
+- `test/client.test.js` 在 `node:vm` 沙箱里加载 bundle（React 用 `test/harness.js` 的**可渲染**运行时），验证 slot 注册、`configForms.get('dsh-mcp-manager')` 的条目 id 绑定、导航补丁的三处同源与可回滚、样式注入与引用计数，以及**真渲染 + 真点击**的接线守卫：点「+」只开弹窗且不写设置且**没有单独的验证按钮**、点保存会先调一次 verify 且通过才写盘、验证失败时不落盘且原因就地显示、每次保存都重新验证（不复用上次结果）、编辑走同一弹窗且预填、宿主缺 `actions`/返回 `unknown action` 时提示重启并禁用保存、开关必须写回停用、删除必须先确认、写完必须等到宿主对账追上（不留在旧结论上）。
 - `test/harness.js` 是小 React 运行时（不是测试文件）。它按组件实例的树路径保存 hook 槽，支持 `createContext`/`useContext`、类组件（`children` 会并入 `props`）、以及**按依赖真记忆化**的 `useCallback`。五条踩坑：`render()` 返回数组要显式展平；`useCallback` 若永远返回第一次的函数，闭包会一直看着旧状态（`useCallback(id => status.servers.find(...), [status])` 会永远读到初始 null），看起来像产品缺陷、实际是桩的错；`inputByLabel` 找字段容器必须**按 class token 精确匹配**——`.dmm-field-row` 也包含 `dmm-field` 子串，用 `includes` 会命中外层行容器、取到同排第一个输入框，表现为"表单没预填/没写进去"；`useRef` 必须返回**ref 对象**（曾写成返回 `initial`，于是 `useRef(null)` 在测试里就是 `null`，组件一碰 `ref.current` 整个分区都渲染不出来）；函数组件的 `children` 用 props 形式传（`createElement(C, {children: x})`）时不能被位置参数的**空数组**覆盖（官方 `Tooltip` 就是 props 形式传 children 的）。宿主元素上的 `ref` 本桩不赋值（真实 React 首次渲染前也是 null），所以组件必须自己处理 `current === null`，用到 DOM 的行为（浮层尺寸、滚轮转发）由真机验收覆盖。
 - **GUI 脚本每次求值前都重新注入页内助手**：客户端 bundle 改动会触发 client HMR 重载页面，注入的 `window.__gui` 随之消失（脚本表现为 `__gui is not defined`）；`evaluate` 包装里先跑一次 `HELPERS` 是幂等且便宜的，比"注入一次管到底"稳。
-- `scripts/gui-flow.mjs`（`npm run gui:check`）是**真机 GUI 验收**：用 CDP 驱动无头 Chrome 打开隔离宿主，走「打开设置（先关掉首启引导弹层）→ 进分区 → 查行是不是一行 → 导入（带上 URL/命令与凭据占位符、页面不出现明文）→ 新增（弹窗，label 文案与同一行）→ 填错命令后点保存（自动验证失败、不落盘）→ 换本地 fixture 服务器再保存 → 悬停「已连接 · N 个工具」看完整清单、量它是否在面板内、滚轮滚动清单 → 编辑 → 停用 → 删除」，每步都用宿主状态接口交叉核对，真机里还走了一遍「点『凭据』→ 自己取键名 → 凭据区出现该键」。**必须先关引导弹层**，否则它盖住设置面板、悬停事件落不到插件元素上。定位弹窗要用 `.dmm-dialog`：设置面板本身也带 `role=dialog`，按 role 查会先命中它。
+- `scripts/gui-flow.mjs`（`npm run gui:check`）是**真机 GUI 验收**：用 CDP 驱动无头 Chrome 打开隔离宿主，走「打开设置（先关掉首启引导弹层）→ 进分区 → 查行是不是一行 → 导入（带上 URL/命令与凭据占位符、页面不出现明文）→ 新增（弹窗，label 文案与同一行）→ 填错命令后点保存（自动验证失败、不落盘）→ 换本地 fixture 服务器再保存 → 悬停「已连接 · N 个工具」看完整清单、量它是否在面板内、滚轮滚动清单 → 编辑 → 停用 → 删除」，每步都用宿主状态接口交叉核对，真机里还走了一遍「点『凭据』→ 自己取键名 → 凭据区出现该键」。**必须先关引导弹层**，否则它盖住设置面板、悬停事件落不到插件元素上——弹层文案随发布线变（0.1.6 是「稍后配置」/「关闭」，0.1.7 的首启引导多了「继续」一步），所以脚本改成"循环点到没有可见 dialog 为止"并新增一条断言，只认旧文案会让浮层那几条假失败。定位弹窗要用 `.dmm-dialog`：设置面板本身也带 `role=dialog`，按 role 查会先命中它。
 - **导航图标补丁的几何**用工作区工具离线量过：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-mcp-manager --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure`，六项检查全通过（`stylesInjected` / `geometryMatches`（label 偏移 36,9 与壳层原生行一致）/ `originalIconHidden` / `maskApplied` / `squareIconBox`（::before 恰好 16×16）/ `shellRowUntouched`）。为跑通它给固定场景补了 `createContext`/`useContext` 与 `ctx.effect`（详见 `tools/dsh-icons/README.md`），并用 `dsh-extra-context`、`dsh-chat-archive-manager` 回归确认没有改坏既有插件。
 - **样式注入必须同步**：`installStyles` 先注入再登记 `ctx.effect` 清理。曾把注入整块放进 effect 回调，固定场景（无 effect）下样式永远进不了文档——这与 `dsh-extra-context` 踩过的「标记已打、CSS 未到」是同一个坑。
-- **本机真实宿主上已验证**（用户重启后）：`runtime=ready`、`settingsAvailable=true`、模块走 `loader-import`；`profileTargets` 正确列出用户 patch 里的 `figma`/`jira`（jira 的 `Authorization` 只给键名，`JIRA_MCP_BASIC` 的值与任何 `Basic ` 明文都不在载荷里）；无自定义客户端头 403、错误 CSRF 403。
+- **本机真实宿主上已验证**（0.1.6 线，用户重启后；换线后由上面「隔离宿主上的端到端实测（0.1.7-alpha.2）」一节取代）：`runtime=ready`、`settingsAvailable=true`、模块走 `loader-import`；`profileTargets` 正确列出用户 patch 里的 `figma`/`jira`（jira 的 `Authorization` 只给键名，`JIRA_MCP_BASIC` 的值与任何 `Basic ` 明文都不在载荷里）；无自定义客户端头 403、错误 CSRF 403。
 - **只读块（配置文件中的服务器）的文案不得出现实现细节**：曾经在页面上写「这些行来自 profile 的 cordis.patch.yml（含 !!js 表达式），本插件不修改该文件…」——用户直接反馈「很乱、说明描述了一些跟具体配置有关的信息，明显不合理」。现在页面上只有标题 +「只读 · 值不显示」，实现细节留在文档里；`test/client.test.js` 与 `scripts/gui-flow.mjs` 都断言渲染文本里不出现 `profile` / `cordis.patch.yml` / `!!js` / `本插件不修改`。
 - 只读块**不复用托管行的 `.dmm-row` 样式**，自己成卡片（`.dmm-targets`/`.dmm-target`）：两者层级不同，混用会让人以为它也是可编辑条目。
-- **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，49/49，跑在 DSH `0.1.6-alpha.2` 上）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmm-tools`/高度 <60px）；官方浮层的宽高都在 `.dmm-section` 之内（实测 `232x202` vs 面板 `464x389`，`insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
+- **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，52/52，跑在 DSH `0.1.7-alpha.2` 上）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmm-tools`/高度 <60px）；官方浮层的宽高都在 `.dmm-section` 之内（实测 `232x202` vs 面板 `464x389`，`insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
 - **两个由真机验收（而不是单测）发现的缺陷**，都已修并补了会失败的护栏：
   1. 点「+」什么都不做——组件只把 `adding` 置真却没有任何渲染分支，`add()` 从未被调用（空状态文案还在引导用户点它）。现在「+」打开弹窗表单（用户后续又要求：不要直接落空条目、要"验证通过才保存"）。守卫：`test/client.test.js` 的「接线守卫」用例，注入此缺陷即失败。
   2. 保存后行上会一直挂着**旧的对账结论**（比如刚把 stdio 改成 HTTP，行上仍是「必须填写可执行命令」）——设置写入触发的宿主对账晚于客户端那一次状态读取，而客户端只读一次。现在所有写路径都走 `refreshAfterWrite()`：带写入时刻重读，直到 `lastReconcile.at` 追上来（最多 6 次 / 约 4 秒）。守卫：同名用例，把 `refreshAfterWrite()` 改回 `refresh()` 即失败。
@@ -198,6 +203,7 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   #
 3. 条目显示被拦 → 读 `blockedReason`：校验未过 / 与配置文件重名 / 凭据未配置。
 4. 保存成功但没有工具 → 看该行的最近日志（重连、tools/list 失败），以及服务器是否本来就无工具能力。
 5. 弹窗里写着"宿主进程还是旧版本"、保存按钮是灰的 → 宿主半体是旧的：请用户重启 `dsh web`（客户端刷新即新，宿主必须重启才加载）。
-6. 想确认宿主真实状态与支持的动作 → `curl -s -H 'x-dsh-mcp-manager-client: 1' http://127.0.0.1:3080/dsh-mcp-manager/status | python3 -m json.tool`（同源 + loopback 才放行；`actions` 字段就是宿主的能力清单）。
-7. 判断"到底是客户端新还是宿主新" → 比一下宿主进程启动时间与 `lib/*.js` 的修改时间：
+6. 设置页红条说"宿主这一条没有可写的设置 schema"、写入被拒 → 状态接口看 `settingsAvailable`：为 `false` 说明 `Config` 没构造出来（schemastery 定位失败，宿主日志有 `dsh-mcp-manager:` 前缀告警）或条目不在 `settings.describe()` 里（profile 组成里没有这一条）。
+7. 想确认宿主真实状态与支持的动作 → `curl -s -H 'x-dsh-mcp-manager-client: 1' http://127.0.0.1:3080/dsh-mcp-manager/status | python3 -m json.tool`（同源 + loopback 才放行；`actions` 字段就是宿主的能力清单）。
+8. 判断"到底是客户端新还是宿主新" → 比一下宿主进程启动时间与 `lib/*.js` 的修改时间：
    `ps -o lstart= -p <pid>` vs `ls -l lib/*.js`。

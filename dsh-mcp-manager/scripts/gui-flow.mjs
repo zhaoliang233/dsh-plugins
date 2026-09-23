@@ -261,9 +261,29 @@ const evaluate = async (expression) => {
   return await cdp.evaluate(expression)
 }
 
-// 先关掉首启引导 / 配 API Key 弹层：它会盖住设置面板，悬停事件全落在它身上（排查时踩过）
-await evaluate(`(() => { let n = 0; for (const b of [...document.querySelectorAll('button')]) { const l = (b.getAttribute('aria-label') ?? b.textContent ?? '').trim(); if (l.includes('稍后配置') || l === '关闭') { b.click(); n += 1 } } return n })()`)
-await sleep(800)
+// 先关掉首启引导 / 配 API Key 弹层：它会盖住设置面板，悬停事件全落在它身上（排查时踩过）。
+// 弹层文案随发布线变过（0.1.6 是「稍后配置」/「关闭」，0.1.7 的首启引导多了「继续」这一步），
+// 所以这里**循环点到没有弹层为止**而不是只认某一版的文案：只认旧文案时弹层会留着，
+// 后面所有基于真实鼠标事件的断言（悬停工具清单）就会假失败。
+let dismissedLayers = 0
+for (let step = 0; step < 8; step += 1) {
+  const clicked = await evaluate(`(() => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"]')].filter((node) => node.offsetParent !== null)
+    if (dialogs.length === 0) return null
+    const dialog = dialogs[dialogs.length - 1]
+    const buttons = [...dialog.querySelectorAll('button')].filter((node) => (node.textContent ?? '').trim() !== '')
+    const target = buttons.find((node) => /继续|关闭|稍后|跳过|完成|知道/.test(node.textContent ?? '')) ?? buttons[buttons.length - 1]
+    if (target === undefined) return null
+    const label = (target.textContent ?? '').trim()
+    target.click()
+    return label
+  })()`)
+  if (clicked === null) break
+  dismissedLayers += 1
+  await sleep(800)
+}
+const layersLeft = await evaluate(`document.querySelectorAll('[role="dialog"]').length`)
+check('首启弹层已关闭（否则真实鼠标事件全落在它身上）', layersLeft === 0, `dismissed=${dismissedLayers} left=${layersLeft}`)
 
 // 打开设置 → MCP 服务器
 await evaluate(`__gui.click('button', '设置')`)
@@ -361,7 +381,13 @@ const geometry = await evaluate(`(() => {
 report.steps.push({ name: '凭据区几何', ...geometry })
 check('「+ 添加请求头」是小按钮（28px，与额外上下文的添加规则同尺寸）', geometry.addHeight === 28, JSON.stringify(geometry))
 check('凭据的保存按钮与输入框同一行、垂直居中', geometry.sameLine === true && geometry.centerDelta !== null && geometry.centerDelta <= 1, JSON.stringify(geometry))
-check('凭据状态是标签（未配置/已配置）而不是一句说明', geometry.chip.some((text) => text.includes('未配置')), JSON.stringify(geometry.chip))
+// 断言"状态是标签"这一**形态**，而不是"至少有一条是未配置"：后者取决于凭据库里有没有
+// 上一次运行写下的值（脚本自己不清理凭据），第二次运行必假失败。产品要求是标签形态。
+check(
+  '凭据状态是标签（未配置 / 已配置 · 来源）而不是一句说明',
+  geometry.chip.length > 0 && geometry.chip.every((text) => /^(未配置|已配置)/u.test(text)),
+  JSON.stringify(geometry.chip)
+)
 
 // 请求头是「多行卡片」：键名占满整行（看得全）、前缀是自绘箭头的下拉（居中、与输入框同高）、
 // 选「其它」时自定义输入不窄
