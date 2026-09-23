@@ -1,6 +1,6 @@
 {
   "name": "dsh-local-plugin-manager",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-local-plugin-manager#readme",
   "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
-  "description": "在「设置 > 插件 > 本地插件」中列出、启停或卸载当前 web profile 的本地 link 插件。",
+  "description": "面向插件开发者：在「设置 > 插件开发」里管理当前 web profile 中以 link: 挂载的本地源码插件，查看源路径与 loader 行，并快速启停或移除。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -24,16 +24,17 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-ui-settings-plugins"
+        "@deepseek-ai/dsh-client-ui-settings-general"
       ]
     }
   },
   "dshCompatibility": {
     "policy": "compatible-release-line",
     "package": "@deepseek-ai/dsh",
-    "range": ">=0.1.6-alpha.1 <0.1.7",
+    "range": ">=0.1.7-alpha.1 <0.1.8",
     "verifiedVersions": [
-      "0.1.6-alpha.2"
+      "0.1.7-alpha.1",
+      "0.1.7-alpha.2"
     ],
     "futureVersionsRequireCapabilityChecks": true
   },
@@ -46,17 +47,18 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check lib/patch-writer.js && node --check lib/errors.js && node --check client.js && bash -n install.sh && bash -n uninstall.sh",
+    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check lib/patch-writer.js && node --check lib/errors.js && node --check client.js && node --check scripts/gui-check.mjs && bash -n install.sh && bash -n uninstall.sh",
     "test": "node --test test/*.test.js",
     "verify": "npm run check && npm test",
+    "gui:check": "node scripts/gui-check.mjs",
     "prepublishOnly": "npm run verify"
   },
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.1.6-alpha.1 <0.1.7"
+    "dsh": ">=0.1.7-alpha.1 <0.1.8"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-atomic-write": "~0.1.6-alpha.1",
+    "@deepseek-ai/dsh-atomic-write": "~0.1.7-alpha.1",
     "yaml": "^2.9.0"
   },
   "publishConfig": {
@@ -68,7 +70,8 @@
     "dsh",
     "dsh-plugin",
     "cordis",
+    "plugin-development",
     "local-plugin",
-    "plugin-manager"
+    "link-plugin"
   ]
 }

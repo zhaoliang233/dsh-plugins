@@ -21,8 +21,8 @@ import {
 export { LocalPluginManagerError } from './errors.js'
 
 export const PLUGIN_NAME = 'dsh-local-plugin-manager'
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
-export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.1.6-alpha.2'])
+export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
+export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.1.7-alpha.1', '0.1.7-alpha.2'])
 export const DEFAULT_PROFILE = 'web'
 
 // state.json 只保留卸载墓碑；禁用状态的真源是 profile patch 的覆盖项本身。
@@ -60,9 +60,9 @@ export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }
   const normalized = version.split('+', 1)[0]
   const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
-  if (normalized === '0.1.6') return { supported: true, verified, normalized }
+  if (normalized === '0.1.7') return { supported: true, verified, normalized }
 
-  const prerelease = /^0\.1\.6-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
+  const prerelease = /^0\.1\.7-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
   if (prerelease === null) return { supported: false, verified: false, normalized }
   const [, channel, sequenceText] = prerelease
   const supported = channel !== 'alpha' || Number(sequenceText) >= 1
@@ -411,6 +411,9 @@ function publicPlugin(plugin, snapshot) {
     version: plugin.version,
     description: plugin.description,
     path: plugin.path,
+    // 该插件在 loader 树里的行 id：开发者排查 bundle patch、profile patch 覆盖项与
+    // 运行时行是否对得上时，唯一能直接与 `cordis.patch.yml` 互相印证的标识。
+    rowIds: [...plugin.rowIds],
     enabled: status === 'enabled',
     status,
     manageable: plugin.manageable,
@@ -524,7 +527,7 @@ export class LocalPluginProfile {
     try {
       value = JSON.parse(text)
     } catch (error) {
-      throw new LocalPluginManagerError('invalid-state', `本地插件管理状态不是有效 JSON：${errorMessage(error)}`, 409)
+      throw new LocalPluginManagerError('invalid-state', `本地开发插件管理状态不是有效 JSON：${errorMessage(error)}`, 409)
     }
     return { text, value: validateState(value, this.statePath) }
   }
@@ -566,14 +569,14 @@ export class LocalPluginProfile {
 
   /** 只写 state.json（卸载墓碑）。禁用状态不在这里，它由 profile patch 的覆盖项表达。 */
   async writeState(nextState) {
-    const normalized = validateState({ version: STATE_VERSION, pendingRemovals: nextState.pendingRemovals }, '待写入的本地插件管理状态')
+    const normalized = validateState({ version: STATE_VERSION, pendingRemovals: nextState.pendingRemovals }, '待写入的本地开发插件管理状态')
     const nextStateText = stateText(normalized)
     const previousText = await readOptionalText(this.statePath)
     if (nextStateText === previousText) return { changed: false, previousText }
     try {
       await atomicWriteText(this.statePath, nextStateText, 0o600)
     } catch (error) {
-      throw new LocalPluginManagerError('write-failed', `写入本地插件管理状态失败：${errorMessage(error)}`, 500)
+      throw new LocalPluginManagerError('write-failed', `写入本地开发插件管理状态失败：${errorMessage(error)}`, 500)
     }
     return { changed: true, previousText }
   }
@@ -654,7 +657,7 @@ export class LocalPluginProfile {
 
   async exclusive(operation) {
     if (this.busy) {
-      throw new LocalPluginManagerError('busy', '另一个本地插件操作仍在进行，请稍后重试。', 409)
+      throw new LocalPluginManagerError('busy', '另一个本地开发插件操作仍在进行，请稍后重试。', 409)
     }
     this.busy = true
     try {
@@ -668,7 +671,7 @@ export class LocalPluginProfile {
     return this.exclusive(async () => {
       const snapshot = await this.snapshot()
       const plugin = snapshot.plugins.find((item) => item.name === name)
-      if (plugin === undefined) throw new LocalPluginManagerError('not-installed', '该本地插件未安装在当前 profile。', 404)
+      if (plugin === undefined) throw new LocalPluginManagerError('not-installed', '该本地开发插件未安装在当前 profile。', 404)
       const current = publicPlugin(plugin, snapshot)
       if (current.self) throw new LocalPluginManagerError('self-protected', '管理器不能从自己的页面停用；请使用命令行卸载。', 403)
       if (!plugin.manageable) throw new LocalPluginManagerError('not-manageable', plugin.reason || '该插件不能安全启停。', 409)
@@ -724,7 +727,7 @@ export class LocalPluginProfile {
     return this.exclusive(async () => {
       const before = await this.snapshot()
       const plugin = before.plugins.find((item) => item.name === name)
-      if (plugin === undefined) throw new LocalPluginManagerError('not-installed', '该本地插件未安装在当前 profile。', 404)
+      if (plugin === undefined) throw new LocalPluginManagerError('not-installed', '该本地开发插件未安装在当前 profile。', 404)
       const current = publicPlugin(plugin, before)
       if (current.self) throw new LocalPluginManagerError('self-protected', '管理器不能卸载自己；请使用 uninstall.sh。', 403)
       if (!plugin.manageable) throw new LocalPluginManagerError('not-manageable', plugin.reason || '该插件不能安全卸载。', 409)

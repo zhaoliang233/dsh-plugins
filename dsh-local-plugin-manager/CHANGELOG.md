@@ -2,6 +2,21 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.2.0] - 2026-09-23
+
+### 变更
+
+- **定位收敛为「插件开发」**：本包从"本地插件管理器"改为面向插件开发者的开发循环工具，面板正文直接写明只负责 `link:` 挂载的本地源码插件，通用插件管理（安装、更新、全部插件与运行状态）在 DSH 自带的「插件」设置分区里。
+- **设置入口从官方插件分区的 tab 改为设置菜单里的独立分区**：注册 `settings.section`（`id: plugin-dev`、`order: 100`、`label: 插件开发`）而不再注册 `settings.plugins.tab`。官方插件分区在 0.1.7 起自带 inventory tab，插件再往里塞 tab 会被读成官方插件管理的第二部分。`package.json#dsh.client.inject` 随之从 `@deepseek-ai/dsh-client-ui-settings-plugins` 换成声明 `settings.section` 的 `@deepseek-ai/dsh-client-ui-settings-general`。
+- **新增导航图标 DOM 补丁**：`settings.section` 没有 icon 选项、壳层对未知分区一律回落齿轮，本分区会与官方「插件」撞脸；改为在 `settings.action` 挂载点上用 mask 画出 `IconCodeOutlineMedium`，所有副作用可逆且带引用计数。
+- **行内新增 loader 行 id**：Host DTO 重新暴露 `rowIds`，只看行 id 与包名不同、或一个包贡献多行时才渲染，方便直接对照 profile 的 `cordis.patch.yml`。
+- **兼容线推进到 `>=0.1.7-alpha.1 <0.1.8`**：`0.1.7-alpha.1` 与 `0.1.7-alpha.2` 列为逐版本验证版本；运行时依赖 `@deepseek-ai/dsh-atomic-write` 同步到 `~0.1.7-alpha.1`。
+- **新增 `scripts/gui-check.mjs`（`npm run gui:check`）**：把真机 GUI 验收里可断言的部分自动化（设置菜单 → 分区 → 开关 → profile patch 交叉核对）。脚本不进发布物。
+
+### 修复
+
+- **0.1.7 上插件完全失效**：版本门仍按 `0.1.6` 发布线判定，在 `0.1.7-alpha.2` 上 status 直接返回 `available: false`，面板显示"当前不可用"。版本分类改为按 `0.1.7` 判定并接受 alpha ≥ 1。
+
 ## [0.1.7] - 2026-09-20
 
 ### 变更

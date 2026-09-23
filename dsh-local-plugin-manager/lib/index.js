@@ -218,7 +218,7 @@ function registerRoutes(ctx, state) {
         if (body.action === 'enable') result = await state.manager.setEnabled(name, true)
         else if (body.action === 'disable') result = await state.manager.setEnabled(name, false)
         else if (body.action === 'uninstall') result = await state.manager.uninstall(name)
-        else throw new LocalPluginManagerError('invalid-action', '不支持的本地插件操作。', 400)
+        else throw new LocalPluginManagerError('invalid-action', '不支持的本地开发插件操作。', 400)
         sendJson(res, 200, result)
       } catch (error) {
         const payload = errorPayload(error)

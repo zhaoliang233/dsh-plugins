@@ -38,6 +38,8 @@ function instantiate(options = {}) {
     createElement(type, props, ...children) { return { type, props: props || {}, children } },
     useCallback(value) { return value },
     useEffect() {},
+    // 导航图标补丁挂在 useLayoutEffect 上（晚一帧会看到齿轮闪一下），桩必须支持它。
+    useLayoutEffect() {},
     useRef(initial) { return { current: initial } },
     useState(initial) {
       const index = hookIndex
@@ -50,6 +52,7 @@ function instantiate(options = {}) {
   // 局部名不随命名法变化（bundle 里的用法与这里的断言都按局部名走）。
   const types = {
     Button: () => null,
+    IconCodeOutline16: () => null,
     IconLoadingOutline16: () => null,
     IconRefreshOutline16: () => null,
     IconTrashOutline16: () => null,
@@ -73,6 +76,7 @@ function instantiate(options = {}) {
         IconWarningOutline16: 'IconWarningOutline16'
       }
     : {
+        IconCodeOutlineMedium: 'IconCodeOutline16',
         IconLoadingOutlineMedium: 'IconLoadingOutline16',
         IconRefreshOutlineMedium: 'IconRefreshOutline16',
         IconTrashOutlineMedium: 'IconTrashOutline16',
@@ -97,7 +101,7 @@ function instantiate(options = {}) {
     },
     slots: {
       inject(name, factory) {
-        assert.equal(name, 'settings.plugins.tab')
+        assert.equal(['settings.section', 'settings.action'].includes(name), true, `unexpected slot: ${name}`)
         return factory()
       },
       register(options, component) {
@@ -170,18 +174,26 @@ function ruleBody(styleText, selector) {
   return match[1]
 }
 
-test('registers a third Plugins tab with reversible current-theme styles', () => {
+test('registers a 插件开发 settings section with reversible current-theme styles', () => {
   assert.equal(definition.id, 'dsh-local-plugin-manager')
   withDocument({
     body(harness, fixture) {
       assert.deepEqual(harness.plugin.inject, ['slots'])
-      assert.equal(harness.registrations.length, 1)
-      // 插件 tab 必须排到 DSH 自带 tab（只有 all，order 10）之后。
+      assert.equal(harness.registrations.length, 2)
+      // 开发者面板是设置面板菜单里的独立分区，**不是**官方「插件」分区里的第三个 tab：
+      // 共用官方插件管理入口会被当成官方功能的第二部分，与"面向插件开发者"的定位冲突。
+      assert.equal(source.includes('settings.plugins.tab'), false)
       assert.deepEqual(harness.registrations[0].options, {
-        name: 'settings.plugins.tab',
-        id: 'local-plugins',
+        name: 'settings.section',
+        id: 'plugin-dev',
         order: 100,
-        label: '本地插件'
+        label: '插件开发'
+      })
+      // 导航图标补丁的挂载点，与分区同档 order，排到 DSH 自带项之后。
+      assert.deepEqual(harness.registrations[1].options, {
+        name: 'settings.action',
+        id: 'dsh-local-plugin-manager-nav-icon',
+        order: 100
       })
       const style = styleFor(fixture)
       assert.ok(style)
@@ -191,8 +203,10 @@ test('registers a third Plugins tab with reversible current-theme styles', () =>
       assert.equal(style.textContent.includes('--dsw-alias-state-error-primary'), true)
       assert.equal(style.textContent.includes('--dsw-alias-state-business-primary'), false)
       const rendered = harness.render()
-      assert.equal(rendered.children[0].props['aria-label'], '本地插件')
-      assert.equal(rendered.children[0].children[0].children[0].children[0], '本地插件')
+      assert.equal(rendered.children[0].props['aria-label'], '插件开发')
+      assert.equal(rendered.children[0].children[0].children[0].children[0], '插件开发')
+      // 定位说明必须写进面板本体：用户要能一眼看出这里只管本地 link 开发插件。
+      assert.match(rendered.children[0].children[1].children[0], /link:/u)
     },
     after(harness, fixture) {
       assert.equal(fixture.elements.has('dsh-local-plugin-manager-style'), false)
@@ -217,6 +231,7 @@ const DEMO_PLUGINS = [
     version: '1.2.3',
     description: '演示插件说明',
     path: '/tmp/dsh-demo-local',
+    rowIds: ['dsh-demo-local'],
     enabled: true,
     status: 'enabled',
     manageable: true,
@@ -230,6 +245,7 @@ const DEMO_PLUGINS = [
     name: 'dsh-demo-nodesc',
     version: '0.1.0',
     path: '/tmp/dsh-demo-nodesc',
+    rowIds: ['dsh-demo-nodesc', 'dsh-demo-nodesc-extra'],
     enabled: false,
     status: 'disabled',
     manageable: true,
@@ -272,11 +288,15 @@ test('resolves icons by capability so both the numeric and the tier-word naming 
     .map((match) => ({ local: match[1], candidates: [...match[2].matchAll(/'([^']+)'/gu)].map((item) => item[1]) }))
   assert.deepEqual(
     resolutions.map((entry) => entry.local),
-    ['IconLoadingOutline16', 'IconRefreshOutline16', 'IconTrashOutline16', 'IconWarningOutline16'],
+    ['IconLoadingOutline16', 'IconRefreshOutline16', 'IconTrashOutline16', 'IconWarningOutline16', 'IconCodeOutline16'],
     '每个图标都必须走能力解析，且保留原有局部名（组件与断言都不必改）'
   )
   for (const entry of resolutions) {
     assert.equal(entry.candidates[0].endsWith('Medium'), true, `${entry.local} 必须优先用当前的档位词命名`)
+  }
+  // 行内四个图标是在 0.1.6 上就有的：保留旧数字档位命名作兜底。
+  // 导航图标是 0.1.7 才引入的，没有旧命名法可退，因此只要求档位词候选链。
+  for (const entry of resolutions.filter((item) => item.local !== 'IconCodeOutline16')) {
     assert.equal(entry.candidates.includes(entry.local), true, `${entry.local} 必须保留旧数字档位命名作兜底`)
   }
 
@@ -429,6 +449,109 @@ test('rewrites a surviving style element left behind by a client HMR reload', ()
     },
     after(harness, fixture) {
       assert.equal(fixture.elements.has('dsh-local-plugin-manager-style'), false)
+    }
+  })
+})
+
+test('renders the loader row ids only when they add information', () => {
+  withDocument({
+    options: { view: { kind: 'ready', profile: 'web', plugins: DEMO_PLUGINS } },
+    body(harness) {
+      const internals = harness.plugin.__internals
+      // 单一且等于包名的行 id 只是包名的回声，不占位置。
+      assert.equal(internals.loaderRowsLabel(DEMO_PLUGINS[0]), undefined)
+      assert.equal(internals.loaderRowsLabel(DEMO_PLUGINS[1]), 'dsh-demo-nodesc、dsh-demo-nodesc-extra')
+      assert.equal(internals.loaderRowsLabel({ name: 'x', rowIds: [] }), undefined)
+      assert.equal(internals.loaderRowsLabel({ name: 'x' }), undefined)
+
+      const rows = findByClassName(harness.render(), 'dlpm-rows')
+      assert.equal(rows.length, 1, '只有行 id 与包名不同的那一行才渲染 loader 行')
+      assert.deepEqual(rows[0].children.map((child) => child.children[0]), ['loader 行', 'dsh-demo-nodesc、dsh-demo-nodesc-extra'])
+      assert.equal(rows[0].children[1].props.title, 'dsh-demo-nodesc、dsh-demo-nodesc-extra')
+    }
+  })
+})
+
+/** 假文档：只需要 nav button 列表、body 与 defaultView（MutationObserver 缺省即不装观察器）。 */
+function createNavDocument(labels) {
+  const buttons = labels.map((label) => ({
+    textContent: label,
+    dataset: {},
+    style: {
+      values: {},
+      setProperty(name, value) { this.values[name] = value },
+      removeProperty(name) { delete this.values[name] }
+    }
+  }))
+  return {
+    buttons,
+    querySelectorAll(selector) {
+      assert.equal(selector, 'nav button')
+      return buttons
+    }
+  }
+}
+
+test('masks the settings nav row with the plugin icon and reverts it on dispose', () => {
+  withDocument({
+    body(harness) {
+      const internals = harness.plugin.__internals
+      const document = createNavDocument(['通用', '插件', '插件开发', '关于'])
+      const source = '<svg viewBox="0 0 16 16"><path d="M0 0"/></svg>'
+
+      const dispose = internals.patchSettingsNavIcon(document, source, '插件开发')
+      const target = document.buttons[2]
+      assert.equal(target.dataset.dlpmNavIcon, '')
+      assert.equal(target.dataset.dlpmNavIconReferences, '1')
+      assert.equal(target.style.values['--dlpm-nav-icon-mask'].startsWith('url("data:image/svg+xml,'), true)
+      // 同名的其它两行不能被顺手改掉。
+      for (const button of [document.buttons[0], document.buttons[1], document.buttons[3]]) {
+        assert.deepEqual(button.dataset, {})
+        assert.deepEqual(button.style.values, {})
+      }
+
+      // 二次挂载（设置面板重开、HMR）只加引用计数，不重复写入。
+      const disposeAgain = internals.patchSettingsNavIcon(document, source, '插件开发')
+      assert.equal(target.dataset.dlpmNavIconReferences, '2')
+      disposeAgain()
+      assert.equal(target.dataset.dlpmNavIconReferences, '1')
+      assert.equal(target.dataset.dlpmNavIcon, '', '还有一份引用时标记必须留着')
+
+      dispose()
+      assert.deepEqual(target.dataset, {}, '最后一份引用释放后按钮必须完整还原成齿轮')
+      assert.deepEqual(target.style.values, {})
+
+      // 结构不满足时静默空操作：最差是继续显示齿轮，绝不抛错。
+      assert.equal(typeof internals.patchSettingsNavIcon(null, source, '插件开发'), 'function')
+      assert.equal(typeof internals.patchSettingsNavIcon(document, '', '插件开发'), 'function')
+      assert.equal(typeof internals.patchSettingsNavIcon(document, source, ''), 'function')
+      assert.equal(internals.navIconMaskSource(source),
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0"/></svg>',
+        'data: URI 里的 svg 缺 xmlns 时不会渲染，必须补上')
+      const namespaced = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+      assert.equal(internals.navIconMaskSource(namespaced), namespaced, '已经有 xmlns 时不得重复插入')
+      assert.equal(internals.navIconMaskSource(undefined), '')
+    }
+  })
+})
+
+test('reads the nav icon template only when it really carries an svg', () => {
+  withDocument({
+    body(harness) {
+      const internals = harness.plugin.__internals
+      const document = createNavDocument(['插件开发'])
+      const template = { querySelector: () => ({ outerHTML: '<svg><path d="M0 0"/></svg>' }) }
+      const dispose = internals.installNavIconPatch(template, document)
+      assert.equal(document.buttons[0].dataset.dlpmNavIcon, '')
+      dispose()
+      assert.equal(document.buttons[0].dataset.dlpmNavIcon, undefined)
+
+      // 图标被构建裁剪掉时会拿到空模板：补丁必须退化成空操作，而不是抛错。
+      const empty = { querySelector: () => null }
+      assert.equal(typeof internals.installNavIconPatch(empty, document), 'function')
+      assert.equal(typeof internals.installNavIconPatch(null, document), 'function')
+      assert.equal(typeof internals.installNavIconPatch({ querySelector: () => ({ outerHTML: '' }) }, document), 'function')
+      assert.equal(document.buttons[0].dataset.dlpmNavIcon, undefined)
     }
   })
 })
