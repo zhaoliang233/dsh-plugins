@@ -21,21 +21,27 @@
  *      `::before` 必须是同一档位的方块且带 data URI mask。
  *
  * 用法:
- *   node tools/dsh-icons/verify-nav-icon.js
+ *   node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure
  *   node tools/dsh-icons/verify-nav-icon.js --plugin dsh-chat-archive-manager
- *   node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --label '额外上下文' --icon IconContextInjectionOutline16
+ *   node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --label '额外上下文' --icon IconContextInjectionOutlineMedium
+ *
+ * `--measure` 会自己拉起无头 Chrome 把场景量完，打印六项 checks，任何一项不通过就非零退出
+ * （所以能当断言用）；不加时只生成页面，由你打开目视对照。图标名与菜单名默认从 bundle 里探测，
+ * 探测不到（或想覆盖）再用 `--icon` / `--label` 给。Chrome 路径用 `--chrome` 覆盖。
  *
  * 产物：`/tmp/dsh-nav-icon-fixture/index.html`（用浏览器打开可目视对照，页面底部打印量测 JSON）。
- * 只读：不改 DSH 安装，也不改插件源码。
+ * 只读 DSH 安装与插件源码；只会收掉自己按 `--user-data-dir` 拉起的那个 Chrome。
  *
  * 注意：这是**固定场景**，量的是布局等价性，不等于真实设置页的观感
  * （真实页面还需要用户在 Warp 里刷新后目视确认）。
  */
 
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
+const { spawn } = require('node:child_process')
 
-const { locateDshRoot, shellBundle, definitionOf, serializeSvg, WORKSPACE_ROOT, TOOL_NAME } = require('./build.js')
+const { locateDshRoot, shellBundle, primitivesModule, extractIcons, WORKSPACE_ROOT, TOOL_NAME } = require('./build.js')
 
 const OUT_DIR = '/tmp/dsh-nav-icon-fixture'
 
@@ -62,6 +68,15 @@ function argValue(argv, name, fallback) {
  * @returns `{ component, icon, candidates }`；`icon` 可能是 undefined（判不出来，需 --icon）。
  */
 function detectNavIcon(pluginSource) {
+  // `const IconCodeOutline16 = iconOf('IconCodeOutlineMedium', 'IconCodeOutlineRegular')`
+  // ——工作区推荐的取法。组件体里出现的只是**本地别名**，光扫字符串字面量认不出来，
+  // 所以先把"别名 → 候选链"记下来（踩过：插件不再把旧的数字档位名写进链里之后，
+  // 这里就永远判不出图标，只能靠 --icon）。
+  const aliases = new Map()
+  for (const call of pluginSource.matchAll(/const\s+([A-Za-z0-9_$]+)\s*=\s*iconOf\(\s*([^)]*)\)/gu)) {
+    const chain = [...call[2].matchAll(/'([A-Za-z0-9_$]+)'/gu)].map((match) => match[1]).filter((name) => name.startsWith('Icon'))
+    if (chain.length > 0) aliases.set(call[1], chain)
+  }
   const names = []
   const imports = /const \{([^}]+)\} = require\('@deepseek-ai\/dsh-client-ui-primitives'\)/u.exec(pluginSource)
   if (imports !== null) names.push(...imports[1].split(',').map((piece) => piece.trim().split(':').pop().trim()))
@@ -72,12 +87,17 @@ function detectNavIcon(pluginSource) {
   // 组件名必须是首字母大写（`ExtraContextNavIcon`），否则会匹配到 `navIconReferences` 这类工具函数
   const component = /function\s+([A-Z]\w*NavIcon\w*)\s*\([^)]*\)\s*\{([\s\S]*?)\n    \}/u.exec(pluginSource)
   if (component === null) return { component: undefined, icon: undefined, candidates }
-  const used = candidates.filter((name) => component[2].includes(name))
+  const body = component[2]
+  const used = candidates.filter((name) => body.includes(name))
+  for (const [local, chain] of aliases) {
+    if (body.includes(local)) used.push(...chain)
+  }
+  const ordered = [...new Set(used)]
   return {
     component: component[1],
-    // 只有唯一命中时才能自动判定；链式取用时按候选顺序取第一个（新命名优先）。
-    icon: used.length === 1 ? used[0] : (used.length === 0 ? undefined : used[0]),
-    candidates: used.length === 0 ? candidates : used
+    // 判出来的只是**首选**名字（链上第一个），真实存在性由调用方按当前构建核对。
+    icon: ordered[0],
+    candidates: ordered.length === 0 ? candidates : ordered
   }
 }
 
@@ -107,67 +127,55 @@ function pluginStyleText(pluginSource) {
   return pluginSource.slice(from, to)
 }
 
-/** 把壳层图标定义求值成可用的组件（桩 jsx-runtime，复用 build.js 的序列化能力做自检）。 */
-/** 求值图标定义时要绑定的名字：0.1.6 的 `u`/`react_jsx_runtime` 与 0.1.7 的 `l` 都要给。 */
-const ICON_EVAL_PARAMETERS = ['u', 'react_jsx_runtime', 'l', 'React']
+/**
+ * 图标源码的来源：**复用 build.js 的提取路径**（`primitivesModule` + `extractIcons`），
+ * 本文件不再自己把模块里的定义串成一个闭包。
+ *
+ * 为什么必须复用（0.1.7-alpha.2 上真的炸过）：0.1.7 起每个图标被拆成
+ * 「导出包装器 + 基础组件 + 路径常量」（`Sx=e=>l.jsx(F5,{...e,strokeWidth:Z})`），
+ * 要拿到能渲染的图形就得把这几段一起求值。老做法是"扫到哪个 `名字=` 就内联成闭包里的
+ * `const`"，可压缩产物里 `e=`、`n=`、`t=` 这类局部名遍地都是：既会把 React 内部的同名
+ * 赋值当依赖抓进来（`const e = ([...this.map.values()])`），又会与真正的局部名撞声明，
+ * 结果整段源码直接 SyntaxError/ReferenceError，报出来的却是"当前 DSH 构建里没有这些
+ * 候选图标"这种误导性结论。build.js 里那套（每个模块级定义**单独**求值、互不共享作用域）
+ * 已经跑通、且被 `icons.json` 长期验证，这里只要一次提取。
+ */
+let catalogCache = null
 
-const ICON_EVAL_RUNTIME = {
-  Fragment: Symbol('Fragment'),
-  jsx: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? [props.children] : [] }),
-  jsxs: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? (Array.isArray(props.children) ? props.children : [props.children]) : [] }),
-  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children })
+function iconCatalog(root) {
+  if (catalogCache !== null && catalogCache.root === root) return catalogCache
+  const { source } = shellBundle(root)
+  const { exports } = primitivesModule(source)
+  const { icons, unrenderable } = extractIcons(source, exports)
+  catalogCache = {
+    root,
+    icons: new Map(icons.map((icon) => [icon.name, icon.svg])),
+    unrenderable: new Map(unrenderable.map((item) => [item.name, item.reason]))
+  }
+  return catalogCache
 }
 
 /**
- * 产出一段**自包含**的图标定义源码：把图标引用到的同模块定义（0.1.7 起图标被拆成
- * 「导出包装器 + 基础组件 + 路径常量」）内联成闭包里的 `const`，再返回组件本身。
+ * 取一个图标的 SVG 源码。
  *
- * 页面里的 `icon(source)` 只有 `u`/`react_jsx_runtime` 两个参数，而 0.1.7 的 JSX 运行时
- * 别名是 `l`、图标又引用兄弟组件——不内联就求不了值（会得到 undefined 组件、量不出几何）。
+ * 名字不存在时**直接报错、不回落到齿轮**：本工具要量的就是"这一行图标对不对"，
+ * 而名字写错在真实页面里只表现为图标空白（`require` 回来是 `undefined`），
+ * 正是这里最该拦下的那类问题。
  *
- * @param source - 前端 chunk 源码。
- * @param exportName - primitives 导出的图标名。
- * @returns 可直接 `new Function(...).call()` 的源码字符串。
+ * 注意产物里的 `width/height` 已被 build.js 换成 100%（预览页要缩放），固定场景在挂到
+ * DOM 之后按 `size` 写回显式像素——真实壳层就是这么渲染的（`{ size: 16 }`）。
  */
-function inlineIconSource(source, exportName) {
-  const mapping = new RegExp(`${exportName}:([A-Za-z0-9_$]+)`).exec(source)
-  if (mapping === null) throw new Error(`当前 DSH 构建里没有 ${exportName}`)
-  const definition = definitionOf(source, mapping[1])
-  if (definition === null) throw new Error(`找不到 ${exportName} 的定义`)
-  const inlined = []
-  const seen = new Set([mapping[1]])
-  const queue = [...definition.matchAll(/(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)/gu)].map((match) => match[1])
-  while (queue.length > 0 && inlined.length < 64) {
-    const name = queue.shift()
-    if (seen.has(name) || ICON_EVAL_PARAMETERS.includes(name) || RESERVED_WORDS.has(name)) continue
-    seen.add(name)
-    const dependency = definitionOf(source, name)
-    if (dependency === null || dependency.length > 20_000) continue
-    inlined.push(`const ${name} = (${dependency});`)
-    for (const match of dependency.matchAll(/(?<![A-Za-z0-9_$.])([A-Za-z_$][A-Za-z0-9_$]*)/gu)) queue.push(match[1])
-  }
-  // IIFE：外层求值器把它当值，所以末尾必须真正调用一次，返回组件本身。
-  return `(function (${ICON_EVAL_PARAMETERS.join(', ')}) { ${inlined.join(' ')} return (${definition}); })(${ICON_EVAL_PARAMETERS.join(', ')})`
-}
-
-/** 语言关键字：内联依赖时不去模块里找定义。 */
-const RESERVED_WORDS = new Set([
-  'true', 'false', 'null', 'undefined', 'this', 'return', 'new', 'typeof', 'instanceof', 'in', 'of', 'void', 'delete',
-  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'function', 'class', 'const', 'let', 'var',
-  'try', 'catch', 'finally', 'throw', 'await', 'async', 'yield', 'default', 'export', 'import', 'extends', 'super',
-  'Math', 'Number', 'String', 'Object', 'Array', 'JSON', 'props', 'children'
-])
-
-function compileIcon(root, exportName) {
-  const { source } = shellBundle(root)
-  const inlined = inlineIconSource(source, exportName)
-  // 用同一段源码自检：拿不到 viewBox 说明图标定义形态又变了，早点报错而不是产出个空页面
-  const component = new Function(...ICON_EVAL_PARAMETERS, `return (${inlined})`)(
-    ...ICON_EVAL_PARAMETERS.map(() => ICON_EVAL_RUNTIME)
-  )
-  const probe = serializeSvg(component({ size: 16 }), 'probe')
-  if (!probe.includes('viewBox=')) throw new Error(`${exportName} 渲染出来没有 viewBox，图标定义形态可能变了`)
-  return inlined
+function iconSvg(root, exportName) {
+  const catalog = iconCatalog(root)
+  const svg = catalog.icons.get(exportName)
+  if (svg !== undefined) return svg
+  const reason = catalog.unrenderable.get(exportName)
+  if (reason !== undefined) throw new Error(`${exportName} 在提取阶段就坏了（${reason}）`)
+  const tier = /^(Icon.+)Outline(Medium|Regular)$/u.exec(exportName)
+  const hint = tier === null
+    ? ''
+    : `；同一图形的另一档是 ${tier[1]}Outline${tier[2] === 'Medium' ? 'Regular' : 'Medium'}`
+  throw new Error(`当前 DSH 构建里没有图标 ${exportName}（0.1.7 起档位改名成 …OutlineMedium/…OutlineRegular，旧的数字档位名一律不存在）${hint}`)
 }
 
 /**
@@ -224,7 +232,7 @@ function detectPatchContract(pluginSource) {
   return { attribute, maskVariable, datasetKey, hideBy }
 }
 
-function fixtureHtml({ navCss, iconDefinition, iconName, label, bundleFile, shellIconDefinitions, patch }) {
+function fixtureHtml({ navCss, iconMarkup, iconName, label, bundleFile, shellIcons, patch }) {
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -291,6 +299,8 @@ function appendChildren(node, children) {
 
 function build(element) {
   if (element === null || typeof element !== 'object') return document.createTextNode(String(element))
+  // 已经是真 DOM 节点（本场景的图标组件直接返回 svg 元素，见 iconMarkupSvg）：原样接上。
+  if (element.nodeType !== undefined) return element
   const { type, props, children } = element
   // 上下文 Provider：渲染子树期间切换 current，渲染完还原（真实 React 的行为语义）。
   if (type !== null && typeof type === 'object' && type[PROVIDER] !== undefined) {
@@ -331,14 +341,23 @@ function build(element) {
   return node
 }
 
-// ---- 壳层真实图标（从安装包里原样求值） ----
-const jsxRuntime = {
-  Fragment: Symbol('Fragment'),
-  jsx: (type, props) => ({ type, props: props || {}, children: props && props.children !== undefined ? [props.children] : [] }),
-  jsxs: (type, props) => ({ type, props: props || {}, children: props && props.children !== undefined ? (Array.isArray(props.children) ? props.children : [props.children]) : [] })
+// ---- 壳层真实图标 ----
+// 图标由宿主侧（build.js 的提取路径）序列化成 SVG 源码，这里只把源码变成真 DOM 节点。
+// 不在页面里求值模块源码：图标定义引用模块内其它符号，页面里没有那些作用域，
+// 硬求值只会把压缩产物的局部名撞在一起（老做法在 0.1.7-alpha.2 上就是这么炸的）。
+// 序列化产物是 build.js 给预览页用的形态（width/height=100%），挂到 DOM 后按 size
+// 写回显式像素，与真实壳层按 size:16 渲染的结果一致。
+const iconMarkupSvg = (markup, size) => {
+  const template = document.createElement('template')
+  template.innerHTML = markup
+  const node = template.content.firstElementChild ?? template.content.firstChild
+  if (node === null || node === undefined) throw new Error('图标源码没有解析出根元素：' + markup.slice(0, 60))
+  node.setAttribute('width', String(size))
+  node.setAttribute('height', String(size))
+  return node
 }
-const icon = (source) => new Function('u', 'react_jsx_runtime', 'l', 'React', 'return (' + source + ')')(jsxRuntime, jsxRuntime, jsxRuntime, jsxRuntime)
-const icons = { ${iconName}: icon(${JSON.stringify(iconDefinition)}), ${shellIconDefinitions} }
+const icon = (markup) => (props) => iconMarkupSvg(markup, props && props.size !== undefined ? props.size : 16)
+const icons = { ${iconName}: icon(${JSON.stringify(iconMarkup)}), ${shellIcons} }
 
 // ---- 加载真实插件 bundle ----
 let definition = null
@@ -463,17 +482,20 @@ try {
 `
 }
 
-/** 官方图标改名过，按能力取第一个能在当前构建里编译出来的名字。 */
+/** 官方图标改名过，按能力取第一个在当前构建里真实存在的名字。 */
 function existingIconName(root, candidates) {
+  const name = firstExistingIconName(root, candidates)
+  if (name === undefined) throw new Error(`当前 DSH 构建里没有这些候选图标：${candidates.join('、')}`)
+  return name
+}
+
+/** 同上，但找不到就返回 undefined（用于"插件自己的候选链"：链上一个都不存在时再报错）。 */
+function firstExistingIconName(root, candidates) {
+  const catalog = iconCatalog(root)
   for (const name of candidates) {
-    try {
-      compileIcon(root, name)
-      return name
-    } catch {
-      // 换下一个候选
-    }
+    if (catalog.icons.has(name)) return name
   }
-  throw new Error(`当前 DSH 构建里没有这些候选图标：${candidates.join('、')}`)
+  return undefined
 }
 
 function main(argv) {
@@ -482,17 +504,19 @@ function main(argv) {
   const bundlePath = path.join(pluginDir, 'client.js')
   if (!fs.existsSync(bundlePath)) throw new Error(`找不到插件 bundle：${bundlePath}`)
 
+  const root = locateDshRoot(argValue(argv, 'dsh'))
   const pluginSource = fs.readFileSync(bundlePath, 'utf8')
   const detected = detectNavIcon(pluginSource)
-  // --icon/--label 优先：探测失败只影响"能不能自动判定"，不该在拿到显式入参前就抛。
-  const iconName = argValue(argv, 'icon', detected.icon)
+  // --icon 优先；否则按插件的候选链取第一个**当前构建里真实存在**的名字——这正是
+  // 插件运行时 iconOf() 的行为，判出来的名字与页面里真正会画的图标才是同一个。
+  const requested = argValue(argv, 'icon', undefined)
+  const iconName = requested ?? firstExistingIconName(root, detected.candidates)
   if (iconName === undefined) {
-    throw new Error(`无法从组件 ${detected.component ?? '(找不到 NavIcon 组件)'} 里确定图标（候选：${detected.candidates.join(', ') || '无'}），请用 --icon 指定`)
+    throw new Error(`无法从组件 ${detected.component ?? '(找不到 NavIcon 组件)'} 里确定图标（候选：${detected.candidates.join(', ') || '无'}，列出的是名字，不是存在性），请用 --icon 指定`)
   }
   const label = argValue(argv, 'label', detectLabel(pluginSource))
   if (label === undefined) throw new Error('在插件 bundle 里找不到 settings.section 的 label，请用 --label 指定')
   const patch = detectPatchContract(pluginSource)
-  const root = locateDshRoot(argValue(argv, 'dsh'))
 
   const { name: assetName } = shellBundle(root)
   const navCss = settingsNavCss(root)
@@ -502,18 +526,18 @@ function main(argv) {
   const shellIconName = existingIconName(root, ['IconSettingsOutlineMedium', 'IconSettingsOutlineRegular', 'IconSettingsOutline16'])
   const dataIconName = existingIconName(root, ['IconDataOutlineMedium', 'IconDataOutlineRegular', 'IconDataOutline16'])
   const extraIcons = [shellIconName, dataIconName]
-    .map((name) => `${name}: icon(${JSON.stringify(compileIcon(root, name))})`)
+    .map((name) => `${name}: icon(${JSON.stringify(iconSvg(root, name))})`)
     .join(', ')
 
   fs.mkdirSync(OUT_DIR, { recursive: true })
   fs.copyFileSync(bundlePath, path.join(OUT_DIR, 'client.js'))
   const html = fixtureHtml({
     navCss,
-    iconDefinition: compileIcon(root, iconName),
+    iconMarkup: iconSvg(root, iconName),
     iconName,
     label,
     bundleFile: 'client.js',
-    shellIconDefinitions: extraIcons,
+    shellIcons: extraIcons,
     patch
   })
   const htmlPath = path.join(OUT_DIR, 'index.html')
@@ -525,11 +549,131 @@ function main(argv) {
   console.log(`${TOOL_NAME}: 菜单名「${label}」，图标 ${iconName}，壳层导航 CSS 取自 ${assetName}`)
   console.log(`${TOOL_NAME}: 补丁契约 data-${patch.attribute} / var(${patch.maskVariable}) / 用 ${patch.hideBy} 隐藏原 svg`)
   console.log(`${TOOL_NAME}: 场景页 ${htmlPath}（浏览器打开可目视对照，页面底部是量测 JSON）`)
-  console.log(`${TOOL_NAME}: 无头量测示例：`)
-  console.log(`  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --virtual-time-budget=3000 --dump-dom "file://${htmlPath}"`)
+
+  // `--measure` 顺手把它量完：只在真浏览器里才有真实布局，量不出来的话这个工具就只是"生成了一个页面"。
+  if (argv.includes('--measure')) return measureFixture(htmlPath, { chrome: argValue(argv, 'chrome', undefined) })
+
+  console.log(`${TOOL_NAME}: 无头量测请加 --measure（会驱动无头 Chrome 读回 checks），或手工打开上面的页面`)
 }
 
-module.exports = { main, detectNavIcon, detectLabel, pluginStyleText, settingsNavCss, detectPatchContract, OUT_DIR }
+/** 默认的 Chrome 路径（macOS 安装位置）；找不到就用 --chrome 指定。 */
+function defaultChromePath() {
+  return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 连 CDP（`--remote-debugging-port=0` 时 Chrome 会把 ws 地址打到 stderr）。 */
+async function connectCdp(webSocketDebuggerUrl) {
+  const socket = new WebSocket(webSocketDebuggerUrl)
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true })
+    socket.addEventListener('error', () => reject(new Error('CDP 连接失败')), { once: true })
+  })
+  let next = 1
+  const pending = new Map()
+  socket.addEventListener('message', (event) => {
+    const message = JSON.parse(event.data)
+    const entry = pending.get(message.id)
+    if (entry === undefined) return
+    pending.delete(message.id)
+    if (message.error !== undefined) entry.reject(new Error(JSON.stringify(message.error)))
+    else entry.resolve(message.result)
+  })
+  const send = (method, params = {}) => new Promise((resolve, reject) => {
+    pending.set(next, { resolve, reject })
+    socket.send(JSON.stringify({ id: next, method, params }))
+    next += 1
+  })
+  return {
+    send,
+    close: () => socket.close(),
+    async evaluate(expression) {
+      const result = await send('Runtime.evaluate', { expression, returnByValue: true })
+      if (result.exceptionDetails !== undefined) throw new Error(`页内求值失败：${JSON.stringify(result.exceptionDetails).slice(0, 300)}`)
+      return result.result?.value
+    }
+  }
+}
+
+/**
+ * 用无头 Chrome 量一遍固定场景，并把 `checks` 全为 true 当作通过（否则非零退出）。
+ *
+ * 为什么不用 `--dump-dom`：这条 Chrome（153）dump 完不会自己退出，脚本里得靠超时兜底；
+ * 走 CDP 既能拿到结构化结果，也能在量完之后立刻收工（Chrome 只由本进程拉起、按自己的
+ * `--user-data-dir` 归属收掉，不会碰用户正在用的浏览器）。
+ */
+async function measureFixture(htmlPath, options = {}) {
+  const chrome = options.chrome ?? defaultChromePath()
+  if (!fs.existsSync(chrome)) throw new Error(`找不到 Chrome：${chrome}（用 --chrome 指定）`)
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-nav-icon-chrome-'))
+  const child = spawn(chrome, [
+    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    `--user-data-dir=${userDataDir}`, '--remote-debugging-port=0', 'about:blank'
+  ], { stdio: ['ignore', 'ignore', 'pipe'] })
+
+  let browserWs
+  const seen = []
+  child.stderr.on('data', (chunk) => {
+    const text = String(chunk)
+    seen.push(text)
+    browserWs ??= /DevTools listening on (ws:\/\/\S+)/u.exec(text)?.[1]
+  })
+
+  const stop = () => {
+    if (!child.killed) child.kill('SIGTERM')
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+  }
+
+  try {
+    for (let attempt = 0; attempt < 80 && browserWs === undefined; attempt += 1) await sleep(100)
+    if (browserWs === undefined) throw new Error(`Chrome 没有公布调试地址：${seen.join('').slice(-300)}`)
+
+    const browser = await connectCdp(browserWs)
+    // 不挂在 browser endpoint 上用 flat session：直接开一个 page target，再用它自己的
+    // ws 地址连过去（与手工 `--remote-debugging-port=<port>` 时走的路径完全一致）。
+    const port = new URL(browserWs).port
+    const { targetId } = await browser.send('Target.createTarget', { url: 'about:blank' })
+    let pageWs
+    for (let attempt = 0; attempt < 80 && pageWs === undefined; attempt += 1) {
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+      pageWs = list.find((item) => item.id === targetId && item.webSocketDebuggerUrl !== undefined)?.webSocketDebuggerUrl
+      if (pageWs === undefined) await sleep(100)
+    }
+    if (pageWs === undefined) throw new Error('Chrome 没有公布页面调试地址')
+    const page = await connectCdp(pageWs)
+    await page.send('Page.enable')
+    await page.send('Runtime.enable')
+    await page.send('Page.navigate', { url: `file://${htmlPath}` })
+    const evaluate = (expression) => page.evaluate(expression)
+
+    let report
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const text = await evaluate(`document.getElementById('result')?.textContent ?? ''`)
+      if (text.startsWith('ERROR')) throw new Error(`固定场景执行失败：${text.slice(0, 400)}`)
+      if (text !== 'running…' && text.trim() !== '') {
+        report = JSON.parse(text)
+        break
+      }
+      await sleep(100)
+    }
+    if (report === undefined) throw new Error('固定场景超时：页面没有输出量测结果')
+
+    console.log(`${TOOL_NAME}: 量测结果`)
+    for (const [name, ok] of Object.entries(report.checks)) console.log(`  ${ok ? '✓' : '✗'} ${name}`)
+    console.log(`  shellRow  ${JSON.stringify(report.shellRow)}`)
+    console.log(`  patched  ${JSON.stringify(report.patchedRow)}`)
+    const failed = Object.entries(report.checks).filter(([, ok]) => ok !== true).map(([name]) => name)
+    if (failed.length > 0) {
+      throw new Error(`几何验证未通过：${failed.join('、')}`)
+    }
+    console.log(`${TOOL_NAME}: 六项检查全部通过（位置一致、原 svg 被盖住、mask 生效、方块尺寸一致、壳层行未被动过）`)
+  } finally {
+    stop()
+  }
+}
+
+module.exports = { main, detectNavIcon, detectLabel, pluginStyleText, settingsNavCss, detectPatchContract, iconCatalog, iconSvg, measureFixture, OUT_DIR }
 
 if (require.main === module) {
   try {

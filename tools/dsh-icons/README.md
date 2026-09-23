@@ -24,9 +24,14 @@ node tools/dsh-icons/check.js        # 退出码 0 = 无漂移，1 = 有漂移
 open tools/dsh-icons/preview.html
 
 # 4) 插件给设置页导航加了图标时，验证补丁的几何（不需要真实 GUI）
-node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context
+node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure
 open /tmp/dsh-nav-icon-fixture/index.html
 ```
+
+`--measure` 会自己拉起无头 Chrome（macOS 默认路径，可用 `--chrome <路径>` 指定）把固定场景量完，
+打印六项 `checks`，任何一项不通过就以非零退出——可以直接当断言用（只收掉它自己按
+`--user-data-dir` 拉起的那个 Chrome，不碰你正在用的浏览器）。不带 `--measure` 时只生成页面
+（`/tmp/dsh-nav-icon-fixture/index.html`），由你打开目视对照。
 
 指定别的 DSH 安装（例如并行装的另一个版本）：`node tools/dsh-icons/build.js --dsh /path/to/@deepseek-ai/dsh`。
 
@@ -38,7 +43,7 @@ open /tmp/dsh-nav-icon-fixture/index.html
 | `preview.html` | 自包含预览页（数据内嵌，无 fetch，可直接 `file://` 打开）。搜索（名字/中文关键词/使用方，多词=同时包含）、档位筛选、16/24/32/48px 真实尺寸切换、深浅背景、点击复制图标名。 |
 | `build.js` | 提取 + 生成。详见文件头注释。 |
 | `check.js` | 漂移检查，可当 CI 用。 |
-| `verify-nav-icon.js` | 导航图标补丁的**几何验证固定场景**：真实壳层导航 CSS + 真实插件 bundle + 迷你 React 垫片挂到真 DOM，量出"补丁后"与"壳层原生"是否占同一位置/同一尺寸，并检查样式表是否由插件**自己**注入。产物 `/tmp/dsh-nav-icon-fixture/index.html`。 |
+| `verify-nav-icon.js` | 导航图标补丁的**几何验证固定场景**：真实壳层导航 CSS + 真实插件 bundle + 迷你 React 垫片挂到真 DOM，量出"补丁后"与"壳层原生"是否占同一位置/同一尺寸，并检查样式表是否由插件**自己**注入。产物 `/tmp/dsh-nav-icon-fixture/index.html`；加 `--measure` 自动量完并按 `checks` 决定退出码。 |
 
 `icons.json` 与 `preview.html` **是生成物、要提交**：它们是"当时那份 DSH 构建"的证据，diff 就是升级影响面。
 改完 `build.js`（例如补 `keywords`）要重新生成，别手工改这两个文件。
@@ -47,7 +52,7 @@ open /tmp/dsh-nav-icon-fixture/index.html
 
 | 时机 | 跑什么 | 看什么 |
 |---|---|---|
-| 给插件加了/改了设置页导航图标 | `verify-nav-icon.js --plugin <插件>` | `checks` 全为 true：位置一致、原 svg 被盖住、mask 生效、方块尺寸一致 |
+| 给插件加了/改了设置页导航图标 | `verify-nav-icon.js --plugin <插件> --measure` | `checks` 全为 true：位置一致、原 svg 被盖住、mask 生效、方块尺寸一致 |
 | DSH 升级/降级后 | `check.js` | 有漂移就 `build.js` 重新生成，review `icons.json` 的 diff：**我们在用的图标有没有消失或变形** |
 | 给插件选/换图标前 | `open preview.html` | 按真实尺寸与深浅背景确认观感；确认它属于哪一档 |
 | 新增插件后 | `check.js` | 「插件 require 了不存在的图标」会直接失败——这类错在浏览器里只表现为图标空白，最难查 |
@@ -61,23 +66,28 @@ open /tmp/dsh-nav-icon-fixture/index.html
 2. **档位看名字后缀，而命名法换过一次**：`0.1.6` 是数字档位（`IconXxx14`/`IconXxx16`/`IconXxx20`），
    `0.1.7` 换成档位词（`IconXxxOutlineMedium` / `IconXxxOutlineRegular` 等）。同一行里的图标必须同档，
    否则视觉大小不一致（实测过 12×12 vs 5×8 的搭配）。**数字名的图标在 0.1.7 构建里已经不存在**，
-   插件里别再写死：用 `iconOf('…Regular','…Medium','…16')` 这种候选链取第一个存在的导出
+   插件里别再写死：用 `iconOf('…Medium','…Regular','…16')` 这种候选链取第一个存在的导出
    （`check.js` 的扫描器认 `iconOf(...)`，只要链上有一个名字存在就算通过）。
-   **同一几何的 `…Medium`/`…Regular` 只差 `strokeWidth`（1.3 vs 1.0），官方客户端用 Regular**，
-   所以候选链把 Regular 排在前面，插件图标才不会比相邻壳层图标粗。
+   **同一几何的 `…Medium`/`…Regular` 只差 `strokeWidth`（1.3 vs 1.0），而官方按场景混用**：
+   设置页导航那一列（`settings-general` 的 `navIcon()`）清一色 `…Medium`，聊天区、侧边栏里
+   更多见 `…Regular`（`IconCloseOutlineRegular`、`IconNewChatOutlineRegular`……）。
+   **给设置页分区/导航这一列配图标就用 `…Medium`**——它才与紧邻的壳层图标同笔重；
+   工作区插件因此统一把 `…Medium` 排在候选链第一位（根 `AGENTS.md` 同一规则）。
    另注意**名字不等于画布**：`IconInspectOutline12` 的 viewBox 是 16×16，`IconRightUpOutline14` 是 8×14。
    预览页对这类图标会多标一个「画布 N」徽章。
-3. **`usedBy` 只是语义线索**，说明官方在什么场景用过它（例如 `IconContextInjectionOutline16` 被 `chat` 用于
+3. **`usedBy` 只是语义线索**，说明官方在什么场景用过它（例如 `IconContextInjectionOutlineMedium` 被 `chat` 用于
    「上下文注入」折叠行）。它不是契约，别指望它稳定。
 
 ## 给设置页分区配自己的图标
 
-壳层**不支持**这件事，插件侧唯一的办法是可逆的 DOM 补丁——两个插件已各有一份实现：
+壳层**不支持**这件事，插件侧唯一的办法是可逆的 DOM 补丁——工作区里已经四份实现，手法分两代：
 
 | 插件 | 实现位置 | 手法 | 样式表注入点 |
 |---|---|---|---|
-| `dsh-chat-archive-manager` | `client.js` 的 `ArchiveNavIconMarker` | `settings.action` 挂载点 + `MutationObserver` + 原 svg 透明 + `::before` 绝对定位 mask | `apply()` 里（插件级，页面启动即在） |
+| `dsh-chat-archive-manager` | `client.js` 的 `ArchiveNavIconMarker` | `settings.action` 挂载点 + `MutationObserver` + 原 svg 透明 + `::before` **绝对定位** mask | `apply()` 里（插件级，页面启动即在） |
 | `dsh-extra-context` | `client.js` 的「设置页导航图标」分区 | 同上，但 `::before` **参与 flex 布局**而非绝对定位（不写死 `padding-left`，壳层改内边距也不会错位） | `apply()` 里（`installStyles`，插件级 + 引用计数） |
+| `dsh-mcp-manager` | `client.js` 的 `patchSettingsNavIcon` | 同 extra-context（flex 布局） | `apply()` 里（`installStyles`，插件级 + 引用计数） |
+| `dsh-local-plugin-manager` | `client.js` 的 `patchSettingsNavIcon` | 同上；图标名走 `iconOf('…Medium','…Regular')` 候选链，本工具按当前构建解析出候选链里第一个真实存在的名字 | `apply()` 里（插件级 + 引用计数） |
 
 > **踩过的坑（一定要看这一行）**：补丁的可见效果取决于**导航渲染那一刻** CSS 在不在，而导航属 `settings.action`／面板的生命周期，比分区组件（`only: active`，点开才渲染）更早更广。
 > extra-context 最初把样式注入只放在分区组件里，于是"打开设置页仍显示壳层齿轮、点一下那一行才变对"；归档插件因为样式在 `apply()` 里注入，一直没这个问题。
@@ -132,7 +142,17 @@ open /tmp/dsh-nav-icon-fixture/index.html
 - **导航补丁的伪装前缀不能写死**：设置面板的类名是构建期哈希（`VOzbGW_`），`verify-nav-icon.js`
   从 CSS 里第一个类名推出前缀再整体替换；取错了会静默丢样式，量出来就变成"图标错位"（踩过）。
 - **探测图标名别在组件体里乱匹配 `Icon…`**：`installNavIconPatch` / `navIconReferences` 这类标识符
-  都会被误判；只在从 primitives 解构进来的名单里找。
+  都会被误判；只在从 primitives 解构进来的名单里找。**还要认 `iconOf` 的本地别名**：
+  `const IconCodeOutline16 = iconOf('IconCodeOutlineMedium', …)` 之后，组件体里只剩 `IconCodeOutline16`，
+  而候选链里根本没有这个字符串——插件不再把旧数字档位名写进链里之后，这里就永远判不出图标
+  （0.1.7-alpha.2 上实测）。现在先把"别名 → 候选链"记下来，再按候选链取第一个**当前构建里真实存在**
+  的名字（与插件运行时 `iconOf` 的行为一致，判出来的才是页面里真会画的那个图标）。
+- **图标源码只能走 `build.js` 的提取路径**：`verify-nav-icon.js` 原先自己把模块里的定义串成一个闭包
+  （`const 名字 = (定义);`），而压缩产物里 `e=`、`n=`、`t=` 这类局部名遍地都是——既会把 React 内部的
+  同名赋值当依赖抓进来，又会与真正的局部名撞声明，0.1.7-alpha.2 上整段源码直接语法错误，
+  报出来却是"当前 DSH 构建里没有这些候选图标"（误导性最强的一次）。现在两边共用
+  `primitivesModule` + `extractIcons`（每个模块级定义单独求值、互不共享作用域），固定场景只消费
+  序列化好的 SVG，挂到 DOM 后再按 `size` 写回显式像素。
 
 ## 与工作区其它校验的关系
 

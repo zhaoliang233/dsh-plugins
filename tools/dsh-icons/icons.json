@@ -2,12 +2,12 @@
   "generatedBy": "tools/dsh-icons/build.js",
   "dsh": {
     "package": "@deepseek-ai/dsh",
-    "version": "0.1.7-alpha.1"
+    "version": "0.1.7-alpha.2"
   },
   "source": {
     "module": "@deepseek-ai/dsh-client-ui-primitives",
-    "asset": "dist/assets/index-DU8FBaxM.js",
-    "sha1": "3a2b8d2cdeabf6c5760727e48fecf77f6bb9ed36"
+    "asset": "dist/assets/index-bRoh_x8K.js",
+    "sha1": "94ff48f5b26ecdb769e366ef5355ffde98ceeb50"
   },
   "counts": {
     "icons": 184,
@@ -730,6 +730,7 @@
       "keywords": [],
       "usedBy": [],
       "usedByPlugins": [
+        "dsh-local-plugin-manager",
         "dsh-mcp-manager"
       ],
       "svg": "<svg width=\"100%\" height=\"100%\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" stroke-width=\"1.3\"><path d=\"M6.27612 1.5L4.52612 14.5\" stroke=\"currentColor\"/><path d=\"M11.4739 1.5L9.72388 14.5\" stroke=\"currentColor\"/><path d=\"M2.39868 5.5H14.0681\" stroke=\"currentColor\"/><path d=\"M1.93188 10.5H13.6013\" stroke=\"currentColor\"/></svg>"
@@ -751,6 +752,7 @@
         "trajectory"
       ],
       "usedByPlugins": [
+        "dsh-local-plugin-manager",
         "dsh-mcp-manager"
       ],
       "svg": "<svg width=\"100%\" height=\"100%\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\" stroke-width=\"1\"><path d=\"M6.27612 1.5L4.52612 14.5\" stroke=\"currentColor\"/><path d=\"M11.4739 1.5L9.72388 14.5\" stroke=\"currentColor\"/><path d=\"M2.39868 5.5H14.0681\" stroke=\"currentColor\"/><path d=\"M1.93188 10.5H13.6013\" stroke=\"currentColor\"/></svg>"
