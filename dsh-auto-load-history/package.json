@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-auto-load-history#readme",
   "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
-  "description": "打开会话时自动分页补齐整段历史，让「紧凑」排版立即折叠每个回合的思考过程（设置 → 通用可切回手动）。",
+  "description": "打开会话时自动分页补齐整段历史，顶部「加载更早」不再常驻（设置 → 通用末尾的开关可关闭）。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

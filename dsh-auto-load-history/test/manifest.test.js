@@ -9,6 +9,8 @@ const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'u
 const installScript = await readFile(new URL('../install.sh', import.meta.url), 'utf8')
 const uninstallScript = await readFile(new URL('../uninstall.sh', import.meta.url), 'utf8')
 const client = await readFile(new URL('../client.js', import.meta.url), 'utf8')
+const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8')
+const publishing = await readFile(new URL('../PUBLISHING.md', import.meta.url), 'utf8')
 
 test('declares a publishable Web client bundle', () => {
   assert.equal(manifest.name, 'dsh-auto-load-history')
@@ -49,6 +51,24 @@ test('declares a publishable Web client bundle', () => {
   assert.ok(manifest.files.includes('PUBLISHING.md'))
   assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
   assert.notEqual(manifest.private, true)
+})
+
+// 0.1.7 删除了 `historyIncomplete`/`compactTranscript` 门禁：折叠改由 `derivePresentationPolicy()`
+// 按回合判定（`turnStarted || turnClosed`，紧凑档也在内），"历史不全就不折叠"已不存在——把
+// 「折叠思考过程」写成插件目的的文案是错的，不只是过时。这条守卫拦住它回到用户可见的发布物里。
+test('user-facing copy does not claim the plugin serves transcript folding', () => {
+  const foldingCopy = /折叠|思考过程|可切回手动/u
+  const surfaces = [
+    ['package.json#description', manifest.description],
+    ['README.md', readme],
+    ['PUBLISHING.md', publishing],
+    ['client.js', client]
+  ]
+  for (const [surface, text] of surfaces) {
+    assert.equal(foldingCopy.test(text), false, `${surface} must not promise folding`)
+  }
+  assert.match(manifest.description, /整段历史/u, 'description must still state what the plugin loads')
+  assert.match(manifest.description, /加载更早/u, 'description must still state the visible effect')
 })
 
 test('bundle patch inserts the package by its published name', () => {

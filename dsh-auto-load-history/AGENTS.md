@@ -24,6 +24,8 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 现在的理由是**把整段历史真正取回来**：顶部「加载更早」不再常驻，页面内查找、复制、回看更早内容都不需要再手动翻页。
 
+**文案纪律**：既然折叠不再是理由，用户可见的四处文案——`package.json#description`（npm 元数据 + 设置 → 插件的卡片）、`README.md`、`PUBLISHING.md`、`client.js` 的 zh 字典——都不得再把「让紧凑排版折叠每个回合的思考过程」写成插件目的。它不只是过时：0.1.7 已不存在该因果，写回去等于错误承诺，`test/manifest.test.js` 的守卫会变红。0.1.5 发布时漏改了 `description` 与 `PUBLISHING.md`（该版本 registry 元数据里仍是旧句，只有下一次发版能刷新）。
+
 清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`maxMessages: 50`，`dsh-api-session-controller/lib/client.js:1756`）和回合导航未加载圆点的 `loadThrough(seq)`（每页 200、循环到覆盖目标 seq，同文件 `:1775`）。服务端 `paginate` 用 `cut > 0` 决定 `hasMore`（同包 `lib/index.js:1570`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。
 
 ## 依赖的契约（0.1.7-alpha.1 已核对）
@@ -108,7 +110,7 @@ npm run publish:check     # check + test + pack:check
 ./install.sh
 ```
 
-单元测试覆盖（35 个）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
+单元测试覆盖（36 个）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
 
 真实浏览器验证（`0.1.6-alpha.2`，`--port 0` 隔离服务器 + headless CDP，2026-09-18）：
 
