@@ -16,7 +16,7 @@
 |---|---|
 | `dsh-default-workspace/` | 创建并保护受管的“通用会话”默认 Workspace，并提供独立的新建通用会话入口 |
 | `dsh-chat-archive-manager/` | 设置页的归档管理：分组浏览、批量归档、恢复与 fail-closed 永久删除，不创建额外 Workspace |
-| `dsh-local-plugin-manager/` | 在设置页启停或卸载当前 web profile 中的本地 link 插件 |
+| `dsh-local-plugin-manager/` | 面向插件开发者：设置页独立分区「插件开发」，管理当前 web profile 里以 `link:` 挂载的本地源码插件 |
 | `dsh-sticky-user-bubble/` | 阅读长对话时把已滚出顶部的用户气泡固定在阅读区顶部 |
 | `dsh-mobile-compat/` | 为精确声明的 DSH 版本提供移动抽屉、Settings、Composer、触控与安全区兼容层 |
 | `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，顶部「加载更早」不再常驻（设置→通用末尾的总开关可关闭） |
@@ -41,7 +41,7 @@ dsh plugin --profile web remove dsh-sticky-user-bubble     # 卸载
 node tools/dsh-icons/build.js            # DSH 升/降级后重新提取
 node tools/dsh-icons/check.js            # 漂移检查（0=无漂移，1=有漂移）
 open tools/dsh-icons/preview.html        # 选图标：搜索/字重档位/真实尺寸/深浅背景，点卡片复制名字
-node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导航图标补丁的几何（无需真实 GUI）
+node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设置页导航图标补丁的几何（无需真实 GUI，六项 checks 全过才退出 0）
 ```
 
 **选或换图标前先在预览页确认名字存在**：图标来自浏览器侧 `__ModuleLoader__` seed 的 `dsh-client-ui-primitives` 冻结导出对象，没被打进去的名字 `require` 回来是 `undefined`，组件会静默渲染成空白。**0.1.7 把旧的数字档位（`IconXxx14`/`16`/`20`）换成了字重档位 `…Medium`（描边 1.3）/`…Regular`（描边 1），同一行里的图标必须同字重档位**；换图标的取值处写候选链兜底（`iconOf()`），别直接解构。设置页分区想要自己的图标只能走 DOM 补丁（壳层 `settings.section` 没有 `icon` 选项），现成实现、关键事实与离线几何验证见该工具 README。
@@ -59,7 +59,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- 当前运行 `@deepseek-ai/dsh 0.1.7-alpha.1`；逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.7-alpha.1 <0.1.8`，其中 `0.1.7-alpha.1` 是逐版本验证版本。同线后续 prerelease 允许带警告运行；跨到 `0.1.8` 前必须重新读取源码和实时契约再扩大范围。
+- 当前运行 `@deepseek-ai/dsh 0.1.7-alpha.2`；逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.7-alpha.1 <0.1.8`。逐版本验证清单由各插件自己维护（多数只列 `0.1.7-alpha.1`；`dsh-local-plugin-manager` 已额外核对 `alpha.1 → alpha.2` 的契约差异，两版都列）。同线内其他 prerelease 允许带警告运行；跨到 `0.1.8` 前必须重新读取源码和实时契约再扩大范围。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
 - 声明必须四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门（`DSH_COMPATIBILITY_RANGE` + `DSH_VERIFIED_VERSIONS`）、插件内文档。
@@ -71,7 +71,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件>   # 验证设置页导
 
 - 发布流程：改 `package.json#version` → 写 `CHANGELOG.md` 条目 → 跑该插件的 `npm run publish:check` → `git tag dsh-<插件>-v<版本>` → `git push origin HEAD && git push origin dsh-<插件>-v<版本>`。tag 必须与 `package.json#version` 完全一致；工作流还会拒绝 `private: true` 的包，并在发布后回查 registry。
 - 发版必须由用户明确授权：`commit`/`tag`/`push` 都属「提交规范」里的受限操作（只读检查不受限）。
-- **`release.yml` 在 `npm publish` 前必须安装依赖**：带运行时依赖的插件（现例 `dsh-local-plugin-manager` 的 `js-yaml`）否则会在 `prepublishOnly` 门禁里以 `ERR_MODULE_NOT_FOUND` 失败——`dsh-local-plugin-manager@0.1.4` 就是这样没发出去的。也不要缩短 registry 回查窗口：可见性实测可达数分钟，曾经的 12×10s 把"发布成功"误判成失败，还跳过了 GitHub Release 创建。
+- **`release.yml` 在 `npm publish` 前必须安装依赖**：带运行时依赖的插件（现例 `dsh-local-plugin-manager` 的 `@deepseek-ai/dsh-atomic-write` 与 `yaml`）否则会在 `prepublishOnly` 门禁里以 `ERR_MODULE_NOT_FOUND` 失败——`dsh-local-plugin-manager@0.1.4` 就是这样没发出去的。也不要缩短 registry 回查窗口：可见性实测可达数分钟，曾经的 12×10s 把"发布成功"误判成失败，还跳过了 GitHub Release 创建。
 - 认证：每个包在 npmjs.com 设置页配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`）。报 `ENEEDAUTH` / `Unable to authenticate` 时先核对这三个字段。
 - 有硬编码版本断言的 manifest 测试要同步（现例：`dsh-local-plugin-manager`、`dsh-mobile-compat`），否则发布门禁会失败。
 - 发布后核对三件事：registry 上的版本、该版本 `dist.attestations` 是否存在（证明是 OIDC 发布）、GitHub Release 是否创建。`gh` 已装在 `/usr/local/bin/gh`（brew 在这台 Intel Mac 上装不了 gh，用的是官方预编译二进制），已登录 `zhaoliang233`。
