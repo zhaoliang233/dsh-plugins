@@ -481,16 +481,17 @@ async function createRuntime(input) {
       log('warn', 'settings service present but not usable; the settings page stays read-only for this process')
       return
     }
-    if (Config === undefined) {
-      log('warn', 'schemastery schema unavailable; the plugin entry exposes no editable fields')
-      return
-    }
     // 本插件自己提供设置分区（id `extra-context`），所以不要壳层再按 schema
     // 自动生成一个通用页面：同一个条目出现两个设置页会让人不知道该信哪个。
+    // 这条策略与 schema 无关（没有 schema 时本来也不会自动生成页），所以**无条件注册**——
+    // 否则"没定位到 DSH 安装"的环境（CI、测试进程）会连策略都不注册，行为随环境漂移。
     settingsCtx.effect(
       () => settingsCtx.settings.configure({ auto: false }, ctx.fiber),
       `${PLUGIN_NAME}: settings presentation`
     )
+    if (Config === undefined) {
+      log('warn', 'schemastery schema unavailable; the plugin entry exposes no editable fields')
+    }
     return undefined
   })
 

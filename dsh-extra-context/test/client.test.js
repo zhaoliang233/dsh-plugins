@@ -2086,3 +2086,34 @@ test('跨端一致：宿主与本地的包裹文字必须相同', async () => {
   const literal = heading[1].replace('${PLUGIN_NAME}', 'dsh-extra-context')
   assert.equal(clientSource.includes(literal), true, '客户端预览的前置说明必须与宿主逐字一致')
 })
+
+test('回归护栏：草稿非空时，成功写入的补丁必须并进草稿（否则界面停在旧值）', async () => {
+  // 真实缺陷（用户实测反馈）：先改过规则文本（草稿非空），再点总开关——
+  // 宿主写入成功、回读也是 `enabled:false`，但面板的 `local` 取的是草稿（enabled 仍是 true），
+  // 于是总开关停在"开"、怎么点都不动。修法：写成功后把补丁并进仍在持有的草稿。
+  const panel = mountPanel(oneSegmentReport)
+  try {
+    let nodes = collect(await panel.settle())
+    // 展开第一张卡片，才会出现可编辑的规则文本
+    findCaret(nodes).props.onClick()
+    nodes = collect(await panel.settle())
+    // ① 先制造一个非空草稿：改第一段文本（只改本地，不提交）
+    const textareas = nodes.filter((node) => node.type === 'textarea')
+    assert.equal(textareas.length > 0, true, '面板必须有可编辑的规则文本')
+    textareas[0].props.onChange({ target: { value: '本地未提交的改动' } })
+    await panel.settle()
+
+    // ② 点总开关：这次写入会被宿主接受（桩返回 accepted）
+    const switchNode = collect(panel.render()).find((node) => node.type === 'switch')
+    assert.notEqual(switchNode, undefined, '必须有官方 Switch（总开关）')
+    switchNode.props.onChange(false)
+    await panel.settle()
+
+    // ③ 写入成功后，界面上的总开关必须真的关闭
+    await panel.settle()
+    const after = collect(panel.render()).find((node) => node.type === 'switch')
+    assert.equal(after.props.checked, false, '写入成功后总开关必须显示为关闭（草稿不得盖住宿主新值）')
+  } finally {
+    panel.unmount()
+  }
+})

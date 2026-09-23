@@ -680,7 +680,8 @@ window.__ModuleLoader__.load({
             // 曾经无条件 setDraft(null)：写入是异步的，期间用户在输入框里继续打字，
             // 写完那一刻草稿被清空、受控输入框被回写成宿主回读的旧值——
             // 用户在在途期间敲的字就这么没了（而且看起来像输入被吃掉）。
-            if (pendingRef.current === null && flushRef.current === null) setDraft(null)
+            // 草稿的丢弃交给 flush：只有"整轮写入都落地、且没有新的待写改动"时才能丢，
+            // 否则会把在途输入顶掉（见 flush 的 finally）。
             return true
           } catch (failure) {
             setError(firstLine(failure && failure.message ? failure.message : failure))
@@ -713,7 +714,17 @@ window.__ModuleLoader__.load({
             } finally {
               // 整轮都落地才算干净：只要有一个没写进去就保留，交给"重试"。
               // （若在单个 commit 成功时就清空，后面仍在排队的失败补丁会被抹掉。）
-              if (landed) failedRef.current = null
+              if (landed) {
+                failedRef.current = null
+                // 整轮写完且没有新的待写改动时，丢弃草稿、回落到宿主回读值。
+                //
+                // **必须在这里（而不是单个 commit 成功时）判定**：flush 期间 flushRef 一直非空，
+                // 原来的条件 `pendingRef === null && flushRef === null` 在单次提交里永远为假，
+                // 于是草稿一旦建立就再也不会丢——`local` 永远取草稿，草稿里的旧值盖住宿主新值。
+                // 真实缺陷（用户实测反馈）：先改过规则文本（草稿非空），再点总开关，宿主已写成
+                // `enabled:false`、回读也是 false，界面上的总开关却停在"开"、怎么点都不动。
+                if (pendingRef.current === null) setDraft(null)
+              }
               flushRef.current = null
               setBusy(false)
             }

@@ -13,6 +13,19 @@ const hostSource = await readFile(new URL('../lib/index.js', import.meta.url), '
 const uninstallScript = await readFile(new URL('../uninstall.sh', import.meta.url), 'utf8')
 const clientBundle = await readFile(new URL('../client.js', import.meta.url), 'utf8')
 
+/**
+ * 当前环境能否装载 schemastery（= 能否定位 DSH 安装）。
+ *
+ * 插件在模块作用域按 `process.argv[1]`（DSH CLI 入口）或 PATH 上的 `dsh` 找安装；
+ * 两条都没有时 `Config` 为 undefined——这正是 GitHub runner 上的情况（CI 只 checkout
+ * 本仓库、不装 DSH）。运行时永远在 DSH 进程里，所以真实部署不会走到这条路径；
+ * 这里按环境跳过，而不是把"CI 没装 DSH"当成插件缺陷。
+ */
+async function canLoadSchemastery() {
+  const module = await import('../lib/index.js')
+  return module.Config !== undefined
+}
+
 test('插件身份与发布面', () => {
   assert.equal(manifest.name, 'dsh-extra-context')
   assert.equal(PLUGIN_NAME, manifest.name)
@@ -47,7 +60,7 @@ test('插件身份与发布面', () => {
   assert.equal(hostSource.includes('await import(pathToFileURL(resolved).href)'), true, 'schemastery 必须经 file URL 动态 import')
 })
 
-test('Config 必须挂在 default 导出上：loader 只从 unwrap 后的插件对象读 runtime.Config', async () => {
+test('Config 必须挂在 default 导出上：loader 只从 unwrap 后的插件对象读 runtime.Config', { skip: await canLoadSchemastery() ? false : '当前环境定位不到 DSH 安装（CI 上没装 dsh）：schema 断言跳过' }, async () => {
   // 真实缺陷（用户实测反馈）：插件同时有 default 与命名导出时，Cordis 的
   // `Loader.unwrapExports()` 返回的是 default 对象，而 `registry.plugin()` 只从
   // 那个对象上读 `runtime.Config`。只写 `export const Config` 会让
