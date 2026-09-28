@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import {
   ENTRIES,
+  baseName,
   describeAdvanced,
   describeSessionEntry,
   describeTitleSource,
@@ -12,6 +13,8 @@ import {
   planFieldReset,
   planFieldWrite,
   selectRetitleCandidates,
+  suggestedMaxInputBytes,
+  titleInputBytes,
   sortAndLimitSessions,
   summarizeSessions
 } from '../lib/overrides.js'
@@ -173,7 +176,7 @@ test('selectRetitleCandidates 只保留兜底截断的会话', () => {
     { id: 'e', sourceKind: 'fallback' }
   ]
   assert.deepEqual(selectRetitleCandidates(entries).map((entry) => entry.id), ['b', 'e'])
-  assert.deepEqual(summarizeSessions(entries), { total: 5, needRetitle: 2 })
+  assert.deepEqual(summarizeSessions(entries), { total: 5, needRetitle: 2, overLimit: 0 })
 })
 
 test('重算成功后（来源变成 provider）会从候选列表消失', () => {
@@ -182,4 +185,64 @@ test('重算成功后（来源变成 provider）会从候选列表消失', () =>
   const manual = describeSessionEntry({ id: 's2', header: {} }, { title: '我改的名字', source: { kind: 'user' } })
   assert.deepEqual(selectRetitleCandidates([before]).map((row) => row.id), ['s1'])
   assert.deepEqual(selectRetitleCandidates([after, manual]), [])
+})
+
+
+test('titleInputBytes 与官方 frameMessages 的输入口径一致', () => {
+  // 逐字对齐官方前缀："Generate the session title from this JSON array of human messages:\n"（67 字节）
+  // 加上 JSON.stringify([{ seq, text }]) 的结果；'abc'（seq 9）经实测是 91 字节。
+  assert.equal(titleInputBytes(9, 'abc'), 91)
+  // 与线上那次真实报错同量级：首条消息 4697 字节左右应落在这个区间
+  const long = titleInputBytes(9, 'x'.repeat(4605))
+  assert.ok(long > 4096 && long < 4800, `实测 ${String(long)} 应落在 4 KB 量级`)
+})
+
+test('suggestedMaxInputBytes 向上取整到 1024 的倍数', () => {
+  assert.equal(suggestedMaxInputBytes(1), 1024)
+  assert.equal(suggestedMaxInputBytes(1024), 1024)
+  assert.equal(suggestedMaxInputBytes(1025), 2048)
+  assert.equal(suggestedMaxInputBytes(4697), 5120)
+})
+
+test('describeSessionEntry 标出"首条消息超过上限"并给出建议上限', () => {
+  const over = describeSessionEntry(
+    { id: 's1', header: {} },
+    { title: '兜底标题', source: { kind: 'fallback' } },
+    { bytes: 4697, limit: 4096 }
+  )
+  assert.equal(over.overLimit, true)
+  assert.equal(over.inputBytes, 4697)
+  assert.equal(over.inputLimit, 4096)
+  assert.equal(over.suggestedLimit, 5120)
+
+  const ok = describeSessionEntry(
+    { id: 's2', header: {} },
+    { title: '兜底标题', source: { kind: 'fallback' } },
+    { bytes: 3000, limit: 32768 }
+  )
+  assert.equal(ok.overLimit, false)
+  assert.equal(ok.suggestedLimit, undefined)
+
+  // 拿不到上限（条目缺失）时不做判定，避免把能重算的会话误标成超限
+  const unknown = describeSessionEntry({ id: 's3', header: {} }, { title: 'x', source: { kind: 'fallback' } }, { bytes: 9999 })
+  assert.equal(unknown.overLimit, false)
+})
+
+test('summarizeSessions 统计超限条数', () => {
+  const rows = [
+    describeSessionEntry({ id: 'a', header: {} }, { title: 't', source: { kind: 'fallback' } }, { bytes: 100, limit: 4096 }),
+    describeSessionEntry({ id: 'b', header: {} }, { title: 't', source: { kind: 'fallback' } }, { bytes: 9000, limit: 4096 }),
+    describeSessionEntry({ id: 'c', header: {} }, { title: 't', source: { kind: 'provider' } }, { bytes: 9000, limit: 4096 })
+  ]
+  assert.deepEqual(summarizeSessions(rows), { total: 3, needRetitle: 2, overLimit: 1 })
+})
+
+test('baseName 取路径最后一段，行内只显示工作区名', () => {
+  assert.equal(baseName('/Users/zhaoliang/Documents/dsh-plugins'), 'dsh-plugins')
+  assert.equal(baseName('/Users/zhaoliang/Documents/dsh-plugins/'), 'dsh-plugins')
+  assert.equal(baseName('/tmp'), 'tmp')
+  assert.equal(baseName(''), '')
+  const row = describeSessionEntry({ id: 's', header: { cwd: '/Users/zhaoliang/Documents/dsh-plugins' } }, undefined)
+  assert.equal(row.cwd, '/Users/zhaoliang/Documents/dsh-plugins')
+  assert.equal(row.cwdName, 'dsh-plugins')
 })

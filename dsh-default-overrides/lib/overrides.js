@@ -261,6 +261,39 @@ export function describeAdvanced(rows) {
     .sort((left, right) => (left.id < right.id ? -1 : 1))
 }
 
+/**
+ * 官方 `dsh-session-title-llm` 给标题模型的实际输入前缀。
+ * 逐字对齐它的 `frameMessages()`：预检算出的字节数必须和 provider 的检查口径一致，
+ * 否则会出现"列表说能重算、点了却报 input is N bytes"的假阳性。
+ */
+export const TITLE_INPUT_PREFIX = 'Generate the session title from this JSON array of human messages:\n'
+
+/**
+ * 按官方口径算"标题模型输入"的字节数（框架前缀 + JSON 包装后的完整输入）。
+ * @param seq - 首条用户消息在会话里的 seq。
+ * @param text - 该消息的纯文本。
+ * @returns UTF-8 字节数。
+ */
+export function titleInputBytes(seq, text) {
+  return Buffer.byteLength(TITLE_INPUT_PREFIX + JSON.stringify([{ seq, text }]), 'utf8')
+}
+
+/**
+ * 给"输入超限"的会话建议一个够用的上限：向上取整到 1024 的倍数。
+ * @param bytes - 该会话首条消息的框架后字节数。
+ * @returns 建议的 maxInputBytes。
+ */
+export function suggestedMaxInputBytes(bytes) {
+  return Math.max(1024, Math.ceil(bytes / 1024) * 1024)
+}
+
+/** 取路径的最后一段作为展示名：/Users/…/dsh-plugins → dsh-plugins。 */
+export function baseName(path) {
+  if (typeof path !== 'string' || path === '') return ''
+  const parts = path.split('/').filter((part) => part !== '')
+  return parts.length === 0 ? path : parts[parts.length - 1]
+}
+
 /** 标题来源的中文标签：会话列表用它说明"这个标题是怎么来的"。 */
 export function describeTitleSource(source) {
   switch (source?.kind) {
@@ -279,15 +312,22 @@ export function describeTitleSource(source) {
  * 把 live 会话与它的标题快照整理成客户端行数据。
  * @param session - SessionStore 里的会话对象（只用 id 与 header）。
  * @param title - `sessionTitle.get(session)` 的返回值，可能是 undefined。
+ * @param input - 首条用户消息的框架后字节数与该条目的生效上限，拿不到时传 null。
  */
-export function describeSessionEntry(session, title) {
+export function describeSessionEntry(session, title, input = null) {
   const source = describeTitleSource(title?.source)
   const header = isPlainObject(session?.header) ? session.header : {}
   const id = typeof session?.id === 'string' ? session.id : ''
+  const inputBytes = typeof input?.bytes === 'number' ? input.bytes : undefined
+  const inputLimit = typeof input?.limit === 'number' ? input.limit : undefined
+  // 上限拿不到时不做判定：宁可不提示，也不要把能重算的会话错标成超限。
+  const overLimit = inputBytes !== undefined && inputLimit !== undefined && inputBytes > inputLimit
   return {
     id,
     shortId: id.slice(-12),
     cwd: typeof header.cwd === 'string' ? header.cwd : '',
+    /** 只给列表显示用的工作区名（完整路径留在 cwd 里，供悬停提示）。 */
+    cwdName: baseName(typeof header.cwd === 'string' ? header.cwd : ''),
     title: typeof title?.title === 'string' ? title.title : '',
     sourceKind: source.kind,
     sourceLabel: source.label,
@@ -295,7 +335,15 @@ export function describeSessionEntry(session, title) {
     overwritesManual: source.kind === 'user',
     updatedAt: typeof title?.updatedAt === 'number'
       ? title.updatedAt
-      : typeof header.createdAt === 'number' ? header.createdAt : 0
+      : typeof header.createdAt === 'number' ? header.createdAt : 0,
+    /** 首条用户消息（框架后）的字节数；空会话或拿不到投影时为 undefined。 */
+    inputBytes,
+    /** 该条目当前生效的 maxInputBytes；拿不到时为 undefined。 */
+    inputLimit,
+    /** 首条消息已经超过上限：这种会话重算必然失败，界面要提前说清楚。 */
+    overLimit,
+    /** overLimit 时建议写进配置的上限值。 */
+    suggestedLimit: overLimit ? suggestedMaxInputBytes(inputBytes) : undefined
   }
 }
 
@@ -330,6 +378,11 @@ export function selectRetitleCandidates(entries) {
  * @param entries - 全部活跃会话的 describeSessionEntry 结果。
  */
 export function summarizeSessions(entries) {
-  const needRetitle = selectRetitleCandidates(entries).length
-  return { total: entries.length, needRetitle }
+  const candidates = selectRetitleCandidates(entries)
+  return {
+    total: entries.length,
+    needRetitle: candidates.length,
+    // 其中"首条消息本身就超限"的那些：不是模型的问题，是上限比消息还小。
+    overLimit: candidates.filter((entry) => entry.overLimit === true).length
+  }
 }

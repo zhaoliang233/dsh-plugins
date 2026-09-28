@@ -105,6 +105,20 @@ window.__ModuleLoader__.load({
     function displayValue(value) {
       return value === undefined || value === null ? '未知' : String(value)
     }
+    /** 列表里显示的工作区名：宿主给了 cwdName 就用它，旧宿主下自己从路径截。 */
+    function workspaceLabel(row) {
+      if (typeof row.cwdName === 'string' && row.cwdName !== '') return row.cwdName
+      if (typeof row.cwd !== 'string' || row.cwd === '') return ''
+      const parts = row.cwd.split('/').filter((part) => part !== '')
+      return parts.length === 0 ? row.cwd : parts[parts.length - 1]
+    }
+
+    /** 字节数口语化：4697 → 4.6 KB。 */
+    function formatBytes(value) {
+      if (typeof value !== 'number') return '未知'
+      if (value < 1024) return `${String(value)} B`
+      return `${(value / 1024).toFixed(1)} KB`
+    }
 
     /** 本地语义色 → 官方 Tag tone。 */
     const TAG_TONES = { accent: 'info', muted: 'neutral', warn: 'warning', error: 'danger' }
@@ -252,7 +266,15 @@ window.__ModuleLoader__.load({
           })
           const payload = await response.json()
           if (!response.ok || payload.ok !== true) {
-            setNotice({ kind: 'error', text: payload.error ?? `写入失败（HTTP ${String(response.status)}）` })
+            const suggestedLimit = payload.detail?.suggestedLimit
+            setNotice({
+              kind: 'error',
+              text: payload.error ?? `写入失败（HTTP ${String(response.status)}）`,
+              // 标题输入超限时宿主会带上建议上限，这里直接给一键修复。
+              fix: body.action === 'retitle' && typeof suggestedLimit === 'number'
+                ? { sessionId: String(body.sessionId ?? ''), suggestedLimit }
+                : undefined
+            })
             return
           }
           setState((previous) => ({
@@ -261,7 +283,8 @@ window.__ModuleLoader__.load({
             advanced: payload.advanced,
             sessions: payload.sessions ?? previous.sessions,
             sessionsTotal: payload.sessionsTotal ?? previous.sessionsTotal,
-            sessionsNeedRetitle: payload.sessionsNeedRetitle ?? previous.sessionsNeedRetitle
+            sessionsNeedRetitle: payload.sessionsNeedRetitle ?? previous.sessionsNeedRetitle,
+            sessionsOverLimit: payload.sessionsOverLimit ?? previous.sessionsOverLimit
           }))
           setDraft((previous) => {
             const next = { ...previous }
@@ -302,7 +325,23 @@ window.__ModuleLoader__.load({
         children.push(React.createElement('div', {
           key: 'notice',
           className: `ddo-notice ${notice.kind === 'error' ? 'ddo-notice-error' : 'ddo-notice-ok'}`
-        }, notice.text))
+        }, [
+          React.createElement('span', { key: 'text' }, notice.text),
+          notice.fix === undefined
+            ? null
+            : React.createElement(Button, {
+              key: 'fix',
+              className: 'ddo-button ddo-notice-action',
+              variant: 'primary',
+              size: 'sm',
+              type: 'button',
+              disabled: busy,
+              onClick: () => act(
+                { action: 'retitle', sessionId: notice.fix.sessionId, raiseLimit: true },
+                `已把标题输入上限调到 ${String(notice.fix.suggestedLimit)} 并重新生成标题。`
+              )
+            }, `把上限调到 ${String(notice.fix.suggestedLimit)} 并重试`)
+        ].filter(Boolean)))
       }
 
       // 每个白名单条目 = 一个可折叠模块。
@@ -372,19 +411,40 @@ window.__ModuleLoader__.load({
           String(state.sessionsReason ?? '当前 profile 不支持重算标题。')))
       } else {
         retitleBody.push(React.createElement('div', { className: 'ddo-card-desc', key: 'desc' },
-          `只列出标题仍是兜底截断的活跃会话（当前 ${String(sessionsTotal)} 个活跃会话，其中 ${String(sessionsNeedRetitle)} 个需要重算）。模型已成功命名或你手动命名过的会话不会进这个列表，重算成功后也会自动消失。`))
+          `只列出标题仍是兜底截断的活跃会话（当前 ${String(sessionsTotal)} 个活跃会话，其中 ${String(sessionsNeedRetitle)} 个需要重算${state.sessionsOverLimit > 0 ? `，含 ${String(state.sessionsOverLimit)} 个首条消息超限` : ''}）。模型已成功命名或你手动命名过的会话不会进这个列表，重算成功后也会自动消失。`))
         if (sessionRows.length === 0) {
           retitleBody.push(React.createElement('div', { className: 'ddo-empty', key: 'empty' },
             '没有需要重算的会话：活跃会话都已经成功命名，或被手动命名过。'))
         }
-        for (const row of sessionRows) {
+        const overLimitRows = sessionRows.filter((row) => row.overLimit === true)
+        if (overLimitRows.length > 0) {
+          const limitText = overLimitRows[0].inputLimit === undefined ? '标题输入上限' : `标题输入上限 ${formatBytes(overLimitRows[0].inputLimit)}`
+          retitleBody.push(React.createElement('div', { className: 'ddo-hint', key: 'over-limit-hint' },
+            `下面 ${String(overLimitRows.length)} 条会话的首条消息本身就超过了${limitText}，直接重算必然报错；点「调大上限并重算」会把上限抬到够用（写进当前 profile 补丁，对所有会话生效）。`))
+        }
+        // 超限的排在后面（可读性）：两类共用同一套行渲染，行内按 overLimit 分支。
+        for (const row of [...sessionRows.filter((item) => item.overLimit !== true), ...overLimitRows]) {
           retitleBody.push(React.createElement('div', { className: 'ddo-item-row', key: row.id }, [
-            React.createElement('div', { className: 'ddo-item-text', key: 'text' }, [
+            React.createElement('div', {
+              className: 'ddo-item-text',
+              key: 'text',
+              title: row.cwd === '' ? undefined : row.cwd
+            }, [
               row.title === '' ? '（还没有标题）' : row.title,
               React.createElement('br', { key: 'br' }),
-              `${row.shortId}${row.cwd === '' ? '' : ` · ${row.cwd}`}`
+              // 只显示工作区名（完整路径放在 title 提示里），避免长路径把行撑爆。
+              `${row.shortId}${workspaceLabel(row) === '' ? '' : ` · ${workspaceLabel(row)}`}`,
+              row.inputBytes === undefined
+                ? ''
+                : React.createElement('span', { key: 'bytes' }, ` · 首条消息 ${formatBytes(row.inputBytes)}`)
             ]),
-            React.createElement(Tag, { key: 'src', kind: 'muted', title: row.sourceLabel }, '兜底截断'),
+            React.createElement(Tag, {
+              key: 'src',
+              kind: row.overLimit === true ? 'warn' : 'muted',
+              title: row.overLimit === true
+                ? '首条消息超过标题输入上限，直接重算会失败'
+                : row.sourceLabel
+            }, row.overLimit === true ? '输入超限' : '兜底截断'),
             React.createElement(Button, {
               key: 'button',
               className: 'ddo-button',
@@ -394,9 +454,14 @@ window.__ModuleLoader__.load({
               disabled: busy,
               onClick: () => {
                 if (row.overwritesManual && !window.confirm(`「${row.title}」是你手动命名的，重新生成会覆盖它。继续？`)) return
-                act({ action: 'retitle', sessionId: row.id }, `已请求重算标题（原：${row.title === '' ? '无' : row.title}）。`)
+                act(
+                  { action: 'retitle', sessionId: row.id, raiseLimit: row.overLimit === true },
+                  row.overLimit === true
+                    ? `已把标题输入上限调到 ${String(row.suggestedLimit)} 并重新生成标题。`
+                    : `已请求重算标题（原：${row.title === '' ? '无' : row.title}）。`
+                )
               }
-            }, '重新生成')
+            }, row.overLimit === true ? '调大上限并重算' : '重新生成')
           ].filter(Boolean)))
         }
       }

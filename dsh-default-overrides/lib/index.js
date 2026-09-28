@@ -25,7 +25,9 @@ import {
   planFieldWrite,
   selectRetitleCandidates,
   sortAndLimitSessions,
-  summarizeSessions
+  suggestedMaxInputBytes,
+  summarizeSessions,
+  titleInputBytes
 } from './overrides.js'
 
 export { CSRF_HEADER, STATUS_PATH, ACTION_PATH, PLUGIN_NAME }
@@ -36,11 +38,13 @@ const MAX_SESSION_ROWS = 20
 
 /** 宿主抛错的分类：给客户端一个稳定 code，而不是让它猜错误文案。 */
 class OverrideError extends Error {
-  constructor(code, message, status = 400) {
+  constructor(code, message, status = 400, detail = undefined) {
     super(message)
     this.name = 'OverrideError'
     this.code = code
     this.status = status
+    /** 客户端据此渲染"一键修复"按钮等结构化信息。 */
+    this.detail = detail
   }
 }
 
@@ -156,23 +160,93 @@ function readConfiguration(ctx) {
 function describeLiveSessions(ctx) {
   const sessions = ctx.get('sessions')
   if (sessions === undefined || typeof sessions.list !== 'function') {
-    return { available: false, reason: '当前 profile 没有会话服务。', rows: [], total: 0, needRetitle: 0 }
+    return { available: false, reason: '当前 profile 没有会话服务。', rows: [], total: 0, needRetitle: 0, overLimit: 0 }
   }
   const sessionTitle = ctx.get('sessionTitle')
   const reader = sessionTitle !== undefined && typeof sessionTitle.get === 'function' ? sessionTitle : undefined
-  const all = sessions.list().map((session) => describeSessionEntry(session, reader?.get(session)))
+  const inputLimit = readTitleInputLimit(ctx)
+  const all = sessions.list().map((session) => {
+    const bytes = readSessionInputBytes(ctx, session)
+    return describeSessionEntry(session, reader?.get(session), bytes === undefined ? null : { bytes, limit: inputLimit })
+  })
   const summary = summarizeSessions(all)
   return {
     available: true,
     reason: '',
     rows: sortAndLimitSessions(selectRetitleCandidates(all), MAX_SESSION_ROWS),
     total: summary.total,
-    needRetitle: summary.needRetitle
+    needRetitle: summary.needRetitle,
+    overLimit: summary.overLimit
   }
 }
 
+/** 读当前生效的标题输入上限（session-title-llm 的 maxInputBytes）。 */
+function readTitleInputLimit(ctx) {
+  const editor = ctx.get('configEditor')
+  if (editor === undefined || typeof editor.configuration !== 'function') return undefined
+  const row = editor.configuration().find((item) => item.entry.options.id === 'session-title-llm')
+  const limit = row?.entry?.options?.config?.maxInputBytes
+  return typeof limit === 'number' ? limit : undefined
+}
+
+/**
+ * 读一个会话首条用户消息的"框架后字节数"。
+ * 用官方 `titleInput` 投影拿到首条消息，再按官方 `frameMessages()` 的同一算法计算，
+ * 这样预检口径与 provider 的 `inputBytes > maxInputBytes` 检查完全一致。
+ */
+function readSessionInputBytes(ctx, session) {
+  const projections = ctx.get('sessionProjections')
+  if (projections === undefined || typeof projections.stateOf !== 'function') return undefined
+  const state = projections.stateOf(session, 'titleInput')
+  const first = state?.first
+  if (first === undefined || first === null || typeof first.text !== 'string') return undefined
+  return titleInputBytes(first.seq, first.text)
+}
+
+/**
+ * 把 provider 的超限报错翻译成可操作的中文提示 + 建议上限。
+ *
+ * `allowPrecheckFallback` 只在**没有抬过上限**时为真：抬过之后重算再失败，
+ * 原因就不可能是输入超限（上限已经 ≥ 输入），必须如实透传真实错误——
+ * 2026-09-28 踩过：隔离实例里重算因缺少模型凭证失败，却被兜底逻辑误报成"超过上限 4096"。
+ * @param error - provider 抛出的原始错误。
+ * @param fallbackBytes - 预检出的输入字节数。
+ * @param fallbackLimit - 预检时的生效上限。
+ * @param allowPrecheckFallback - 是否允许用预检数据兜底成"超限"结论。
+ * @param raisedLimit - 本次是否已经把上限抬到了这个值。
+ */
+export function translateRetitleError(error, fallbackBytes, fallbackLimit, allowPrecheckFallback = true, raisedLimit = undefined) {
+  const message = error instanceof Error ? error.message : String(error)
+  const matched = /input is (\d+) bytes, exceeding maxInputBytes (\d+)/u.exec(message)
+  if (matched !== null) {
+    const bytes = Number(matched[1])
+    const limit = Number(matched[2])
+    const suggestedLimit = suggestedMaxInputBytes(bytes)
+    return new OverrideError(
+      'title-input-over-limit',
+      `该会话首条消息约 ${String(bytes)} 字节，超过标题输入上限 ${String(limit)}；把「输入上限」调到 ${String(suggestedLimit)} 或更大后就能重算（这会写进当前 profile 的补丁，对所有会话生效）。`,
+      409,
+      { inputBytes: bytes, inputLimit: limit, suggestedLimit }
+    )
+  }
+  if (allowPrecheckFallback && typeof fallbackBytes === 'number' && typeof fallbackLimit === 'number' && fallbackBytes > fallbackLimit) {
+    const suggestedLimit = suggestedMaxInputBytes(fallbackBytes)
+    return new OverrideError(
+      'title-input-over-limit',
+      `该会话首条消息约 ${String(fallbackBytes)} 字节，超过标题输入上限 ${String(fallbackLimit)}；把「输入上限」调到 ${String(suggestedLimit)} 或更大后就能重算。`,
+      409,
+      { inputBytes: fallbackBytes, inputLimit: fallbackLimit, suggestedLimit }
+    )
+  }
+  // 抬过上限就把这件事说清楚，别让用户以为白点了。
+  const prefix = raisedLimit === undefined
+    ? '重新生成标题失败'
+    : `标题输入上限已调到 ${String(raisedLimit)}，但重算仍失败`
+  return new OverrideError('retitle-failed', `${prefix}：${message}`, 500, raisedLimit === undefined ? undefined : { raisedLimit })
+}
+
 /** 重新生成一个活跃会话的标题（官方 `sessionTitle.refresh()`，官方 UI 没有入口）。 */
-async function retitleSession(ctx, sessionId) {
+async function retitleSession(ctx, sessionId, raiseLimit = false) {
   const sessions = ctx.get('sessions')
   const sessionTitle = ctx.get('sessionTitle')
   if (sessions === undefined || sessionTitle === undefined) {
@@ -182,16 +256,26 @@ async function retitleSession(ctx, sessionId) {
   if (session === undefined) {
     throw new OverrideError('session-not-live', '该会话不在当前进程的活跃列表里；标题只能在会话打开时重算。', 404)
   }
+  const inputBytes = readSessionInputBytes(ctx, session)
+  const inputLimit = readTitleInputLimit(ctx)
+  const overLimit = typeof inputBytes === 'number' && typeof inputLimit === 'number' && inputBytes > inputLimit
+  let raisedLimit
+  if (overLimit && raiseLimit) {
+    // 先把上限抬到够用（复用白名单写入路径：完整块 + 校验 + 热生效），再重算。
+    raisedLimit = suggestedMaxInputBytes(inputBytes)
+    await applyField(ctx, 'session-title-llm', 'maxInputBytes', raisedLimit)
+  }
   try {
     await sessionTitle.refresh(session)
   } catch (error) {
-    throw new OverrideError('retitle-failed', error instanceof Error ? error.message : String(error), 500)
+    throw translateRetitleError(error, inputBytes, inputLimit, raisedLimit === undefined, raisedLimit)
   }
   const snapshot = sessionTitle.get(session)
   return {
     sessionId,
     title: typeof snapshot?.title === 'string' ? snapshot.title : '',
-    sourceKind: snapshot?.source?.kind ?? 'none'
+    sourceKind: snapshot?.source?.kind ?? 'none',
+    raisedLimit
   }
 }
 
@@ -293,7 +377,8 @@ function registerRoutes(ctx) {
             sessionsAvailable: sessions.available,
             sessionsReason: sessions.reason,
             sessionsTotal: sessions.total,
-            sessionsNeedRetitle: sessions.needRetitle
+            sessionsNeedRetitle: sessions.needRetitle,
+            sessionsOverLimit: sessions.overLimit
           })
           return
         }
@@ -310,7 +395,8 @@ function registerRoutes(ctx) {
           sessionsAvailable: sessions.available,
           sessionsReason: sessions.reason,
           sessionsTotal: sessions.total,
-          sessionsNeedRetitle: sessions.needRetitle
+          sessionsNeedRetitle: sessions.needRetitle,
+          sessionsOverLimit: sessions.overLimit
         })
       } catch (error) {
         const payload = error instanceof OverrideError ? error : new OverrideError('status-failed', String(error), 500)
@@ -338,7 +424,7 @@ function registerRoutes(ctx) {
         } else if (body.action === 'reset-entry') {
           result = await resetEntry(ctx, String(body.entryId ?? ''))
         } else if (body.action === 'retitle') {
-          result = await retitleSession(ctx, String(body.sessionId ?? ''))
+          result = await retitleSession(ctx, String(body.sessionId ?? ''), body.raiseLimit === true)
         } else {
           throw new OverrideError('invalid-action', `不支持的操作 "${String(body.action)}"。`, 400)
         }
@@ -351,11 +437,17 @@ function registerRoutes(ctx) {
           advanced: snapshot.available ? describeAdvanced(snapshot.rows) : [],
           sessions: sessions.rows,
           sessionsTotal: sessions.total,
-          sessionsNeedRetitle: sessions.needRetitle
+          sessionsNeedRetitle: sessions.needRetitle,
+          sessionsOverLimit: sessions.overLimit
         })
       } catch (error) {
         const payload = error instanceof OverrideError ? error : translateEditorError(error)
-        sendJson(res, payload.status, { ok: false, code: payload.code, error: payload.message })
+        sendJson(res, payload.status, {
+          ok: false,
+          code: payload.code,
+          error: payload.message,
+          ...payload.detail === undefined ? {} : { detail: payload.detail }
+        })
       }
     }
   }

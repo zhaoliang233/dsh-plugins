@@ -38,7 +38,9 @@
 - `GET /dsh-default-overrides/status` → `{ ok, available, csrfToken, documentPath, groups, entries, advanced, totalEntries, managedEntries, sessions, sessionsAvailable, sessionsReason, sessionsTotal, sessionsNeedRetitle }`
   - `entries[].fields[]` 每项给 `default`（继承层）、`override`（补丁覆盖）、`effective`（生效值）；`undefined` 的键在 JSON 里会被省略，客户端按缺键处理。
   - `entries[].availability` = `{ writable, reason: active|missing|inactive|failed, message }`。
-  - `sessions[]` **只列需要重算标题的活跃会话**：`{ id, shortId, cwd, title, sourceKind, sourceLabel, overwritesManual, updatedAt }`，按最近活动排序、最多 20 行；`sessionsTotal` / `sessionsNeedRetitle` 是完整口径（活跃总数 / 需要重算数），页面用它解释"为什么只看到这些"。标题快照只存在于内存，所以列不出没打开的会话。
+  - `sessions[]` **只列需要重算标题的活跃会话**：`{ id, shortId, cwd, title, sourceKind, sourceLabel, overwritesManual, updatedAt, inputBytes, inputLimit, overLimit, suggestedLimit }`，按最近活动排序、最多 20 行；`sessionsTotal` / `sessionsNeedRetitle` / `sessionsOverLimit` 是完整口径（活跃总数 / 需要重算数 / 其中首条消息已超限数），页面用它解释"为什么只看到这些"。标题快照只存在于内存，所以列不出没打开的会话。
+  - `inputBytes` 是**按官方口径预检**出来的"标题模型输入字节数"（`titleInput` 投影取首条用户消息 → `TITLE_INPUT_PREFIX + JSON.stringify([{seq,text}])`，逐字对齐官方 `frameMessages()`）；`overLimit` 为真时 `suggestedLimit` 给出"调到够用"的建议值（向上取整到 1 KB）。上限拿不到（条目缺失）时 `overLimit` 恒为 false——宁可不提示，也不要把能重算的会话误标成超限。
+  - **口径实测**：拿线上那条真实报错会话来核对，预检 4697 字节与 provider 报的 `input is 4697 bytes` 完全一致（注意 JSON 必须用 JS 的紧凑分隔符；Python 侧用 `separators=(',', ':')` 复刻，带空格会多算 3 字节）。
 - `POST /dsh-default-overrides/action` → `{ action: 'apply', entryId, path, value }` / `{ action: 'reset', entryId, path }` / `{ action: 'reset-entry', entryId }` / `{ action: 'retitle', sessionId }`，成功回执带最新的 `entries`、`advanced`、`sessions` 与两个统计字段。
 
 ### 标题重算列表的口径（用户 2026-09-28 定）
@@ -52,13 +54,17 @@
 | `fallback` | 进列表，可重算 |
 | 无标题（`none`） | 不进列表：没有首条消息时重算无事可做 |
 
+`retitle` 动作支持 `raiseLimit: true`：先按 `suggestedMaxInputBytes(inputBytes)` 把 `session-title-llm.maxInputBytes` 写进补丁（复用白名单写入路径），再重算——一次请求完成"抬上限 + 重算"。没有预检到但 provider 仍报超限时，错误统一翻译成 `title-input-over-limit`（409），并带 `detail: { inputBytes, inputLimit, suggestedLimit }`，页面据此渲染「把上限调到 N 并重试」按钮。
+
+为什么超限会话**不过滤掉、而是单独列出**：直接隐藏会让用户以为"我的会话不见了"，而真实原因是它注定失败；列出来并标出 `首条消息 4.6 KB / 上限 4.0 KB`，才能一眼看懂。
+
 重算成功后来源变成 `provider`，因此**自动从列表消失且之后不再出现**——不需要额外的"已处理"状态。实现是纯函数 `selectRetitleCandidates` + `summarizeSessions`，接在 `describeLiveSessions` 里；过滤在宿主侧做，响应体也跟着变小。
 
 **同样的过滤在客户端再做一遍**（`client.js` 里按 `sourceKind === 'fallback'` 筛），统计字段缺失时用返回行数回退计算。这不是冗余：宿主代码改动要重启才生效，而客户端 bundle 刷新页面就更新，两者会出现版本不同步的窗口期——2026-09-28 就踩到了：用户刷新后拿到新页面、宿主还是旧进程，旧宿主返回全部活跃会话且没有统计字段，于是页面显示"0 个活跃会话"却列出一堆行、点完也不消失。客户端兜底过滤 + 统计回退把这种窗口期也兜住。
 
 守卫分两级：**status 只校验请求来源**（`clientRequestRejection`：连接层认证 + 同源 + `x-dsh-default-overrides-client: 1`），因为 CSRF 令牌正是它下发的；**action 追加令牌比对**（`x-dsh-default-overrides-csrf`，令牌取自 status 响应）。这个不对称是必需的——最初把两级写在一起，导致页面第一次请求就拿不到令牌（403），只能在浏览器里才暴露。
 
-错误码：`invalid-value` / `entry-missing` / `entry-not-managed` / `higher-layer-override` / `entry-failed` / `entry-unavailable` / `session-not-live` / `retitle-unavailable` / `retitle-failed` / `csrf-rejected` / `request-rejected` / `editor-missing`。
+错误码：`invalid-value` / `entry-missing` / `entry-not-managed` / `higher-layer-override` / `entry-failed` / `entry-unavailable` / `session-not-live` / `retitle-unavailable` / `retitle-failed` / `title-input-over-limit` / `csrf-rejected` / `request-rejected` / `editor-missing`。
 
 会话标题重算走官方 `ctx.sessionTitle.refresh(session)`：它要求 `sessions.get(id) === session`（必须是这个进程里的 live 会话），成功后 append 新的 `session/title`（source: provider）。官方 UI 一直没有暴露这个能力，这里补的是入口，不是新机制。
 
