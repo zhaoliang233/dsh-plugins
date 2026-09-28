@@ -1,6 +1,6 @@
 {
   "name": "dsh-extra-context",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
@@ -33,7 +33,8 @@
     "package": "@deepseek-ai/dsh",
     "range": ">=0.1.7-alpha.1 <0.1.8",
     "verifiedVersions": [
-      "0.1.7-alpha.1"
+      "0.1.7-alpha.1",
+      "0.1.7-rc.2"
     ],
     "futureVersionsRequireCapabilityChecks": true
   },

@@ -2,6 +2,12 @@
 
 本文件记录本项目的所有变更。
 
+## [0.1.7] - 2026-09-28
+
+### 变更
+
+- **逐版本核对推进到 `0.1.7-rc.2`**：按逐包内容比对（`npm pack` 两版后逐文件 diff）确认本插件依赖的面在 `0.1.7-alpha.2 → 0.1.7-rc.2` 之间无破坏性变化——`dsh-settings`、`dsh-config-editor`、`dsh-system-prompt`、`dsh-llm`、`dsh-compaction-basic`、`dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store`、`dsh-client-ui-dockkit` 逐字相同；`dsh-client-ui-settings-general` 虽有大改动，但设置页导航仍是 `<nav>` + `navCell` 按钮、`navIcon` 白名单与齿轮回落未变，导航图标补丁继续成立（离线几何验证六项全过）；`Switch` 的 props 与 DOM 不变（rc.2 只改了 CSS 内部）；图标集无删名。`0.1.7-rc.2` 因此进入逐版本验证清单，安装脚本不再对该版本打「尚未逐版本验证」告警。
+
 ## [0.1.6] - 2026-09-22
 
 ### 变更

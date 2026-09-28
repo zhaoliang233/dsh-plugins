@@ -5,7 +5,7 @@ PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 DSH_PROFILE="${DSH_PROFILE:-web}"
 DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"
 # 逐版本验证清单：必须与 lib/index.js 的 VERIFIED_DSH_VERSIONS 保持一致。
-DSH_VERIFIED_VERSIONS="0.1.7-alpha.1"
+DSH_VERIFIED_VERSIONS="0.1.7-alpha.1 0.1.7-rc.2"
 
 echo "== dsh-extra-context 安装 =="
 echo "  插件目录: $PLUGIN_DIR"

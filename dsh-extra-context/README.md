@@ -52,7 +52,7 @@ dsh plugin --profile web remove dsh-extra-context     # 卸载
 
 从源码运行：`./install.sh` 会先做兼容性与打包检查，再通过官方 profile manager 挂载 `link:<源码目录>`；`./uninstall.sh` 移除（同样需要重启 `dsh web` 才彻底生效）。卸载只移除 profile 依赖与 bundle 层；规则存在 profile 配置里 `dsh-extra-context` 这一行的 `config` 段，卸载不会删除它。
 
-要求：DeepSeek Harness Web `>=0.1.7-alpha.1 <0.1.8`（`0.1.7-alpha.1` 已逐版本核对），Node.js 20 或更高。范围外保持 inert。
+要求：DeepSeek Harness Web `>=0.1.7-alpha.1 <0.1.8`（`0.1.7-alpha.1`、`0.1.7-rc.2` 已逐版本核对），Node.js 20 或更高。范围外保持 inert。
 
 ## 使用
 

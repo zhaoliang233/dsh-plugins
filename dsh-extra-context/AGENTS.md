@@ -1,7 +1,11 @@
 # dsh-extra-context — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.1.7-alpha.1`，兼容线 `>=0.1.7-alpha.1 <0.1.8`，逐版本核对的是 `0.1.7-alpha.1`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+> 目标 DSH `0.1.7`，兼容线 `>=0.1.7-alpha.1 <0.1.8`，逐版本核对的是 `0.1.7-alpha.1` 与 `0.1.7-rc.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+
+## 逐版本核对记录
+
+**`0.1.7-rc.2`（2026-09-28，DSH 从 `0.1.7-alpha.2` 升到 `0.1.7-rc.2` 后按根 `AGENTS.md` 的「插件兼容性检查」流程做）**：把两个版本用 `npm pack` 拉下来逐文件比对，本插件依赖的面里——`dsh-settings`、`dsh-config-editor`、`dsh-system-prompt`、`dsh-llm`、`dsh-compaction-basic`、`dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store`、`dsh-client-ui-dockkit` 逐字相同；`dsh-client-ui-settings-general/lib/client.js` 确实改了，但设置页导航仍是 `<nav>` + `navCell` 按钮、`navIcon` 白名单与「齿轮回落」未变，所以导航图标补丁继续成立（`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 六项全过）；`Switch` 的 props 与 DOM（`button[role=switch][aria-checked]` + `span.thumb`）不变，rc.2 只改了 CSS 内部；`dsh-client-locale` 只新增一条 `workspace.defaultName` 文案；图标集无删名。**实机证据**：本机 rc.2 的 system prompt 里带着本插件注入的额外上下文，说明完整链路在跑的版本上有效。**未覆盖**：压缩摘要补充指令（实现事实 5）在 rc.2 上的真实请求链路——`dsh-llm` 与 `dsh-compaction-basic` 逐字相同，按同源推断成立，但本轮没跑真实路由 A/B。
 
 ## 一句话
 
@@ -167,7 +171,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ```bash
 npm run check       # node --check ×4 + bash -n ×2（bash 不在 PATH 时本机跑不通，CI 用 ubuntu）
-npm test            # 73 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
+npm test            # 75 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
                     #        落位、形态与禁用策略）、label 移除、写入时机与重试、预览口径、
                     #        状态路由鉴权、字段级合并、错误边界、图标对齐与字数口径、
                     #        导航图标补丁、样式表注入与引用计数、Windows 装载路径（file URL）、

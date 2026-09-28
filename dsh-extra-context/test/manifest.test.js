@@ -46,7 +46,7 @@ test('插件身份与发布面', () => {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
     range: '>=0.1.7-alpha.1 <0.1.8',
-    verifiedVersions: ['0.1.7-alpha.1'],
+    verifiedVersions: ['0.1.7-alpha.1', '0.1.7-rc.2'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
@@ -87,16 +87,23 @@ test('安装脚本与运行时的"已验证版本清单"必须同源', () => {
   assert.equal(runtimeVersions.length > 0, true, '已验证清单不得为空')
   const manifestVersions = manifest.dshCompatibility.verifiedVersions
   assert.deepEqual(runtimeVersions, manifestVersions, 'package.json 与宿主的清单必须一致')
-  for (const version of runtimeVersions) {
-    assert.equal(installScript.includes(`"${version}"`), true, `install.sh 必须包含已验证版本 ${version}`)
-  }
+  // install.sh 用**单个空格分隔的字符串**承载多版本（`install.sh` 里的
+  // `for verified in $DSH_VERIFIED_VERSIONS` 依赖词分割），所以这里按词比对而不是
+  // 逐条找带引号的字面量 —— 后者在多版本时恒假。
+  const installList = /DSH_VERIFIED_VERSIONS="([^"]*)"/u.exec(installScript)
+  assert.notEqual(installList, null, 'install.sh 必须声明已验证版本清单')
+  assert.deepEqual(
+    installList[1].split(/\s+/u).filter((piece) => piece !== ''),
+    runtimeVersions,
+    'install.sh 与宿主/package.json 的清单必须逐项一致'
+  )
 })
 
 test('安装与卸载脚本走官方 profile 管理', () => {
   assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
   assert.equal(installScript.includes('0\\.1\\.7-(alpha|beta|rc)'), true)
-  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1 0.1.7-rc.2"'), true)
   assert.equal(installScript.includes('npm run publish:check --prefix "$PLUGIN_DIR"'), true)
   assert.equal(installScript.includes('dsh plugin --profile "$DSH_PROFILE" add "link:$PLUGIN_DIR" --config.minimumReleaseAge=0'), true)
   assert.equal(installScript.includes('必须重启 dsh web'), true)
