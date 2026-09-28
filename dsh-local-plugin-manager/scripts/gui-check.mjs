@@ -122,6 +122,22 @@ const clickNav = (label) => `(() => {
   return true
 })()`
 
+// 全新的隔离 DSH_HOME 会带引导对话框（「内测声明」写入 profile patch 后不再出现，
+// 「添加一个 API Key」在没有凭据时每次加载都出现）。它们带 `aria-modal`，会吃掉
+// 对设置入口的点击，于是设置面板根本打不开。这里只认这两类引导，其它对话框一律不碰。
+const DISMISS_ONBOARDING = `(() => {
+  const dismissed = []
+  for (const dialog of document.querySelectorAll('[aria-modal="true"], [role="dialog"]')) {
+    const label = dialog.getAttribute('aria-label') ?? ''
+    if (!/内测声明|API Key/u.test(label)) continue
+    const button = [...dialog.querySelectorAll('button')].find((item) => ['继续', '稍后配置'].includes((item.textContent ?? '').trim()))
+    if (button === undefined) continue
+    button.click()
+    dismissed.push(label + ' → ' + button.textContent.trim())
+  }
+  return dismissed
+})()`
+
 const clickSwitch = (name) => `(() => {
   const root = document.querySelector('section[aria-label="${SECTION_LABEL}"]')
   const row = [...root.querySelectorAll('.dlpm-row')].find((item) => item.querySelector('.dlpm-name')?.textContent === ${JSON.stringify(name)})
@@ -135,6 +151,20 @@ const clickSwitch = (name) => `(() => {
 
 const countOverrides = (text, name) => (text.match(new RegExp(`id: ${name}\\b`, 'gu')) ?? []).length
 
+/** 该行在 patch 文本里最后一条顶层覆盖项的 disabled 值；没有覆盖项时返回 null。 */
+const lastOverrideDisabled = (text, name) => {
+  const lines = text.split('\n')
+  const starts = lines.flatMap((line, index) => (/^-\s/u.test(line) ? [index] : []))
+  let value = null
+  for (const start of starts) {
+    if (lines[start].trim() !== `- id: ${name}`) continue
+    const end = starts.find((index) => index > start) ?? lines.length
+    const disabled = lines.slice(start + 1, end).find((line) => /^\s+disabled:\s+(?:true|false)\s*$/u.test(line))
+    value = disabled === undefined ? null : /\btrue\s*$/u.test(disabled)
+  }
+  return value
+}
+
 const cdp = await connect()
 await cdp.send('Runtime.enable')
 await cdp.send('Page.enable')
@@ -145,9 +175,17 @@ for (let attempt = 0; attempt < 40; attempt += 1) {
 }
 
 // 1) 设置菜单：本插件必须是**独立分区**，排在 DSH 自带项之后。
-await cdp.evaluate(`document.querySelector('button[aria-label="设置"]').click()`)
-await sleep(900)
-const nav = await cdp.evaluate(READ_NAV)
+// 引导对话框带 `aria-modal`，会吃掉对设置入口的点击，先按需关掉再点开设置面板。
+let nav = []
+for (let attempt = 0; attempt < 4; attempt += 1) {
+  const dismissed = await cdp.evaluate(DISMISS_ONBOARDING)
+  if (dismissed.length > 0) console.log(`（已关闭引导对话框：${dismissed.join('、')}）`)
+  await cdp.evaluate(`document.querySelector('button[aria-label="设置"]').click()`)
+  await sleep(900)
+  nav = await cdp.evaluate(READ_NAV)
+  if (nav.some((row) => row.label !== '')) break
+  await sleep(700)
+}
 const labels = nav.map((row) => row.label)
 check(`设置菜单里出现「${SECTION_LABEL}」`, labels.includes(SECTION_LABEL), JSON.stringify(labels))
 check('本分区排在 DSH 自带项之后', labels.indexOf(SECTION_LABEL) === labels.length - 1, JSON.stringify(labels))
@@ -179,6 +217,10 @@ if (target === undefined) {
   check('找到一条可启停的本地 link 插件', false, '隔离 profile 里至少要有两条 link 插件')
 } else {
   const before = patchPath === undefined ? undefined : await readFile(patchPath, 'utf8')
+  const beforeCount = before === undefined ? 0 : countOverrides(before, target.name)
+  // 该行可能已经有一条覆盖项（用户手写、官方插件页或本管理器写的）：官方语义是就地改写，
+  // 不是再追加一条，所以断言的是「条目数不增长」而不是「+1」。
+  const expectedCount = Math.max(beforeCount, 1)
   const wasChecked = await cdp.evaluate(clickSwitch(target.name))
   await sleep(2500)
   const flipped = await cdp.evaluate(READ_SECTION)
@@ -187,7 +229,9 @@ if (target === undefined) {
   check('徽标跟着翻转', after?.tags.includes(after.checked === 'true' ? '已启用' : '已禁用') === true, JSON.stringify(after?.tags))
   if (patchPath !== undefined) {
     const text = await readFile(patchPath, 'utf8')
-    check('profile patch 写出同名覆盖项', countOverrides(text, target.name) === (before === undefined ? 1 : countOverrides(before, target.name) + 1),
+    check('profile patch 写出该行的覆盖项，条目数不增长',
+      countOverrides(text, target.name) === expectedCount, `${beforeCount} → ${countOverrides(text, target.name)}`)
+    check('禁用写进该行覆盖项的 disabled: true', lastOverrideDisabled(text, target.name) === true,
       text.trim().split('\n').slice(-3).join(' | '))
   }
   await cdp.evaluate(clickSwitch(target.name))
@@ -195,9 +239,9 @@ if (target === undefined) {
   check('再切回后界面状态复原', (await cdp.evaluate(READ_SECTION))?.rows.find((row) => row.name === target.name)?.checked === wasChecked)
   if (patchPath !== undefined) {
     const text = await readFile(patchPath, 'utf8')
-    check('覆盖项始终只有一条（与官方插件页共用同一批条目，不互相回滚）',
-      countOverrides(text, target.name) <= (before === undefined ? 1 : countOverrides(before, target.name) + 1),
-      String(countOverrides(text, target.name)))
+    check('启用写显式 disabled: false 且不删条目（与官方插件页共用同一批覆盖项，不互相回滚）',
+      lastOverrideDisabled(text, target.name) === false && countOverrides(text, target.name) === expectedCount,
+      `disabled=${String(lastOverrideDisabled(text, target.name))} 条目数=${countOverrides(text, target.name)}`)
   }
 }
 
