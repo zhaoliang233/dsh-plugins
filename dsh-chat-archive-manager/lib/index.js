@@ -22,7 +22,7 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  * 能力探测仍然是权威判定：**线内**版本即使未逐条核对，也照常挂载并逐项 fail closed 降级。
  */
 export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
-export const DSH_VERIFIED_VERSIONS = Object.freeze(['0.1.7-alpha.1'])
+export const DSH_VERIFIED_VERSIONS = Object.freeze(['0.1.7-alpha.1', '0.1.7-rc.2'])
 
 /**
  * 兼容发布线的**版本三元组**：只有 `0.1.7` 这一条在声明范围内（`0.1.7`、`0.1.7-alpha|beta|rc.N`，

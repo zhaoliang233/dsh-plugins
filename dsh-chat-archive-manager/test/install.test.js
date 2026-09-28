@@ -50,18 +50,22 @@ printf 'npm:%s\\n' "$*" >> "\${FAKE_INVOCATION_LOG:?}"
   }
 }
 
-test('installer accepts the verified version and runs the complete gate before profile add', async () => {
-  const fixture = await runInstaller('0.1.7-alpha.1+local.1')
-  try {
-    assert.equal(fixture.result.status, 0, fixture.result.stderr)
-    assert.equal(fixture.result.stderr, '')
-    assert.equal(fixture.result.stdout.includes('DSH:      0.1.7-alpha.1+local.1'), true)
-    assert.deepEqual(fixture.invocations.trim().split('\n'), [
-      `npm:run publish:check --prefix ${pluginPath}`,
-      `dsh:plugin --profile web add link:${pluginPath} --config.minimumReleaseAge=0`
-    ])
-  } finally {
-    await fixture.cleanup()
+test('installer accepts every verified version and runs the complete gate before profile add', async () => {
+  // 清单里的每个版本都要走“无警告 + 完整闸门”分支；0.1.7-rc.2 是 2026-09-28 加入清单的，
+  // 漏同步 install.sh 的 DSH_VERIFIED_VERSIONS 会让它退化成“带警告运行”。
+  for (const version of ['0.1.7-alpha.1+local.1', '0.1.7-rc.2']) {
+    const fixture = await runInstaller(version)
+    try {
+      assert.equal(fixture.result.status, 0, fixture.result.stderr)
+      assert.equal(fixture.result.stderr, '', `${version} must not warn`)
+      assert.equal(fixture.result.stdout.includes(`DSH:      ${version}`), true)
+      assert.deepEqual(fixture.invocations.trim().split('\n'), [
+        `npm:run publish:check --prefix ${pluginPath}`,
+        `dsh:plugin --profile web add link:${pluginPath} --config.minimumReleaseAge=0`
+      ])
+    } finally {
+      await fixture.cleanup()
+    }
   }
 })
 

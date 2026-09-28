@@ -212,8 +212,14 @@ test('runtime version gate stays inert outside the audited release line', async 
   assert.deepEqual(classifyDshVersion('0.1.7-alpha.1+local'), {
     supported: true, verified: true, normalized: '0.1.7-alpha.1'
   })
+  // 清单里每一个版本都必须被认作已验证：0.1.7-rc.2 是 2026-09-28 加入的，钉住它别退化成"带警告运行"。
+  assert.deepEqual(classifyDshVersion('0.1.7-rc.2+local'), {
+    supported: true, verified: true, normalized: '0.1.7-rc.2'
+  })
   assert.equal(classifyDshVersion('0.1.7-alpha.2').supported, true)
   assert.equal(classifyDshVersion('0.1.7-alpha.2').verified, false)
+  assert.equal(classifyDshVersion('0.1.7-rc.1').supported, true, 'same line, earlier rc')
+  assert.equal(classifyDshVersion('0.1.7-rc.1').verified, false, 'an unlisted prerelease in the same line is only warned about')
   assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false)
   assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, false, 'previous release line is outside')
   assert.equal(classifyDshVersion('0.1.8-rc.1').supported, false, 'the next line needs a re-verified release')

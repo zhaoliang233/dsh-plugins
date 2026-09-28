@@ -29,7 +29,7 @@ test('declares a publishable dual Host and browser bundle', () => {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
     range: '>=0.1.7-alpha.1 <0.1.8',
-    verifiedVersions: ['0.1.7-alpha.1'],
+    verifiedVersions: ['0.1.7-alpha.1', '0.1.7-rc.2'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(manifest.dshCompatibility.range, DSH_COMPATIBILITY_RANGE)

@@ -15,7 +15,7 @@
 
 ## 要求
 
-- DeepSeek Harness Web `>=0.1.7-alpha.1 <0.1.8`；`0.1.7-alpha.1` 已逐版本核对契约，同线后续 prerelease 带警告运行、仍受结构与能力检查保护，范围外（0.1.6 及更早、0.1.8 起）保持 inert。
+- DeepSeek Harness Web `>=0.1.7-alpha.1 <0.1.8`；`0.1.7-alpha.1` 与 `0.1.7-rc.2` 已逐版本核对契约，同线后续 prerelease 带警告运行、仍受结构与能力检查保护，范围外（0.1.6 及更早、0.1.8 起）保持 inert。
 - 能力探测始终是权威：即使版本在范围内，探测不到的能力（例如删除、恢复）也各自 fail closed，并在页面上写明原因，其余功能照常可用。
 - 永久删除依赖 `session-persistence-jsonl`（DSH 默认部署自带），并按运行中的 DSH 实际写的日志 generation（`session.vN.jsonl[.zstd]`，0.1.7 是 v4）工作。
 - Node.js 20 或更高版本。
