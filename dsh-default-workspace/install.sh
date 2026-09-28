@@ -4,7 +4,7 @@ set -euo pipefail
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 DSH_PROFILE="${DSH_PROFILE:-web}"
 DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"
-DSH_VERIFIED_VERSIONS="0.1.7-alpha.1"
+DSH_VERIFIED_VERSIONS="0.1.7-alpha.1 0.1.7-rc.2"
 ACTUAL_DSH_VERSION="$(dsh --version)"
 NORMALIZED_DSH_VERSION="${ACTUAL_DSH_VERSION%%+*}"
 

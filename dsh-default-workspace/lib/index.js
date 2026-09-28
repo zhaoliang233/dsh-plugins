@@ -8,10 +8,16 @@ export const LEGACY_WORKSPACE_TITLE = '最近聊天'
 export const STATUS_PATH = '/dsh-default-workspace/status'
 export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
 
+/**
+ * 逐版本核对过契约的版本；必须与 `package.json#dshCompatibility.verifiedVersions`
+ * 和 `install.sh` 的 `DSH_VERIFIED_VERSIONS` 同源。
+ */
+export const VERIFIED_DSH_VERSIONS = ['0.1.7-alpha.1', '0.1.7-rc.2']
+
 export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }
   const normalized = version.split('+', 1)[0]
-  const verified = normalized === '0.1.7-alpha.1'
+  const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
   if (normalized === '0.1.7') return { supported: true, verified, normalized }
   const prerelease = /^0\.1\.7-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
   if (prerelease === null) return { supported: false, verified: false, normalized }

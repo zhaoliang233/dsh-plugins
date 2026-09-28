@@ -28,11 +28,11 @@ test('declares publishable bundle and client metadata', () => {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
     range: '>=0.1.7-alpha.1 <0.1.8',
-    verifiedVersions: ['0.1.7-alpha.1'],
+    verifiedVersions: ['0.1.7-alpha.1', '0.1.7-rc.2'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"'), true)
-  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1 0.1.7-rc.2"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
   assert.equal(installScript.includes('0\\.1\\.7-(alpha|beta|rc)'), true)
   assert.equal(installScript.includes('npm run publish:check --prefix "$PLUGIN_DIR"'), true)

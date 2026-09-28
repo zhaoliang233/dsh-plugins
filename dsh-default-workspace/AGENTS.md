@@ -4,6 +4,16 @@
 
 以独立双面插件为 DSH Web 提供受管的“通用会话”默认 Workspace（`$DSH_HOME/workspaces/default`），并通过独立侧边栏入口显式创建通用会话；不修改 DSH 源码或已安装的 `@deepseek-ai/*` 包。
 
+## 逐版本核对记录
+
+**`0.1.7-rc.2`（2026-09-28，DSH 从 `0.1.7-alpha.2` 升到 `0.1.7-rc.2` 后按根 `AGENTS.md` 的「插件兼容性检查」流程做）**：
+
+- `dsh-workspace` 的 `initializeDefault(resolveDirectory)` 签名从「`() => Promise<{path,title}>`」改成「`() => Promise<string>`」，初始标题改为由**请求目录的末段**推导（新增内部 `defaultWorkspaceTitle()`，符号链接不会再按真实目标改名）。**本插件不调用 `initializeDefault`**——它只在状态接口里报 `coreDefaultWorkspace` 探测结果，因此这条签名变化不影响它；`create`/`createCanonical` 本身未变。
+- 同一版本新增公开模块 `@deepseek-ai/dsh-api-workspace-controller/default-workspace`（`DEFAULT_WORKSPACE_DIRECTORY = 'default-workspace'`、`workspaceDisplayTitle()`）：核心的**首次使用默认 Workspace**落在 `<documentsDirectory>/deepseek-harness/default-workspace`，与本插件的 `$DSH_HOME/workspaces/default` 不是同一个目录。本插件在 Host 启动阶段就先建受管 Workspace，registry 随即不为空，核心那条路径不会触发——这条判断在 rc.2 上仍然成立，但**「用户界面里会不会同时看到两个默认工作区」属于观感问题，需要实机确认**。
+- 客户端补丁面：`dsh-client-ui-workspace/lib/client.js` 本轮改动很大（+608/-329），但补丁目标 `rename`/`delete`/`insertBefore` 与 `startSession`/`unarchiveSession` 都还在；`sidebar.footer.action` 仍由 `dsh-client-ui-sidebar` 声明（该文件新增了 `useShortcuts` 与新会话快捷键，落在 `HeaderLeadingControls`/`SidebarRoot`，未触及 `footArea`/`footerActions`）。
+- 图标面：`node tools/dsh-icons/check.js` 无漂移，插件引用的图标全部存在。
+- **未覆盖（不要当成已核对）**：受管 Workspace 的创建、置顶、改名/删除保护、以及独立入口按钮在 rc.2 上的**实机**行为；`/dsh-default-workspace/status` 的真实响应。
+
 ## 结构
 
 - `lib/index.js`：Host 半体。创建或接纳受管目录，经 `ctx.workspaceRegistry` 命名“通用会话”、置顶并保护，注册 `/dsh-default-workspace/status`。
@@ -20,7 +30,7 @@
 - “新建通用会话”注册到 list slot `sidebar.footer.action`，稳定 ID `dsh-default-workspace.new-session`、order `100`；必须经 `ctx.slots.inject()` 等待 slot 声明，并同时适配 wide 与 56px rail；解析失败必须在按钮、rail Tooltip 和 aria-label 显示可重试错误状态，不能只写控制台。
 - 独立入口只用核心 `startSession(workspaceId)`，不发明第二套会话归属；导航不能用 `workspaces`（纯 Workspace Controller，不承载会话导航）。
 - 核心把新 Workspace 插到列表首位，因此补丁 `workspaceRegistry.create` 后必须重新把默认 Workspace 置顶。
-- Host 保护覆盖当前 `>=0.1.6-alpha.1 <0.1.7` 发布线的公开 Workspace RPC 路径；Host 在任何目录、Workspace 或路由副作用前从真实 CLI package 执行运行时版本门，范围外或来源不可验证时保持 inert。`engines.dsh` 与同一 range 同源，由 `test/manifest.test.js` 守卫。
+- Host 保护覆盖当前 `>=0.1.7-alpha.1 <0.1.8` 发布线的公开 Workspace RPC 路径；Host 在任何目录、Workspace 或路由副作用前从真实 CLI package 执行运行时版本门，范围外或来源不可验证时保持 inert。`engines.dsh` 与同一 range 同源，由 `test/manifest.test.js` 守卫。
 - Workspace 方法保护经 `Symbol.for('dsh.workspace-method-interceptors.v1')` 注册到可摘除 dispatcher；cleanup 只撤销本插件节点并恢复安装前的 own descriptor（原方法继承自 prototype 时必须 `delete` 实例 wrapper），避免遮蔽后续 HMR。
 - status route 必须先通过 `connection.requestRejection(req)` 的 trusted-host 与签名浏览器 cookie 认证；Client fetch 显式 `credentials: 'same-origin'`，不得向裸 loopback 请求暴露本机路径与运行时诊断。
 - `0.1.6-alpha.1` 没有行级 capabilities，受管行仍会显示核心菜单和拖动态；保护靠方法补丁，不靠隐藏 UI。

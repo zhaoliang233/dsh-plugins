@@ -2,6 +2,12 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.1.4] - 2026-09-28
+
+### 变更
+
+- **逐版本核对推进到 `0.1.7-rc.2`**：逐包内容比对确认 `dsh-workspace` 的 `initializeDefault(resolveDirectory)` 签名变了（返回值由 `{path,title}` 改为目录字符串），但本插件不调用它，只把它作为 `coreDefaultWorkspace` 能力探测如实报出，因此不受影响；`create`/`createCanonical` 与客户端 `workspaces` Controller 的补丁目标 `rename`/`delete`/`insertBefore` 都还在，`sidebar.footer.action` 仍由 `dsh-client-ui-sidebar` 声明。rc.2 新增的公开模块 `@deepseek-ai/dsh-api-workspace-controller/default-workspace`（核心首次使用的默认工作区）与本插件的受管「通用会话」不是同一个目录，分工说明不变。`0.1.7-rc.2` 因此进入逐版本验证清单，安装脚本不再对该版本打告警。
+
 ## [0.1.3] - 2026-09-22
 
 ### 变更
