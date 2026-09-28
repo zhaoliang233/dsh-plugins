@@ -87,9 +87,13 @@ export async function readJsonBody(req, maxBytes = MAX_BODY_BYTES) {
 /**
  * 观察 loader 是否已经把目标行切到预期状态。
  *
- * 启停本身由 profile patch 的覆盖项驱动：写入后由 profile 配置重载（`patchReload: live`
- * 或 dsh-hmr）重组 loader 树。这里因此只读观察，不再直接调用 Loader 的私有更新接口，
+ * 启停本身由 profile patch 的覆盖项驱动：写入后由 `@deepseek-ai/dsh-hmr` 的 profile 配置监听
+ * 触发重组（它 watch profile patch 与 manifest；profile 里的 `patchReload` 字段在 `0.1.7-rc.2`
+ * 已无消费者，不是开关）。这里因此只读观察，不再直接调用 Loader 的私有更新接口，
  * 避免与官方 plugin-manager 和 HMR 的重组并发写同一批行。
+ *
+ * 默认 1500ms 的窗口短于「写入稳定 + 重组」的耗时（rc.2 实测约 3 秒生效），所以
+ * `applied: false` 只代表「这一拍还没生效」，调用方据此给的是保守的「需要重启」提示。
  */
 export async function observeLoaderEntryState(ctx, plugin, disabled, options = {}) {
   const loader = ctx.get('loader')

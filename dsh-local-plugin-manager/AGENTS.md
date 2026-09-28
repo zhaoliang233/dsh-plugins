@@ -2,7 +2,7 @@
 
 ## 定位与边界
 
-面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.1.7-alpha.1 <0.1.8` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.1.7-alpha.1`、`0.1.7-alpha.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
+面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.1.7-alpha.1 <0.1.8` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.1.7-alpha.1`、`0.1.7-alpha.2`、`0.1.7-rc.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
 
 **为什么是独立分区，而不是官方插件分区里的一个 tab**（0.1.8 之前别改回去）：
 
@@ -21,7 +21,7 @@
 - `GET /dsh-local-plugin-manager/status`：返回当前 profile、本地插件 DTO 和每次 Host 运行随机生成的 CSRF token。
 - `POST /dsh-local-plugin-manager/action`：body 只接受 `{ action: 'enable'|'disable'|'uninstall', name }`。
 
-`ctx.webServer` 是硬依赖。Loader 经 `ctx.get('loader')` **只读**读取：启停由 profile patch 的覆盖项驱动，写完由 profile 配置重载（`patchReload: live` 或 `dsh-hmr`）重组 loader 树，`observeLoaderEntryState()` 仅在有限时间内轮询 `entry.id === 'include:' + rowId` 的 fiber 是否到达预期状态，用来给出「已生效 / 需要重启」。**不要重新引入 `entry.update(...)` 之类的 Loader 私有写入**：那会与官方 plugin-manager 和 HMR 的重组并发改同一批行。
+`ctx.webServer` 是硬依赖。Loader 经 `ctx.get('loader')` **只读**读取：启停由 profile patch 的覆盖项驱动，写完由 `@deepseek-ai/dsh-hmr` 的 profile 配置监听（它 watch `<profile>/cordis.patch.yml`、`<home>/cordis.patch.yml` 与 profile manifest，变化后走 `reconcileProfilePatches` 重组 loader 树）热重载，`observeLoaderEntryState()` 仅在有限时间内轮询 `entry.id === 'include:' + rowId` 的 fiber 是否到达预期状态，用来给出「已生效 / 需要重启」。**不要把它写成 `patchReload`**：profile `package.json` 里的 `patchReload: live` 在 `0.1.7-rc.2` 的 DSH 安装里全树搜不到消费者（本机 profile 里那条是遗留字段），热重载的真源是 hmr entry（`dsh-base/cordis.patch.yml` 里 `disabled: !!js "!ctx.get('profileContext')"`，web 下默认启用）。另外它的默认观察窗口只有 1500ms，短于 dsh-hmr 的写入稳定 + 重组耗时（rc.2 实测约 3 秒生效），所以「需要重启」是保守提示、未必真需要重启。**不要重新引入 `entry.update(...)` 之类的 Loader 私有写入**：那会与官方 plugin-manager 和 HMR 的重组并发改同一批行。
 
 ## 本地插件判定
 
@@ -73,7 +73,7 @@ plugin --profile web remove <server-derived-name> --config.minimumReleaseAge=0
 ## Client
 
 - `client.js` 是手写 lazy-CJS bundle，无 JSX/TypeScript/import；`exports.inject = ['slots']`；`package.json#dsh.client.inject` 依赖 `@deepseek-ai/dsh-client-ui-settings-general`（声明 `settings.section` 的包；换分区落点时必须同步改这里）。
-- 注册 `settings.section`：`id: 'plugin-dev'`、`order: 100`、`label: '插件开发'`。插件贡献的设置入口一律排到 DSH 自带项之后（`settings.section` / `settings.general.item` / `settings.plugins.tab` 的 order 都 ≥ 100）；DSH `0.1.7-alpha.2` 内置分区 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，升级 DSH 后重新读一遍内置项的 order 上限。
+- 注册 `settings.section`：`id: 'plugin-dev'`、`order: 100`、`label: '插件开发'`。插件贡献的设置入口一律排到 DSH 自带项之后（`settings.section` / `settings.general.item` / `settings.plugins.tab` 的 order 都 ≥ 100）；DSH `0.1.7-rc.2` 的内置分区 order 仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（`alpha.1`、`alpha.2`、`rc.2` 三版一致），升级 DSH 后重新读一遍内置项的 order 上限。
 - **导航图标只能走 DOM 补丁**：`settings.section` 的注册选项只有 id/order/label，没有 icon；壳层 `navIcon(id)` 只给官方 id 配图标，未知 id 一律回落齿轮，本分区会与官方「插件」撞脸。实现是 `patchSettingsNavIcon()`（原 svg 只做占位，图标用 `::before` + mask 画，配色继续跟随壳层），挂载点注册在 **`settings.action`**——它随设置面板挂载，面板一开就存在；不要挂在分区组件里，分区要等用户点开那一行才渲染，图标会晚一步才对（`dsh-extra-context` 踩过）。图标取 `IconCodeOutlineMedium`（`iconOf` 候选链兜底）。壳层未来若支持在 slot 选项里声明图标，这段补丁应立刻删掉。
 - 控件与标记一律用官方 primitives：行开关是 `Switch`（`checked`/`onChange`/`label`/`disabled`/`title`），确认弹窗与「重试 / 刷新页面」是 `Button`（取消 `outline`，卸载 `primary` + 只覆盖按钮色 token 的 `.dlpm-danger-button`），行徽标是 `Tag`（身份 `outline`、已启用 `success`、已禁用 `quiet`、部分启用 `warning`；只借 `.dlpm-tag` 做 `flex:none` 布局），图标用 `IconRefreshOutlineMedium`/`IconTrashOutlineMedium`/`IconLoadingOutlineMedium`/`IconWarningOutlineMedium`，永久卸载必须经过 Modal 确认；管理器自身行禁用开关和卸载按钮。**不要为这些控件自绘外观 CSS 或 `role=switch` 按钮**：几何、调色板、焦点环与危险色都随 primitives 走，自绘一套只会在官方换皮肤后留下不会跟着变的第二套外观（`test/client.test.js` 拦 `dlpm-switch`/`dlpm-button`/`dlpm-badge` 之类的残留）。Client 只显示 Host DTO，不自行推导路径、bundle 或 patch 所有权。
 - 只使用当前 Inspect 公布的主题 token；样式和网络请求必须随组件/插件卸载清理。注入的 `<style>` 按引用计数共享并必须打 `data-plugin="dsh-local-plugin-manager"`（未打标签的样式会被别的 bundle 认领、热更新时误删；机制见根 `AGENTS.md`）。client HMR 重载只丢弃 fiber 而不跑旧 disposer，所以 `apply` 在元素仍在但文本过期时会重写样式文本。mutation 用同步 `actionRef` 单飞，开始时中止并递增 epoch 使旧 status GET 失效，防止旧快照覆盖 mutation 响应。
@@ -90,6 +90,20 @@ status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 t
 
 `0.1.6-alpha.2 → 0.1.7-alpha.1/alpha.2` 的核对方式（后续跨线照做）：`npm pack` 契约包后用 `diff` 比对解包后的 `lib/*.js`，不要靠 CHANGELOG。本包用到的六个包在 `0.1.7-alpha.1` 与 `alpha.2` 之间逐字相同（`dsh-atomic-write`、`dsh-host-webserver`、`dsh-client-connection`、`dsh-client-ui-settings-general` 的 host/client、`dsh-app-boot` 的 include 行 id）；`dsh-plugin-manager` 的差异只是一处 registry 常量重构，`@deepseek-ai/cordis-plugin-loader@1.0.4→1.0.5` 与 `cordis-plugin-include@1.0.8→1.0.9` 逐字相同（`include:<rowId>` 的 entry id 方案因此仍成立）。
 
+### `0.1.7-alpha.2 → 0.1.7-rc.2` 逐项核对记录（2026-09-28）
+
+命中的包：`dsh-plugin-manager`（17 个 lib 文件，`lib/index.js` +757/−154，新增 github-connection 与 run-tree）、`dsh-app-boot`（8 个，+424/−48）、`dsh-atomic-write`（2 个，+73/−8）、`dsh-client-ui-settings-general`（4 个）。逐字相同：`dsh-host-webserver`、`dsh-client-connection`、`dsh-base`、`dsh-client-ui-settings-plugin-inventory`、`@deepseek-ai/cordis-plugin-loader`（仍 1.0.5）、`cordis-plugin-include`（仍 1.0.9）、`dsh-hmr`（只有 README.i18n.yaml 与版本号不同）。
+
+五项结论，都在 rc.2 上真机复验过，**无需改代码**：
+
+1. **profile 写锁仍对齐**：`dsh-atomic-write` 的改动只是新增「持锁进程已退出（PID 探测 ESRCH）时接管死锁」；锁路径约定仍是 `<锚点>.lock` + `wx` 独占创建、锚点仍是 `<profile>/package.json`、`mode` 仍是 `0o600`（`384`）、`waitMs` 语义与默认值都没变，`writeFileAtomic` 逐字未变。本包用的是自己的 `~0.1.7-alpha.1` 副本（锁文件内容同为 `<pid>\n`），与宿主的 rc.2 副本跨版本仍然互斥。
+2. **覆盖项语义四条全部仍成立**：rc.2 的 `writePluginEnabled` 仍是「顶层、不带 `insert`」「`findLast` + `name` 匹配」「命中就地 `setIn(['disabled'], !enabled)`、启用写显式 `false` 不删条目」「目标值与现值相同直接 `return false` 不写文件」，`writeFileAtomic(..., { mode: 384 })` 也没变。唯一新增是写前多一次 `loadOptionalPatches('dsh', filename)`（读同一 profile patch 做解析准备），不改变写入结果。GUI 往返实测：两边轮流启停同一条，`cordis.patch.yml` 里该行始终只有一条覆盖项。
+3. **`include:<rowId>` 的 entry id 方案仍在**：`dsh-app-boot` 的 `mountRootInclude()` 依然建 `{ id: 'include', name: 'cordis:include' }`，`cordis-plugin-loader` 仍以 `parentEntryId + EntryTree.sep`（`':'`）拼子行 id，所以顶层 `insert` 进来的行仍是 `include:<rowId>`。
+4. **热重载路径仍在，但真源不是 `patchReload`**：`dsh-hmr` 逐字未变，它 watch profile patch 与 manifest 后走 `reconcileProfilePatches` 重组 loader 树；rc.2 全树搜不到 `patchReload` 的消费者。真机实测：写入后约 3 秒运行态生效（boot graph 里该包的 client bundle 消失 / 回来）。
+5. **`settings.section` 的 order 上限未变**：rc.2 内置仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，本包的 100 仍排在最后。
+
+同时确认 rc.2 新增的 **plugin-manager 兼容预检**（读 bundle 的 `peerDependencies`，不满足就在 profile 装配时抛错）不门禁本包：本包（以及本工作区其他插件）都没声明 `peerDependencies`。
+
 ## 验证
 
 ```bash
@@ -100,9 +114,11 @@ npm run verify        # check + test
 
 真实 GUI 至少覆盖：设置菜单里的分区顺序（排在全部 DSH 自带项之后）、专属导航图标真的画出来（不只看 dataset，要看 `::before` 的 mask）、当前 profile 的全部 link 插件、每行的说明行与缺失占位、长说明的两行截断、源码路径截断、loader 行只在带来信息时出现、self 保护、开关/徽标/弹窗按钮的官方 primitives 外观（开关为官方胶囊、禁用态半透明、焦点环可见；徽标为官方胶囊 Tag，当前管理器描边 / 已启用 success / 已禁用 quiet / 部分启用 warning 四档可区分；弹窗按钮为官方胶囊并排，卸载为官方危险色）、禁用/启用后 Host fiber 与页面刷新、卸载确认、卸载后 profile manifest/lock、Figma patch 原样保留、重启后 tombstone 清理，以及非 loopback/跨源 action 拒绝。
 
-`scripts/gui-check.mjs`（`npm run gui:check`）把上面「能被 CDP 断言的那部分」自动化了：在**隔离**宿主 + 无头 Chrome 上真点一遍设置菜单 → 分区 → 开关，并交叉核对 profile patch。前置与用法见脚本头部；它只操作自己点的那条插件并切回原状态，不碰 3080 上的宿主。
+`scripts/gui-check.mjs`（`npm run gui:check`）把上面「能被 CDP 断言的那部分」自动化了：在**隔离**宿主 + 无头 Chrome 上真点一遍设置菜单 → 分区 → 开关，并交叉核对 profile patch。前置与用法见脚本头部；它只操作自己点的那条插件并切回原状态，不碰 3080 上的宿主。两处细节：全新的隔离 `DSH_HOME` 会先弹引导对话框（「内测声明」写入 profile patch 后不再出现，「添加一个 API Key」在无凭据时每次加载都出现），它们带 `aria-modal` 会吃掉对设置入口的点击，脚本因此先关掉这两类引导再点设置；patch 断言写的是「该行覆盖项条目数不增长 + 最后一条覆盖项的 `disabled` 值正确」，而不是「条目数 +1」——该行原本就可能有覆盖项，官方语义是就地改写。
 
-**与官方插件管理并存**也要覆盖（这是本包唯一容易踩的坑）：在管理器的分区里禁用，再去官方插件页看该行是否为禁用、能否就地启用；反向再走一遍，并确认 `cordis.patch.yml` 里该行始终只有一条覆盖项。自动化侧的做法见下：把真实 profile 复制到临时目录，用该插件的 `setEnabled()` 与从官方包里提取的 `writePluginEnabled` 往返改写（`test/profile-manager.test.js` 里的若干用例已覆盖覆盖项定位与迁移），再加上 `gui-check.mjs` 的「覆盖项条目数不增长」断言；GUI 里的双向步骤无法被单测替代。
+**与官方插件管理并存**也要覆盖（这是本包唯一容易踩的坑）：在管理器的分区里禁用，再去官方插件页看该行是否为禁用、能否就地启用；反向再走一遍，并确认 `cordis.patch.yml` 里该行始终只有一条覆盖项。自动化侧的做法见下：把真实 profile 复制到临时目录，用该插件的 `setEnabled()` 与从官方包里提取的 `writePluginEnabled` 往返改写（`test/profile-manager.test.js` 里的若干用例已覆盖覆盖项定位与迁移），再加上 `gui-check.mjs` 的「覆盖项条目数不增长」断言。
+
+隔离宿主上的**真 GUI 往返**也做通过（2026-09-28，rc.2），方法是照抄但别搞错两个坑：① 官方插件页的行级开关**不在列表里**——列表上那个 `aria-label="启用 <包名>"` 是 **bundle 选择**开关（`setBundleEnabled`，改 `dsh.profile.bundles`），行级开关要先点 `aria-label="查看 <包名>"` 进详情，再用 `aria-label="启用组件 <包名>"`（`setPluginEnabled`）；② 官方页显示的是**运行态**（`enabled: !entry.disabled`），而运行态要等 dsh-hmr 重载完（约 3 秒）才变，所以每一步都得先等运行态稳定（用浏览器 `__DSH_BOOT__` 里该包的 client bundle 在不在作判据）再用干净页面读 GUI，否则会看到上一拍的旧值。这套往返目前仍是人工/临时脚本执行，没有固化进 `gui-check.mjs`。
 
 ## 发布与安装路线
 

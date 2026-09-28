@@ -22,7 +22,7 @@ export { LocalPluginManagerError } from './errors.js'
 
 export const PLUGIN_NAME = 'dsh-local-plugin-manager'
 export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
-export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.1.7-alpha.1', '0.1.7-alpha.2'])
+export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.2'])
 export const DEFAULT_PROFILE = 'web'
 
 // state.json 只保留卸载墓碑；禁用状态的真源是 profile patch 的覆盖项本身。

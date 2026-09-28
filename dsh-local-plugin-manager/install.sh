@@ -33,7 +33,7 @@ if ! is_compatible_dsh_version "$NORMALIZED_DSH_VERSION"; then
 fi
 # 逐版本验证清单：必须与 lib/profile-manager.js 的 VERIFIED_DSH_VERSIONS 逐字一致，
 # test/manifest.test.js 会核对两处与 package.json#dshCompatibility 不漂移。
-VERIFIED_DSH_VERSIONS=("0.1.7-alpha.1" "0.1.7-alpha.2")
+VERIFIED_DSH_VERSIONS=("0.1.7-alpha.1" "0.1.7-alpha.2" "0.1.7-rc.2")
 is_verified_dsh_version() {
   local candidate="$1" known
   for known in "${VERIFIED_DSH_VERSIONS[@]}"; do
