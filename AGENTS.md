@@ -59,7 +59,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- 当前运行 `@deepseek-ai/dsh 0.1.7-rc.2`；逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.7-alpha.1 <0.1.8`。逐版本验证清单由各插件自己维护（多数只列 `0.1.7-alpha.1`；`dsh-local-plugin-manager` 已额外核对 `alpha.1 → alpha.2`；`dsh-extra-context`、`dsh-default-workspace`、`dsh-auto-load-history` 已核对到 `0.1.7-rc.2`）。同线内其他 prerelease 允许带警告运行；跨到 `0.1.8` 前必须重新读取源码和实时契约再扩大范围。
+- 当前运行 `@deepseek-ai/dsh 0.1.7-rc.2`；逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.7-alpha.1 <0.1.8`。逐版本验证清单由各插件自己维护（多数只列 `0.1.7-alpha.1`；`dsh-extra-context`、`dsh-default-workspace`、`dsh-auto-load-history`、`dsh-local-plugin-manager` 已核对到 `0.1.7-rc.2`）。同线内其他 prerelease 允许带警告运行；跨到 `0.1.8` 前必须重新读取源码和实时契约再扩大范围。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
 - 声明必须四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门（`DSH_COMPATIBILITY_RANGE` + `DSH_VERIFIED_VERSIONS`）、插件内文档。
@@ -131,8 +131,9 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
   - `dsh-base/cordis.patch.yml` 把 `llm-deepseek` 换成 `llm-deepseek-api-key` 并新增 `llm-deepseek-account` 行（部署组成变化，与插件无关）。
 - 图标集**无删名**（188 个，Medium/Regular 各 94），4 个带导航图标补丁的插件六项几何检查全过。
 - 本轮的修复：`tools/dsh-icons` 两个缺陷（见该工具 README）；L1 两个插件把 `0.1.7-rc.2` 加入验证清单（`publish:check` 全过）。
-- 本轮**仍未实机验证**（交接给 L2/L3 会话）：`dsh-default-workspace` 的受管 Workspace 行为、`dsh-local-plugin-manager` 的 profile 写入、`dsh-chat-archive-manager` 的删除事务、`dsh-mcp-manager` 的 GUI 验收、`dsh-sticky-user-bubble` 的几何。
+- 本轮**仍未实机验证**（交接给 L2/L3 会话）：`dsh-default-workspace` 的受管 Workspace 行为、`dsh-chat-archive-manager` 的删除事务、`dsh-mcp-manager` 的 GUI 验收、`dsh-sticky-user-bubble` 的几何。
 - `dsh-auto-load-history` 已于同日单独开一轮做完：`0.1.7-rc.2` 上隔离宿主 + 无头 Chromium 半离线回归全过（补齐到 `hasMore === false`、锚点零漂移、defer 生效、会话/视图切换无报错），代码无需适配，仅把 `0.1.7-rc.2` 加入四处验证清单并订正文档里的页大小描述（rc.2 已把 `loadOlder`/`loadThrough` 的固定 50/200 改成 turn 对齐区间）。
+- `dsh-local-plugin-manager` 也已于同日单独开一轮做完：rc.2 的 `dsh-atomic-write`/`dsh-plugin-manager`/`dsh-app-boot` 改动逐项核对后**无需适配**（写锁路径/mode/waitMs 未变、`writePluginEnabled` 四条语义全在、`include:<rowId>` 仍成立、`settings.section` 内置 order 上限仍是 20），隔离宿主上 `npm run verify`（44）与 `npm run gui:check`（21）全过，并额外跑通了「与官方插件管理并存」的真 GUI 双向往返（两边轮流启停同一条，覆盖项始终只有一条）。两点结论值得记住：**热重载的真源是 `dsh-hmr` 的 profile 配置监听，不是 profile 里的 `patchReload` 字段**（rc.2 全树无消费者，写入后约 3 秒生效）；**官方插件页列表上的「启用 <包名>」开关是 bundle 选择（`setBundleEnabled`），行级启停要点进「查看 <包名>」详情页用「启用组件 <包名>」**。
 
 ## 发布与分发（npm / OIDC）
 
