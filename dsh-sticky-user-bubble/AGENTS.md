@@ -66,7 +66,11 @@ clone 的 hover/focus 意图存在 effect 级 `cloneStateRef.current`（`{ updat
 
 ## 兼容发布线
 
-范围 DSH `>=0.1.7-alpha.1 <0.1.8`，其中 `0.1.7-alpha.1` 已逐版本核对（静态契约 + 单测；视觉几何仍需实测确认）。同线后续版本可带警告运行，但客户端必须继续通过 Session/Chat snapshot、Slot、核心 DOM 标记和几何自检；跨到 `0.1.8` 前必须重新读取源码和实时契约。Host 版本门、installer 与 manifest 必须同步该范围；`package.json#engines.dsh` 与同一 range 同源，`test/manifest.test.js` 有同源断言守卫。
+范围 DSH `>=0.1.7-alpha.1 <0.1.8`，其中 `0.1.7-alpha.1`（静态契约 + 单测）与 `0.1.7-rc.2`（静态契约 + 单测 + 隔离宿主上的半离线几何量测）已逐版本核对；**视觉观感仍需实机确认**。同线后续版本可带警告运行，但客户端必须继续通过 Session/Chat snapshot、Slot、核心 DOM 标记和几何自检；跨到 `0.1.8` 前必须重新读取源码和实时契约。Host 版本门、installer 与 manifest 必须同步该范围；`package.json#engines.dsh` 与同一 range 同源，`test/manifest.test.js` 有同源断言守卫（含 `install.sh` 的验证清单逐字断言）。
+
+`0.1.7-alpha.1 → 0.1.7-rc.2` 的逐项核对结果：`ChatSnapshot` 与 `nodes.get(key)` 未变（本次会话的活 DOM 有 4350 行，`user` 53 行的 `data-chat-anchor-key`/`data-chat-flow-key`/`data-chat-node-key` 三键同值、`data-chat-group-part` 为 `undefined`，所以 `userIndex` 的 key 匹配仍成立；`data-chat-group-part` 只出现在 assistant-step 的 reasoning/response 拆分行上）；`data-chat-flow`/`data-chat-anchor-key`/`data-chat-flow-kind`/`data-chat-node-key`/`data-chat-paging-anchor` 全部仍在（chat 包的 `data-*` 属性集与 alpha.1 逐字相同，无增无删）；`[data-conversation-scroll]`（`.scrollBody`，仍 `overflow-y:auto`、padding/border 为 0）与 `[data-composer-seat]`（仍是 `scrollBody` 直接子元素、active 相位仍 `position:sticky; bottom:0`）未变，内层 `.EvIC1a_scroll` 在该上下文仍 `overflow:visible`、padding 仍 16px（实测 `readingInset = 16px`）；`shell.overlay` 仍是 `{kind:'list', scope:'root'}`，层仍是 `z-index:20; pointer-events:none; position:absolute; inset:0`，插件 layer 的父链仍是 `[data-slot="shell.overlay"] > .overlayLayer[data-shell-overlay]`；`SessionListState` 仍走 `retainedBy.mainView`（`dsh-client-ui-layout` 那行一字未改）；`data-ref-chip` + chip `title` 的渲染代码与 alpha.1 逐字相同（本会话无 `@` 引用消息，未取到活体样本）。**本线内没有发现破坏性变化**；`current` 兼容分支保留是为了同一份代码能在 0.1.6 线上跑。
+
+rc.2 里两处与几何相关的新事实：`.EvIC1a_root` 从无 overflow 变成 `overflow:visible clip`，于是 source 与 scrollport 之间多了一个纵向裁剪祖先；它不影响判定，因为该祖先滚动后位于 scrollport 顶边之上，`paintedTopBoundary` 的 `max` 保留 scrollport 自己的 clip 边（实测边界 76 = `scrollRect.top`，阅读线 92 = 76 + 16，出现阈值正好落在 76）。`test/client.test.js` 新增一条 `overflow-y: clip` 祖先的用例锁住这个语义。另一处是过程分组让内层 `[data-chat-flow]` 变多（实测 492 个），`visibleFlow()` 取文档序第一个可测量 flow 的写法仍取到主 flow（4350 行）——这条语义以后升级仍要复核。对话包新增 `data-conversation-region`/`data-conversation-session`/`data-window-drag`（本插件不读；`data-conversation-session` 是将来可用的更强当前会话标记），ConversationRoot 的渲染结构与 CSS 逐字未变；chat CSS 另有两处与几何无关的变化（`.EvIC1a_toBottomSlot` 改成 absolute/sticky 双形态、`.EvIC1a_callRow` 与「加载更早」按钮改用 `var(--dsw-radius-sm)`）。
 
 `0.1.6-alpha.2 → 0.1.7-alpha.1` 的逐项核对结果：`ChatSnapshot` 骨架仍是 `{ order, nodes, locations, navigation, timeline, legacy }`、`nodes.get(key)` 仍返回含 `kind`/`data.content` 的节点（种类 `user`/`steering` 未变，新增 `turn-trigger`）、`uiConversation.binding(id).target('chat')` 仍返回 `{ getSnapshot, subscribe }`、`SessionSnapshot` 仍带 `sessionId`/`openState`/`removed`、聊天行仍带 `data-chat-flow`/`data-chat-flow-key`/`data-chat-flow-kind`/`data-chat-anchor-key`（另新增 `data-chat-node-key`、`data-chat-group-part`、`data-chat-paging-anchor`）、`[data-conversation-scroll]`（`.scrollBody`，内层聊天容器在该上下文里 `overflow:visible`、padding 仍 16px）与 `[data-composer-seat]`（`scrollBody` 直接子元素、`position:sticky`）仍在、`shell.overlay` 仍是 `{kind:'list', scope:'root'}` 且层仍是 `z-index:20; pointer-events:none; position:absolute; inset:0`、`retainedBy.mainView` 仍是壳层自己的当前会话判定口径（`current` 那条路在 0.1.6 线上才有效）、`data-ref-chip` + chip `title` 仍由 primitives 渲染。**本线内没有发现破坏性变化**，`current` 兼容分支保留是为了同一份代码能在 0.1.6 线上跑。
 
@@ -103,4 +107,21 @@ npm run publish:check
 
 GUI 验证覆盖：顶部初始隐藏、下滚/上滚切换、点击/键盘跳回原消息、原气泡（含底部内边距与圆角）完全离开可视区后才出现副本、让位时保留消息间距且新卡片不被遮挡、长内容 hover/focus 展开的高度上限随下一个卡片收紧（超出部分内部滚动、空间过小时保持三行）、展开高度不越过 composer（输入卡片与底部状态栏保持可见）、流式回答/工具调用持续更新时展开状态不闪断、三行 ellipsis 与第四行完全隐藏、不同 font-size/line-height/padding/border、透明/渐变/小圆角、固定 height/min-height、主题与字体变化、窄屏、会话和 Chat/trajectory 切换、历史 prepend、含 `@` 引用 chip 的用户消息、unsupported layout fail closed，以及 clone 内部控件不可触发且不阻塞 composer。
 
-**不等用户操作也能自己做一轮真机回归**：另起一个受管后台宿主 `dsh web --port 0 --no-open`（不接管当前 GUI），用无头 Chromium 打开它打印的带 token URL，点开一个长会话后直接写 `[data-conversation-scroll].scrollTop`，读取 `[data-dsh-sticky-user-bubble-state]` 与 host 内 clone 的 `getBoundingClientRect()`/`clipPath` 即可覆盖出现、让位、切换与会话跳回（2026-09-19 即用此法复现并复核 `0.1.6-alpha.2` 的回归）。调试期间可以临时把快照形状写进 host 的 `data-*` 属性，但**必须在该轮结束前删掉**（本轮已删）。
+**不等用户操作也能自己做一轮真机回归**：另起一个受管后台宿主 `dsh web --port 0 --no-open`（不接管当前 GUI），用无头 Chromium 打开它打印的带 token URL，点开一个长会话后直接写 `[data-conversation-scroll].scrollTop`，读取 `[data-dsh-sticky-user-bubble-state]` 与 host 内 clone 的 `getBoundingClientRect()`/`clipPath` 即可覆盖出现、让位、切换与会话跳回（2026-09-19 即用此法复现并复核 `0.1.6-alpha.2` 的回归）。调试期间可以临时把快照形状写进 host 的 `data-*` 属性，但**必须在该轮结束前删掉**（本轮未新增任何调试属性，`client.js` 只有 layer/host/state/clone/content 五个发布用标记）。
+
+### 半离线量测记录（`0.1.7-rc.2`，2026-09-28）
+
+隔离宿主 `dsh web --port 0 --no-open` + 独立 `DSH_HOME`（`/tmp/dsh-sub-rc2/home`：复制 profile/storages/workspaces 与 dsh-plugins 会话目录，插件软链改成绝对路径）+ 无头 Chrome/CDP（独立 `--user-data-dir` 与调试端口）；目标会话 `f8e6ec6b`（4350 行 / 72521px / 53 个用户行）；**全程未触碰用户自己的 3080**；脚本与原始输出留在 `/tmp/dsh-sub-rc2/`（非发布物，只有 `.mjs` 与 `run*.txt`），临时 DSH_HOME 拷贝与浏览器 profile 已在该轮结束时删除。
+
+| 断言 | 实测 |
+|---|---|
+| 阅读线 / 绘制边界 | `scrollRect.top = 76`（scrollport 无 padding、无 border）→ 边界 76；`.EvIC1a_scroll` padding-top 16px 且 `overflow:visible` → 阅读线 92 |
+| 出现阈值 | 二分到 1px：`scrollTop 25030`（源气泡 bottom 77 > 76）= `inactive-source-visible`；`25031`（bottom 76）= `ready`，clone 落点正是阅读线 92 |
+| 让位 | 每步下滚 4px：源气泡与下一张卡的清距恒 **16px**（= incoming row 的 `margin-top`），push 4.5 → 56.5，`clip-path` 逐帧等于 `inset(push − 16)`；卡片越过阅读线那一帧（push 上限 = gap + 折叠高 = 16 + 42）翻成 `inactive-source-visible` 并清空 host |
+| 三行折叠 | 源气泡 218px（`line-height:22px`、`padding:10px 16px`）→ clone 折叠高 **86px** = 3×22 + 20；内容 wrapper 66px、`scrollHeight` 198px、`overflow:hidden`、`pointer-events:none` |
+| hover 展开 | clone 展开到 **218px**（自然全高），底边 310 远在 `[data-composer-seat]` 顶 685 之上；卡片逼近到阅读线 +220 时展开高收到 **204px**、底边 296 = `incomingTop − 16`，wrapper 切到 `overflow-y:auto` + `pointer-events:auto`；`mouseleave` 后回到 86px |
+| 会话切换 | A → B → A 均无残留 clone、无报错；回到 A 后重新固定，再把目标行钉回 `scrollTop 36244` 与切换前一致 |
+| 跳回 | 点击 clone：`scrollTop 25031 → 24973`，源气泡 top 回到 92 = 阅读线 |
+| 控制台 | 0 个 error / exception |
+
+**这轮量测覆盖了可脚本化的全部几何判据；未覆盖的是目视观感**（滚动流畅度、真实鼠标 hover 的手感、非 1 缩放/自定义字号下的观感，以及含 `@` 引用 chip 的用户消息——本次会话没有这类消息，该路径只有静态核对）。这些仍需用户在 3080 上按「GUI 验证覆盖」看一遍。

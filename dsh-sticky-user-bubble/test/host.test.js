@@ -8,6 +8,9 @@ test('keeps the Host half inert outside the audited release line', () => {
   assert.equal(classifyDshVersion('0.1.7-alpha.1+local').verified, true)
   assert.equal(classifyDshVersion('0.1.7-alpha.2').supported, true)
   assert.equal(classifyDshVersion('0.1.7-alpha.2').verified, false, 'same line but not individually verified')
+  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, true)
+  assert.equal(classifyDshVersion('0.1.7-rc.2').verified, true, 'individually verified within the line')
+  assert.equal(classifyDshVersion('0.1.7-rc.1').verified, false, 'sibling prereleases stay unlisted')
   assert.equal(classifyDshVersion('0.1.7-beta.0').supported, true)
   assert.equal(classifyDshVersion('0.1.7').supported, true)
   assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false)
@@ -22,6 +25,9 @@ test('keeps the Host half inert outside the audited release line', () => {
   warnings = 0
   applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.7-alpha.1')
   assert.equal(warnings, 0, 'the verified version must be silent')
+  warnings = 0
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.7-rc.2')
+  assert.equal(warnings, 0, 'every individually verified version must be silent')
 })
 
 test('exports an inert Host half for the client-only feature', () => {

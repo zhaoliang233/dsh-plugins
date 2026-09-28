@@ -916,6 +916,43 @@ test('narrows the painted band to a clipping ancestor between bubble and scrollp
   }
 })
 
+test('keeps the scrollport edge under a clipping ancestor that scrolled above it', () => {
+  const dom = createBrowserDom()
+  const restore = installBrowserGlobals(dom)
+  let mounted
+  try {
+    // 0.1.7-rc.2 gives the chat root `overflow: visible clip`, so every bubble now has a
+    // vertically clipping ancestor between itself and the scrollport. While that ancestor is
+    // scrolled above the scrollport edge it must not narrow the painted band; once its own
+    // top is the lowest edge on screen it is the boundary.
+    const clip = element({ left: 100, top: 40, right: 900, bottom: 700, width: 800, height: 660 })
+    clip.computed = { overflow: 'visible clip', overflowY: 'clip' }
+    clip.ownerDocument = dom.document
+    dom.flow.appendChild(clip)
+    clip.appendChild(dom.row)
+    dom.row.rect = { left: 100, top: 60, right: 900, bottom: 130, width: 800, height: 70 }
+    dom.bubble.rect = { left: 600, top: 70, right: 900, bottom: 110, width: 300, height: 40 }
+
+    mounted = mountSticky(dom, 'hello from the user', { currentChat: true })
+
+    assert.equal(
+      dom.host.getAttribute('data-dsh-sticky-user-bubble-state'),
+      'inactive-source-visible',
+      'an ancestor scrolled above the scrollport edge must not hide a still painted bubble'
+    )
+
+    clip.rect = { left: 100, top: 200, right: 900, bottom: 700, width: 800, height: 500 }
+    dom.scroll.dispatch('scroll')
+    dom.flushFrames()
+
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-state'), 'ready')
+    assert.equal(dom.host.firstChild.style.top, '116px')
+  } finally {
+    mounted?.cleanup()
+    restore()
+  }
+})
+
 test('yields the top slot to the next user card instead of covering it', () => {
   const dom = createBrowserDom()
   const restore = installBrowserGlobals(dom)
