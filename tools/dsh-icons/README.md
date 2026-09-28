@@ -127,6 +127,10 @@ open /tmp/dsh-nav-icon-fixture/index.html
 - **JSX 运行时别名要探测**：0.1.6 是 `u`/`react_jsx_runtime`，0.1.7 是 `l`；写死别名会让全部图标求值失败（`render: l is not defined`）。
 - **图标定义引用的兄弟符号要一起内联**：0.1.7 把图标拆成「导出包装器 + 基础组件 + 路径常量」（`Sx=e=>l.jsx(F5,{...e})`），只求值包装器拿不到几何；`build.js` 现在按工作队列把引用到的定义内联/求值，`serializeSvg` 也会继续展开函数类型的节点。
 - **漂移扫描要认能力取用**：解构（`const { IconX } = require(...)`）与候选链（`iconOf('A','B','C')`）都算；后者只要有一个名字存在就通过，全缺失才报「require 了不存在的图标」。
+- **`0.1.7-rc.2` 又坏了两处，都已修**：
+  - **求值桩要同时提供 React**：rc.2 新增的 `IconArchiveOffOutline` 在 artwork 里调 `j.useId()`（`j` 是壳层里的 React 别名，与 JSX 工厂 `l` 不是同一个名字），而求值桩原先只有 jsx-runtime → `j is not defined`。现在 `evaluateIconDefinition` 除了 JSX 工厂别名，还会探测 `X.useXxx(` 形式的 hook 别名并一起绑定，`jsxRuntime` 桩补了 `useId`（返回固定串，静态 SVG 必须可复现）。裸 `jsx(`/`jsxs(` 调用也一并认（部分产物不压缩这几个名字）。
+  - **序列化必须自己兜住异常**：`serializeSvg` 会继续展开函数组件，等于执行模块内部代码；它原先**不在** try 里，一个图标炸掉就让整个提取以运行期错误结束 —— `check.js` 只会打一句 `j is not defined`，连 drift 都算不出来。现在单个图标失败降级成 `unrenderable`，其余照常产出。
+  - **`verify-nav-icon.js` 的清理要等子进程退出**：`stop()` 在 `kill('SIGTERM')` 之后立刻 `rmSync` profile 目录，Chrome 还在落盘时会以 `ENOTEMPTY` 让整轮验证退出 1（与插件无关的假失败）。现在先等 `exit`（超时升 `SIGKILL`）再删，删除本身也带重试。
 
 ## 实现上的坑（已踩过，改脚本前先读）
 

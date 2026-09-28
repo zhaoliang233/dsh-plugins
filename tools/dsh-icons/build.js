@@ -266,30 +266,61 @@ function definitionOf(source, variable) {
 
 // #region 图标求值：桩 jsx-runtime → 静态 SVG
 
+/**
+ * 图标求值用的运行时桩。
+ *
+ * 它同时扮演两个角色，因为它们常常是**同一个压缩别名**（rc.2 的壳层里 `j` 既是 React
+ * 也是 `j.useId()` 的来源，而 JSX 工厂被另命名为 `l`）：
+ * - jsx-runtime：`jsx`/`jsxs`/`createElement`/`Fragment`；
+ * - React：`useId`（rc.2 新增的 `IconArchiveOffOutline` 等图标在 artwork 里用它生成
+ *   mask/clipPath 的局部 id —— 少了它整个提取会以 `j is not defined` 失败）。
+ *
+ * `useId` 返回固定串是刻意的：静态 SVG 必须可复现，同一页面里多个图标的 id 撞车由
+ * `serializeSvg` 的 `idPrefix` 负责隔离，不需要随机性。
+ */
 const jsxRuntime = {
   Fragment: Symbol('Fragment'),
   jsx: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? [props.children] : [] }),
   jsxs: (type, props) => ({ type, props: props ?? {}, children: props && props.children !== undefined ? (Array.isArray(props.children) ? props.children : [props.children]) : [] }),
-  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children })
+  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
+  useId: () => ':r0:'
 }
+
+/**
+ * JSX 运行时的函数名。
+ *
+ * 除了被压缩器改名后的**对象前缀**形式，产物里也可能出现这三个名字的**裸调用**
+ * （见 `evaluateIconDefinition`）；它们同样要绑定到 {@link jsxRuntime} 桩，
+ * 并且不能再去模块里找定义。
+ */
+const JSX_RUNTIME_NAMES = ['jsx', 'jsxs', 'createElement']
 
 /**
  * 求值一个图标定义。
  *
  * 打包产物里的 JSX 运行时别名由压缩器决定（0.1.6 是 `u`／`react_jsx_runtime`，0.1.7 换成了 `l`），
  * 写死别名会让升级 DSH 后**所有**图标都变成 `render: l is not defined`。所以别名从定义本身
- * 探测出来再绑定；同一个桩对象同时提供 `jsx`/`jsxs`/`Fragment`/`createElement`，无论压缩器
- * 把哪一层别名留下来都能求值。
+ * 探测出来再绑定；同一个桩对象同时提供 `jsx`/`jsxs`/`Fragment`/`createElement`/`useId`，
+ * 无论压缩器把哪一层别名留下来、把 React 与 jsx-runtime 分成几个名字都能求值。
+ *
+ * 别名有两种形态，**两种都要认**：
+ * 1. 带对象前缀 —— `l.jsx(T, {…})`（0.1.7-alpha 及更早的产物）；
+ * 2. 裸函数调用 —— `jsx(T, {…})`（部分产物直接保留未压缩名）。
+ * 只认第 1 种时 `jsx` 会被当成模块内符号去 `definitionOf()` 里找，抓回一段无关的压缩代码，
+ * 求值抛 `j is not defined`，**整个图标提取失败**（`check.js` 退出 1，后面所有断言都不再跑）。
  *
  * @param definition - 图标组件的定义表达式源码。
  * @returns 组件函数。
  */
 function evaluateIconDefinition(definition) {
-  const aliases = new Set()
+  const aliases = new Set(['u', 'react_jsx_runtime', 'React'])
   for (const match of definition.matchAll(/\b([A-Za-z0-9_$]+)\s*\.\s*(?:jsxs?|createElement)\s*\(/gu)) aliases.add(match[1])
-  aliases.add('u')
-  aliases.add('react_jsx_runtime')
-  aliases.add('React')
+  // React hook 的别名（`j.useId()`）与 JSX 工厂常常不是一个名字，必须一起探测：
+  // rc.2 起新图标会在 artwork 里调用 `useId()`。
+  for (const match of definition.matchAll(/\b([A-Za-z0-9_$]+)\s*\.\s*use[A-Z][A-Za-z0-9_$]*\s*\(/gu)) aliases.add(match[1])
+  for (const name of JSX_RUNTIME_NAMES) {
+    if (new RegExp(`(?<![A-Za-z0-9_$.])${name}\\s*\\(`, 'u').test(definition)) aliases.add(name)
+  }
   const names = [...aliases]
   const factory = new Function(...names, `return (${definition})`)
   return factory(...names.map(() => jsxRuntime))
@@ -302,7 +333,7 @@ const RESERVED_IDENTIFIERS = new Set([
   'true', 'false', 'null', 'undefined', 'this', 'return', 'new', 'typeof', 'instanceof', 'in', 'of', 'void', 'delete',
   'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue', 'function', 'class', 'const', 'let', 'var',
   'try', 'catch', 'finally', 'throw', 'await', 'async', 'yield', 'default', 'export', 'import', 'extends', 'super',
-  'u', 'l', 'React', 'react_jsx_runtime', 'props', 'children', 'Math', 'Number', 'String', 'Object', 'Array', 'JSON'
+  'u', 'l', 'React', 'react_jsx_runtime', ...JSX_RUNTIME_NAMES, 'props', 'children', 'Math', 'Number', 'String', 'Object', 'Array', 'JSON'
 ])
 
 /**
@@ -446,7 +477,17 @@ function extractIcons(source, exports) {
       continue
     }
     const idPrefix = `dshIcon${icons.length}`
-    let svg = serializeSvg(tree, idPrefix)
+    // 序列化会把函数组件继续展开（`type(props)`），所以它同样可能执行到模块内部代码。
+    // 这一步**必须自己兜住**：一个图标炸掉不该掀翻整个提取，否则 `check.js` 只会报一句
+    // 无关的运行期错误、连 drift 都算不出来（rc.2 的 `IconArchiveOffOutline` 就是这样
+    // 让整轮检查以 `j is not defined` 失败的）。坏掉的图标降级成 `unrenderable`。
+    let svg
+    try {
+      svg = serializeSvg(tree, idPrefix)
+    } catch (error) {
+      unrenderable.push({ name, reason: `serialize: ${error.message}` })
+      continue
+    }
     if (svg === '') {
       unrenderable.push({ name, reason: 'empty-svg' })
       continue

@@ -620,9 +620,31 @@ async function measureFixture(htmlPath, options = {}) {
     browserWs ??= /DevTools listening on (ws:\/\/\S+)/u.exec(text)?.[1]
   })
 
-  const stop = () => {
+  // 先等子进程真的退出，再删 profile 目录。SIGTERM 之后 Chrome 仍在往 userDataDir 里落盘，
+  // 立刻 `rmSync` 会以 `ENOTEMPTY` 失败，让整轮几何验证直接退出 1 —— 与插件本身无关的
+  // 假失败（实测在 rc.2 上偶发，四个有导航补丁的插件里命中两个）。超时后升级为 SIGKILL，
+  // 并且删除本身带重试。
+  const stop = async () => {
     if (!child.killed) child.kill('SIGTERM')
-    fs.rmSync(userDataDir, { recursive: true, force: true })
+    await new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolve()
+        return
+      }
+      const timer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          // 已经退出，忽略
+        }
+        resolve()
+      }, 5000)
+      child.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
   }
 
   try {
@@ -669,7 +691,7 @@ async function measureFixture(htmlPath, options = {}) {
     }
     console.log(`${TOOL_NAME}: 六项检查全部通过（位置一致、原 svg 被盖住、mask 生效、方块尺寸一致、壳层行未被动过）`)
   } finally {
-    stop()
+    await stop()
   }
 }
 
