@@ -39,7 +39,7 @@ dsh plugin --profile web remove dsh-auto-load-history     # 卸载
 ## 要求
 
 - **不用重启也能用**：这是纯客户端插件，改 `client.js` 后刷新页面即可（除非组成变化）。
-- 支持范围：`@deepseek-ai/dsh >=0.1.7-alpha.1 <0.1.8`，其中 `0.1.7-alpha.1` 已逐版本核对。同线后续版本可带警告运行，客户端继续用能力检查决定是否启用（缺少 `SessionFace.loadOlder`/`loadThrough` 时保持惰性，不会报错）；跨到 `0.1.8` 之前必须重新读取 DSH 源码与实时契约。
+- 支持范围：`@deepseek-ai/dsh >=0.1.7-alpha.1 <0.1.8`，其中 `0.1.7-alpha.1`、`0.1.7-rc.2` 已逐版本核对。同线后续版本可带警告运行，客户端继续用能力检查决定是否启用（缺少 `SessionFace.loadOlder`/`loadThrough` 时保持惰性，不会报错）；跨到 `0.1.8` 之前必须重新读取 DSH 源码与实时契约。
 
 ## 已知限制
 
