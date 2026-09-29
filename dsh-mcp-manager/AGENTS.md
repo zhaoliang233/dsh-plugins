@@ -1,7 +1,7 @@
 # dsh-mcp-manager — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.1.7-alpha.2`，兼容线 `>=0.1.7-alpha.1 <0.1.8`；逐版本验证过 `0.1.7-alpha.2`（跑过完整单测 + 真机 GUI 验收）。
+> 目标 DSH `0.1.7-rc.2`，兼容线 `>=0.1.7-alpha.1 <0.1.8`；逐版本验证过 `0.1.7-alpha.2`（单测 + 真机 GUI）与 `0.1.7-rc.2`（单测 + 真机 GUI 52/52 + CSRF 14 例 + 对账幂等实测）。
 
 ## 一句话
 
@@ -43,20 +43,30 @@
 
 结论：动态挂载/卸载、两种传输、与 host 全局工具层的关系都已证实。**这份探针不在交付包里**（在 `/tmp/dsh-mcp-spike/`），但它证明了 README 里「不需要重启」的说法。（这张表是 0.1.6 线做的；0.1.7 线的等价路径由下面那张表和真机 GUI 验收覆盖。）
 
-## 本插件在隔离宿主上的端到端实测（0.1.7-alpha.2）
+## 本插件在隔离宿主上的端到端实测（0.1.7-alpha.2 起，rc.2 复跑）
 
-用独立 `DSH_HOME=/tmp/dsh-mcp-migrate/home` + 从 web 模板新建的 `mcpcheck` profile 装**本插件自己**（`link:`）并启动宿主（`--port 3099`，全程不碰用户正在用的 3080），逐项核对用户可见承诺：
+用独立 `DSH_HOME`（alpha.2 那轮是 `/tmp/dsh-mcp-migrate/home`，rc.2 这轮是 `/tmp/dsh-mcp-rc2`）+ 从 web 模板初始化出的 profile 装**本插件自己**（`link:`）并启动宿主（`--port 3099`，全程不碰用户正在用的 3080），逐项核对用户可见承诺。**首次落地在 `0.1.7-alpha.2`；下表每一行都在 `0.1.7-rc.2` 上重新跑过一遍**（rc.2 的 `dsh-mcp-client` / `dsh-credentials` / `dsh-config-editor` / `dsh-settings` 与 alpha.2 逐字相同，复核重点因而落在动态挂载与对账链上）：
 
 | 场景 | 实测结果 |
 |---|---|
-| 启动装配 | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`dshVersion=0.1.7-alpha.2`、`versionSupported=true` |
-| 直接往 profile 的 `cordis.patch.yml` 写 `- id: dsh-mcp-manager` 的 `config.servers` | 4~6 秒内热加载：`lastReconcile.reason=settings` → `mounted:["spike"]`，拿到 `mcp__spike__spike_echo` 等 20 个工具——**证明 `loader/volatile-update` 事件确实到达插件并触发对账**（换线时最关键、最容易静默失效的一环） |
-| 组合层手写一行 MCP（URL 查询串带 token + `Authorization: Bearer …`） | `profileTargets` 给出 `include:mcp-patchy`、`endpoint` 去掉查询串、`headerKeys:["Authorization"]`；整个状态载荷里 `SHOULD-NOT-LEAK` 出现 0 次 |
-| 官方设置写入路径（真机 GUI 里的新增/编辑/启停/删除） | 客户端 `configForms.get('dsh-mcp-manager').mutate` → 宿主 `settings.mutate` → `configEditor` 写 profile patch → `loader/volatile-update` → 对账；`live.state=mounted`、工具 20 个 |
-| 写入落盘形态 | 官方 `configEditor` 把值写进该 profile 的 `cordis.patch.yml` 里 `dsh-mcp-manager` 那一条的 `config`——与用户手写的 MCP 条目**同文件、不同条目**；手写注释与 `!!js` 表达式未被触碰 |
-| 真机 GUI 验收（`scripts/gui-flow.mjs`：CDP + 无头 Chrome） | **52/52 通过**（含导入脱敏、验证前置、浮层 228x145 在面板内、20 个工具名齐全、可滚动） |
+| 启动装配（alpha.2 + rc.2） | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`versionSupported=true`；`dshVersion` 分别为 `0.1.7-alpha.2` / `0.1.7-rc.2` |
+| 直接往 profile 的 `cordis.patch.yml` 写 `- id: dsh-mcp-manager` 的 `config.servers`（alpha.2 + rc.2） | 4~6 秒内热加载：`lastReconcile.reason=settings` → `mounted:["spike"]`，拿到 `mcp__spike__spike_echo` 等 20 个工具——**证明 `loader/volatile-update` 事件确实到达插件并触发对账**（换线时最关键、最容易静默失效的一环） |
+| 组合层手写一行 MCP（URL 查询串带 token + `Authorization: Bearer …`）（alpha.2 + rc.2） | `profileTargets` 给出 `include:mcp-patchy`、`endpoint` 去掉查询串、`headerKeys:["Authorization"]`；整个状态载荷里 `SHOULD-NOT-LEAK` 出现 0 次 |
+| 官方设置写入路径（真机 GUI 里的新增/编辑/启停/删除）（alpha.2 + rc.2） | 客户端 `configForms.get('dsh-mcp-manager').mutate` → 宿主 `settings.mutate` → `configEditor` 写 profile patch → `loader/volatile-update` → 对账；`live.state=mounted`、工具 20 个 |
+| 写入落盘形态（alpha.2 + rc.2） | 官方 `configEditor` 把值写进该 profile 的 `cordis.patch.yml` 里 `dsh-mcp-manager` 那一条的 `config`——与用户手写的 MCP 条目**同文件、不同条目**；手写注释与 `!!js` 表达式未被触碰 |
+| 真机 GUI 验收（`scripts/gui-flow.mjs`：CDP + 无头 Chrome）（alpha.2 + rc.2） | 两轮都 **52/52 通过**（含导入脱敏、验证前置、浮层在面板内、20 个工具名齐全、可滚动）；rc.2 上连跑两次都是 52/52，浮层实测 `279x205` 在面板 `472x335` 内 |
+| **rc.2 专项**：鉴权/CSRF 边界 | 14/14：缺自定义客户端头 403、头值非 `1` 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、动作路由错/缺 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、方法不符 405、非 JSON 415、同源头 + 正确 CSRF 200 |
+| **rc.2 专项**：对账幂等与凭据链 | 配置指纹未变时连续对账 `mounted:[] / unmounted:[] / unchanged:["srv-idem-a"]`，`live.mountedAt` 不变（无偷偷重挂）；引用未配置凭据的条目被拦（`blockedReason` 指名缺哪个键、`live.state=null`），把值写进 `.credentials.yaml` 后再对账即挂载（同轮 `mounted` 里有它、`blocked` 里没有它；`unchanged` 始终不含它 —— 被拦条目每轮重算，这是能从被拦恢复的前提） |
 
 > 0.1.6 线那张旧表（`/tmp/dsh-mcp-spike/home2`，往 `settings.yaml` 写条目、按 `settings` scope 的 watch 对账）已随换线失效：那条链在 0.1.7 里不存在了。
+
+### 逐版本核对记录
+
+| DSH 版本 | 本轮核对方式 | 结论 |
+|---|---|---|
+| `0.1.7-alpha.2` | 逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 契约差异后换线；隔离宿主端到端 + 真机 GUI 52/52 | 首次验证通过（本节上表的首次落地） |
+| `0.1.7-rc.2`（2026-09-29） | 复用工作区已做的逐包 diff（`dsh-mcp-client` / `dsh-credentials` / `dsh-config-editor` / `dsh-settings` / `dsh-host-webserver` 与 alpha.2 **逐字相同**；真的动过的是 `dsh-app-boot` +424/-48、`dsh-plugin-manager` +757/-154、`dsh-tools` 仅新增 `displayReason` 字段）；在**独立的 `DSH_HOME=/tmp/dsh-mcp-rc2`** 上重跑端到端断言 + 真机 GUI（连跑两次 52/52）+ 14 例鉴权/CSRF + 对账幂等与凭据链实测；`npm run verify` 99/99 | 通过，**代码无需适配**：动态挂载链路（`ctx.plugin` / `fiber.dispose` / `loader/volatile-update` → 对账）在 rc.2 上行为不变；本插件不声明 `peerDependencies`，rc.2 新增的插件兼容预检不门禁本条目（`runtime=ready`、`settingsAvailable=true` 证明装配期没抛错）；设置/凭据/配置编辑三条链路的契约包逐字相同，实测也照旧 |
+| 其它 `0.1.7-*` prerelease | 未逐版本核对 | 落在兼容线内、带警告运行；能力探测仍是权威判定 |
 
 ## 结构
 
@@ -157,6 +167,8 @@
 
 - **只写自己那一条，不改写用户手写的行**：`cordis.patch.yml` 里可能有手写注释与 `!!js` 表达式；组合层的 MCP 行只读展示 + 导入，不改写（与 `dsh-local-plugin-manager` 的受管区块策略不同——这里没有必须落盘的持久层，官方设置通道会写本插件自己条目的 `config`，那是官方 `configEditor` 的行为，不是本插件在编辑 YAML）。
 - **别人条目的变化不会触发对账，但会即时提示**：运行期往 patch 里加一条与托管条目同名的行时，状态接口每次读取都会给出 `conflictNote`（纯读，不产生挂载动作）；真正把它列入 `blocked` 并停掉托管实例要等下一次对账（本插件条目 config 变化、凭据写入或手动「重新对账」）。中间这段时间里，配置文件那一条会自己报 `serverName already in use` 而加载失败。
+- **被拦条目每轮对账都会重算，这是"能从被拦恢复"的前提**：`planReconcile` 里被拦的条目**不进** `unchanged`，所以"缺凭据 → 补上凭据 → 再对账即挂载"这条路是通的（代价是它每轮都会被重试一次）。注意 `lastReconcile.mounted` 是**本轮候选**而不是"挂上了"：凭据缺失是在 `mount-manager.reconcile` 里、`mount()` 之前才补进 `blocked` 的（`plan.js` 是同步纯函数，凭据 `resolve()` 是异步的，判定只能放在后面），而 `mounted` 直接由 `plan.mount` 映射而来——所以同一轮里一个条目**可以同时出现在 `mounted` 和 `blocked`**。判断真实结果只看状态接口的 `live.state`。
+- **在 profile 的 `cordis.patch.yml` 里加"新条目"必须用 `- insert:` 形态**：该文件是 patch 层，顶层裸 `- id: …` 只表示"改一条**已存在**的条目"，写新 id 时 DSH 只打印 `patch: entry "…" not found`（不报错、不新增，很容易误以为"写进去了"）。本插件自己的 `cordis.patch.yml` 用的就是 `- insert:`，照抄即可。
 - **`~/.dsh/.env` 里的 token 仍需重启**才能被 `!!js process.env.X` 看到——那是进程启动快照，与本插件无关；托管条目 + `credential:KEY` 才是免重启路线。
 - **凭据来源为进程环境时只读**：`describe()` 返回 `writable:false`，界面会禁用输入。
 - 删除托管条目不会删除已写入的 `.credentials.yaml` 记录（凭据可能被别的条目共用）。
@@ -171,8 +183,12 @@ npm run check       # node --check ×10 + bash -n ×2
 npm test            # 99 项：store 13 / plan 10 / mount-manager 12 / targets 10 / host 16 / client 38
 npm run pack:check  # 发布物 = 12 个文件
 npm run publish:check   # = verify + pack:check，已绑定 prepublishOnly
-npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（0.1.7-alpha.2 上 52/52 通过）
+npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（52/52，0.1.7-alpha.2 与 0.1.7-rc.2 都是）
 ```
+
+> `gui:check` 跑的是**隔离宿主**：`DSH_HOME=/tmp/<隔离目录> dsh --profile web --port <非 3080> --no-open`（首次会初始化 profile），再装 `link:` 本插件并起无头 Chrome。**别用 `--port 0`**：脚本要从 URL 里取 `port`，随机端口它读不到。
+> 「导入」那两条断言需要 profile 里**有**手写的 MCP 行，且约定是 **第 1 行带 `Authorization` 的 URL 条目、服务器名 `patchy2`**（脚本按第一个只读行取期望的凭据键名 `MCP_PATCHY2_HEADERS_AUTHORIZATION` 与服务器名）。本轮把两行都写成 `dsh-mcp-client` 的 stdio fixture（20 个工具），所以「导入」后的期望值就锚在这两行上；换隔离环境时要么照这个顺序放，要么同步改脚本里的期望名。
+> **注意 `- insert:` 形态**：profile 的 `cordis.patch.yml` 是 patch 层，顶层裸条目只会得到 `patch: entry "…" not found`（不报错、也不新增）；新增条目必须写成 `- insert: [{ id, name, config }]`（与本插件自己的 `cordis.patch.yml` 同款）。
 
 - `test/mount-manager.test.js` 用假 ctx（`plugin()` 返回可 await/可 dispose 的 fiber）驱动真实对账逻辑，不依赖宿主。
 - `test/client.test.js` 在 `node:vm` 沙箱里加载 bundle（React 用 `test/harness.js` 的**可渲染**运行时），验证 slot 注册、`configForms.get('dsh-mcp-manager')` 的条目 id 绑定、导航补丁的三处同源与可回滚、样式注入与引用计数，以及**真渲染 + 真点击**的接线守卫：点「+」只开弹窗且不写设置且**没有单独的验证按钮**、点保存会先调一次 verify 且通过才写盘、验证失败时不落盘且原因就地显示、每次保存都重新验证（不复用上次结果）、编辑走同一弹窗且预填、宿主缺 `actions`/返回 `unknown action` 时提示重启并禁用保存、开关必须写回停用、删除必须先确认、写完必须等到宿主对账追上（不留在旧结论上）。
@@ -184,7 +200,12 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   #
 - **本机真实宿主上已验证**（0.1.6 线，用户重启后；换线后由上面「隔离宿主上的端到端实测（0.1.7-alpha.2）」一节取代）：`runtime=ready`、`settingsAvailable=true`、模块走 `loader-import`；`profileTargets` 正确列出用户 patch 里的 `figma`/`jira`（jira 的 `Authorization` 只给键名，`JIRA_MCP_BASIC` 的值与任何 `Basic ` 明文都不在载荷里）；无自定义客户端头 403、错误 CSRF 403。
 - **只读块（配置文件中的服务器）的文案不得出现实现细节**：曾经在页面上写「这些行来自 profile 的 cordis.patch.yml（含 !!js 表达式），本插件不修改该文件…」——用户直接反馈「很乱、说明描述了一些跟具体配置有关的信息，明显不合理」。现在页面上只有标题 +「只读 · 值不显示」，实现细节留在文档里；`test/client.test.js` 与 `scripts/gui-flow.mjs` 都断言渲染文本里不出现 `profile` / `cordis.patch.yml` / `!!js` / `本插件不修改`。
 - 只读块**不复用托管行的 `.dmm-row` 样式**，自己成卡片（`.dmm-targets`/`.dmm-target`）：两者层级不同，混用会让人以为它也是可编辑条目。
-- **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，52/52，跑在 DSH `0.1.7-alpha.2` 上）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmm-tools`/高度 <60px）；官方浮层的宽高都在 `.dmm-section` 之内（实测 `232x202` vs 面板 `464x389`，`insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
+- **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，52/52；`0.1.7-alpha.2` 与 `0.1.7-rc.2` 上各通过；rc.2 上连跑两次都 52/52）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmm-tools`/高度 <60px）；官方浮层的宽高都在 `.dmm-section` 之内（alpha.2 实测 `232x202` vs 面板 `464x389`，rc.2 实测 `279x205` vs `472x335`，都是 `insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
+- **验收脚本必须能自己"报死"，不能静默挂死**（2026-09-29 实测踩到）：第一次在 rc.2 上跑 `gui:check` 时，脚本推进到「填服务器名」之后**整整 10 分钟没有任何输出也不退出**（`ps` 看着进程活着、CPU 0%、CDP socket 仍是 ESTABLISHED），最后只能手工杀掉。根因是脚本自己的超时清理写错了位置：
+  ```js
+  pending.set(next, { resolve, reject }); socket.send(...); setTimeout(() => { if (pending.delete(next - 1)) reject(...) }, 30000)
+  ```
+  `next` 在 `send` 里自增，超时回调按 `next - 1` 去删**永远删不到**已发出的那条 → 超时既不 reject 也不 resolve，`await` 就永久挂着。修法三件套：① 请求 id 当场捕获、`clearTimeout` 在收到响应时清理；② 连接 `close` 时把在途请求全部 reject；③ 加 5 分钟看门狗 + 步骤名（`enterStep`），超时带着"卡在哪一步"失败退出。**结论**：这是脚本缺陷、不是插件缺陷——重跑两次都 52/52；但下次「仪器"卡住"」时，先怀疑脚本，再怀疑被测对象。
 - **两个由真机验收（而不是单测）发现的缺陷**，都已修并补了会失败的护栏：
   1. 点「+」什么都不做——组件只把 `adding` 置真却没有任何渲染分支，`add()` 从未被调用（空状态文案还在引导用户点它）。现在「+」打开弹窗表单（用户后续又要求：不要直接落空条目、要"验证通过才保存"）。守卫：`test/client.test.js` 的「接线守卫」用例，注入此缺陷即失败。
   2. 保存后行上会一直挂着**旧的对账结论**（比如刚把 stdio 改成 HTTP，行上仍是「必须填写可执行命令」）——设置写入触发的宿主对账晚于客户端那一次状态读取，而客户端只读一次。现在所有写路径都走 `refreshAfterWrite()`：带写入时刻重读，直到 `lastReconcile.at` 追上来（最多 6 次 / 约 4 秒）。守卫：同名用例，把 `refreshAfterWrite()` 改回 `refresh()` 即失败。

@@ -4,7 +4,7 @@
  * 职责：把「MCP 服务器清单」做成设置页可维护的数据，并在运行时投影成真正
  * 运行的 MCP 客户端实例——不写用户的 profile patch、不需要重启宿主。
  *
- * 关键机制（已按 DSH 0.1.7-alpha.2 源码核对，并在隔离环境实机验证）：
+ * 关键机制（已按 DSH 0.1.7-rc.2 源码核对，并在隔离环境实机验证）：
  * - **设置就是本条目在 profile 里的 config**：模块导出 schemastery `Config`，
  *   字段全部 `.volatile()`，loader 在「只有 volatile 字段变化」时就地更新运行中
  *   fiber 的引用并发出 `loader/volatile-update`，插件据此重跑一次对账；

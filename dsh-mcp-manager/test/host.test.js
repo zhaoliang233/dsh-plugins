@@ -20,11 +20,14 @@ import {
 } from '../lib/index.js'
 import { unwrapModule } from '../lib/dsh.js'
 
-test('版本门：线内通过、线外拒绝，且只把已核对过的 0.1.7-alpha.2 当逐版本验证版本', () => {
+test('版本门：线内通过、线外拒绝，且只把已核对过的 0.1.7-alpha.2 / 0.1.7-rc.2 当逐版本验证版本', () => {
   assert.deepEqual(classifyDshVersion('0.1.7-alpha.2'), { supported: true, verified: true, normalized: '0.1.7-alpha.2' })
+  assert.deepEqual(classifyDshVersion('0.1.7-rc.2'), { supported: true, verified: true, normalized: '0.1.7-rc.2' })
   assert.deepEqual(classifyDshVersion('0.1.7-alpha.1'), { supported: true, verified: false, normalized: '0.1.7-alpha.1' })
   assert.equal(classifyDshVersion('0.1.7-beta.1').supported, true)
   assert.equal(classifyDshVersion('0.1.7-rc.3').supported, true)
+  // rc.3 落在兼容线内但没逐版本核对过 —— 只允许"带警告运行"，不能算已验证版本
+  assert.equal(classifyDshVersion('0.1.7-rc.3').verified, false)
   assert.equal(classifyDshVersion('0.1.7').supported, true)
   assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false, 'alpha.0 早于已核对契约')
   assert.equal(classifyDshVersion('0.1.6').supported, false, '上一发布线不再支持')

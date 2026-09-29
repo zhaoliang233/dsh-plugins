@@ -2,7 +2,7 @@
  * 纯逻辑：服务器条目的规范化、校验、凭据占位符、挂载配置生成。
  *
  * 本文件不依赖 Cordis、不碰文件系统，可被 `node --test` 独立驱动。
- * 契约与 @deepseek-ai/dsh-mcp-client 的 Config schema 对齐（0.1.7-alpha.2）：
+ * 契约与 @deepseek-ai/dsh-mcp-client 的 Config schema 对齐（0.1.7-rc.2 复核；该包与 alpha.2 逐字相同）：
  * - serverName 必须匹配 /^[A-Za-z0-9_-]{1,32}$/，且在一个注册作用域内唯一；
  * - stdio 必填 command，streamable-http 必填 url；
  * - toolCallTimeoutMs 默认 60000，failOnStartupError 默认 false。

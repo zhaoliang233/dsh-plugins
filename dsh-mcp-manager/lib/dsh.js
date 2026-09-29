@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path'
 /** 与本包 manifest 的 `dshCompatibility.range` / `engines.dsh` 同源。 */
 export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
 /** 逐版本核对过的 DSH 版本（其它同线版本带警告运行）。 */
-export const VERIFIED_DSH_VERSIONS = ['0.1.7-alpha.2']
+export const VERIFIED_DSH_VERSIONS = ['0.1.7-alpha.2', '0.1.7-rc.2']
 
 /**
  * 判定 DSH 版本是否落在已核对契约的兼容线内。
