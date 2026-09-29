@@ -47,6 +47,34 @@ const check = (name, ok, detail) => {
   console.log(`${ok ? '✓' : '✗'} ${name}${detail === undefined ? '' : ` — ${detail}`}`)
 }
 
+/** 当前脚本位置（失败信息里带上，免得只看到一句超时）。 */
+let stepName = '启动'
+const currentStep = () => `当前步骤：${stepName}`
+const enterStep = (name) => {
+  stepName = name
+}
+enterStep('连接 CDP')
+
+/**
+ * 立刻失败退出：脚本里的 `await` 只要有一处永远不落定，整个验收就会静默挂死
+ * （没有输出、没有栈、看不出停在哪一步）。所以任何致命错误都走这里，带上步骤名。
+ * @param {string} message
+ */
+const fail = (message) => {
+  console.error(`\n✗ 验收中断：${message}`)
+  process.exit(1)
+}
+
+/**
+ * 看门狗：真机验收是"有界"的（脚本里所有 sleep 加起来约 60 秒，加上宿主验证与对账
+ * 的等待也只有两三分钟）。超过这个上界还没结束，说明某一处卡住了；
+ * 与其挂到天荒地老，不如带着当前步骤名失败退出。
+ */
+const WATCHDOG_MS = 300000
+const watchdog = setTimeout(() => {
+  fail(`脚本超过 ${WATCHDOG_MS / 1000} 秒仍未结束（疑似某个 await 不落定）。${currentStep()}`)
+}, WATCHDOG_MS)
+
 async function hostStatus() {
   const response = await fetch(`http://127.0.0.1:${statusPort}/dsh-mcp-manager/status`, {
     headers: { 'x-dsh-mcp-manager-client': '1' }
@@ -72,16 +100,34 @@ async function connect() {
           const entry = pending.get(message.id)
           if (entry === undefined) return
           pending.delete(message.id)
+          clearTimeout(entry.timer)
           if (message.error !== undefined) entry.reject(new Error(JSON.stringify(message.error)))
           else entry.resolve(message.result)
         })
+        // 连接断掉时必须让在途请求失败并说明原因：否则请求会一直悬着，
+        // 整个脚本静默挂死（比报错更难排查）。
+        socket.addEventListener('close', () => {
+          for (const entry of pending.values()) {
+            clearTimeout(entry.timer)
+            entry.reject(new Error('CDP 连接已断开'))
+          }
+          pending.clear()
+        })
+        socket.addEventListener('error', () => {
+          fail('CDP 连接出错')
+        })
         const send = (method, params = {}) =>
           new Promise((resolve, reject) => {
-            pending.set(next, { resolve, reject })
-            socket.send(JSON.stringify({ id: next++, method, params }))
-            setTimeout(() => {
-              if (pending.delete(next - 1)) reject(new Error(`CDP timeout: ${method}`))
+            // 请求 id 必须**当场**捕获：早先写成 `setTimeout(() => pending.delete(next - 1))`，
+            // 而 `next` 在 send 里自增，超时回调按 `next - 1` 去删永远删不到已发出的那条，
+            // 于是超时既不 reject 也不 resolve —— 2026-09-29 实跑时脚本就是这样静默挂死 10 分钟的。
+            const id = next++
+            const timer = setTimeout(() => {
+              if (!pending.delete(id)) return
+              reject(new Error(`CDP 请求超时（${method}，30 秒）：${currentStep()}`))
             }, 30000)
+            pending.set(id, { resolve, reject, timer })
+            socket.send(JSON.stringify({ id, method, params }))
           })
         return {
           send,
@@ -245,6 +291,7 @@ window.__gui = {
 }
 `
 
+enterStep('导航到页面')
 const cdp = await connect()
 await cdp.send('Runtime.enable')
 await cdp.send('Page.enable')
@@ -261,6 +308,7 @@ const evaluate = async (expression) => {
   return await cdp.evaluate(expression)
 }
 
+enterStep('关闭首启弹层')
 // 先关掉首启引导 / 配 API Key 弹层：它会盖住设置面板，悬停事件全落在它身上（排查时踩过）。
 // 弹层文案随发布线变过（0.1.6 是「稍后配置」/「关闭」，0.1.7 的首启引导多了「继续」这一步），
 // 所以这里**循环点到没有弹层为止**而不是只认某一版的文案：只认旧文案时弹层会留着，
@@ -285,6 +333,7 @@ for (let step = 0; step < 8; step += 1) {
 const layersLeft = await evaluate(`document.querySelectorAll('[role="dialog"]').length`)
 check('首启弹层已关闭（否则真实鼠标事件全落在它身上）', layersLeft === 0, `dismissed=${dismissedLayers} left=${layersLeft}`)
 
+enterStep('打开设置分区')
 // 打开设置 → MCP 服务器
 await evaluate(`__gui.click('button', '设置')`)
 await sleep(1500)
@@ -306,6 +355,7 @@ check(
   JSON.stringify(initial.rows.slice(0, 2))
 )
 
+enterStep('导入配置文件里的条目')
 // 导入：必须把真实配置带进弹窗（URL / 命令 / 普通字段），但敏感值只能在凭据库里
 const serversBeforeImport = (await hostStatus()).servers.length
 await evaluate(`__gui.click('button', '导入')`)
@@ -339,6 +389,7 @@ check(
   JSON.stringify({ name: importedValues.headerName, key: importedValues.headerKey })
 )
 
+enterStep('凭据区交互')
 // 凭据交互：导入的敏感地址本来就是「凭据」形态；开关能双向切换，键名可以自己取
 const urlMode = await evaluate(`(() => {
   const input = document.querySelector('[aria-label="URL凭据键名"]')
@@ -461,6 +512,7 @@ check('地址前缀保持可见、密钥只留键名', urlSplit.prefix === 'http
 await evaluate(`__gui.click('button', '取消')`)
 await sleep(800)
 
+enterStep('新增：打开弹窗')
 // 新增：先弹窗（不落盘）→ 填表 → 验证 → 保存
 const name = `guiflow${Date.now().toString(16).slice(-5)}`
 const rowsBefore = (await evaluate(`__gui.rows()`)).length
@@ -483,6 +535,7 @@ check(
   JSON.stringify(nameLabel)
 )
 
+enterStep('新增：保存前自动验证（失败路径）')
 // 故意先填一个连不上的命令：点保存会自动验证，失败就不落盘
 await evaluate(`__gui.fill('服务器名', '${name}bad')`)
 await evaluate(`__gui.fill('命令', '/nonexistent-mcp-command')`)
@@ -495,6 +548,7 @@ check('验证失败不落盘、弹窗留在原地', failed !== null && (await ho
 await evaluate(`__gui.click('button', '取消')`)
 await sleep(800)
 
+enterStep('新增：保存前自动验证（通过路径）')
 // 再来一次：填本地 fixture 服务器，验证通过后保存
 await evaluate(`__gui.click('button', '新增服务器')`)
 await sleep(1200)
@@ -518,6 +572,7 @@ check('界面上该行显示最新状态（不是旧的对账结论）', row !==
 check('行上不出现旧原因', row !== undefined && !row.state.includes('必须填写'), `state=${String(row?.state)}`)
 check('这一行也只有一行（开关左 / 标题中 / 操作右）', row !== undefined && row.lines === 1 && row.switchFirst && row.actionsLast && row.hasToolsLine === false && row.height < 60, JSON.stringify(row))
 
+enterStep('悬停查看工具清单')
 // 悬停「已连接 · N 个工具」这个 tag：官方 Tooltip 的气泡 = 完整工具清单
 const tipTarget = await evaluate(`(() => {
   const tag = [...document.querySelectorAll('.dmm-status')].find((node) => (node.textContent ?? '').includes('已连接'))
@@ -557,6 +612,7 @@ if (tipTarget === null) {
   check('移开鼠标后浮层消失', (await evaluate(`document.querySelector('[role="tooltip"]') === null`)) === true)
 }
 
+enterStep('编辑条目')
 // 编辑：同一个弹窗，改备注名后重新验证再保存
 await evaluate(`__gui.click('button', '编辑 ${name}')`)
 await sleep(1200)
@@ -568,6 +624,7 @@ await sleep(9000)
 const renamed = (await evaluate(`__gui.rows()`)).find((row) => row.name === '自检改名')
 check('编辑保存生效（行上显示新备注名）', renamed !== undefined)
 
+enterStep('停用与删除')
 // 停用 → 卸载
 await evaluate(`__gui.click('.dmm-switch', '停用 ${name}')`)
 await sleep(6000)
@@ -586,6 +643,7 @@ check('删除后宿主清单里没有它', afterDelete.servers.every((server) =>
 const targetsAfter = await evaluate(`__gui.targets()`)
 check('配置文件里的条目未被触碰', afterDelete.profileTargets.length === initial.targets.length && targetsAfter.length === initial.targets.length, `profileTargets=${afterDelete.profileTargets.length} 界面行=${targetsAfter.length}`)
 
+clearTimeout(watchdog)
 console.log('\n===== 报告 =====')
 console.log(JSON.stringify(report, null, 2))
 if (failures.length > 0) {
