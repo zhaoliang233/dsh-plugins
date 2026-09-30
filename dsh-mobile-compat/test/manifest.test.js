@@ -29,36 +29,36 @@ test('manifest declares the formal dual-half Web plugin', () => {
   assert.match(installScript, /\[\[ "\$DSH_PROFILE" != "web" \]\]/)
 })
 
-test('compatibility matrix declares the verified 0.1.6 release line', () => {
+test('compatibility matrix declares the verified 0.1.7 release line', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.1.6-alpha.1 <0.1.7',
-    verifiedVersions: ['0.1.6-alpha.1', '0.1.6-alpha.2'],
+    range: '>=0.1.7-alpha.1 <0.1.8',
+    verifiedVersions: ['0.1.7-rc.2'],
     matrix: './compatibility.json',
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(matrix.schemaVersion, 2)
   assert.equal(matrix.policy, 'compatible-release-line')
-  assert.equal(matrix.range, '>=0.1.6-alpha.1 <0.1.7')
+  assert.equal(matrix.range, '>=0.1.7-alpha.1 <0.1.8')
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
-  assert.deepEqual(matrix.verifiedVersions, ['0.1.6-alpha.1', '0.1.6-alpha.2'])
+  assert.deepEqual(matrix.verifiedVersions, ['0.1.7-rc.2'])
   assert.equal(matrix.futureVersionsRequireCapabilityChecks, true)
-  assert.deepEqual(matrix.versions.map((entry) => entry.version), ['0.1.6-alpha.1', '0.1.6-alpha.2'])
+  assert.deepEqual(matrix.versions.map((entry) => entry.version), ['0.1.7-rc.2'])
   assert.equal(matrix.versions.every((entry) => entry.status === 'source-verified'), true)
   for (const id of ['app-frame-columns', 'workspace-header-controls', 'right-panel-chrome', 'right-panel-overlay-stacking', 'composer-dock-inline-cards', 'modal-and-popover-viewport']) {
     assert.equal(matrix.contracts.structural.some((entry) => entry.id === id), true, id)
   }
 
-  assert.match(readme, />=0\.1\.6-alpha\.1 <0\.1\.7/)
-  assert.match(readme, /0\.1\.6-alpha\.1/)
+  assert.match(readme, />=0\.1\.7-alpha\.1 <0\.1\.8/)
+  assert.match(readme, /0\.1\.7-rc\.2/)
   assert.match(agents, /兼容发布线/)
   assert.match(publishing, /兼容发布线/)
 })
 
 test('client source declares release-line, connection, and structure gates', () => {
-  assert.match(client, /DSH_COMPATIBILITY_RANGE = '>=0\.1\.6-alpha\.1 <0\.1\.7'/)
-  assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.1\.6-alpha\.1', '0\.1\.6-alpha\.2'\]\)/)
+  assert.match(client, /DSH_COMPATIBILITY_RANGE = '>=0\.1\.7-alpha\.1 <0\.1\.8'/)
+  assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.1\.7-rc\.2'\]\)/)
   // classifyDshVersion() derives the gate from DSH_RELEASE_LINE / DSH_MINIMUM_ALPHA, so those two
   // constants must still produce the declared range: a release-line bump that only edits the
   // range (or only the client constants) would otherwise pass every other gate.
@@ -93,7 +93,7 @@ test('the 44px touch floor stays off fixed-shape controls', () => {
   assert.match(client, /\[role='switch'\]::after/)
 })
 
-test('client probes the 0.1.6 sidebar/main/rightbar seats, not the retired conversation/details seats', () => {
+test('client probes the 0.1.7 sidebar/main/rightbar seats, not the retired conversation/details seats', () => {
   assert.match(client, /directSlot\(center, 'main'\)/)
   assert.match(client, /directSlot\(rightbar, 'rightbar'\)/)
   assert.doesNotMatch(client, /directSlot\(conversation, 'conversation'\)/)

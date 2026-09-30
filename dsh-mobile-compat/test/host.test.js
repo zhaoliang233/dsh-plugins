@@ -28,7 +28,7 @@ function invoke(route, method = 'GET', options = {}) {
   return { status, headers, body: JSON.parse(body) }
 }
 
-async function fakeDshPackage(version = '0.1.6-alpha.1') {
+async function fakeDshPackage(version = '0.1.7-rc.2') {
   const root = await mkdtemp(join(tmpdir(), 'dsh-mobile-host-'))
   const lib = join(root, 'lib')
   await mkdir(lib)
@@ -64,7 +64,7 @@ test('Host resolves an adjacent CLI package manifest and owns its status route',
   }
 
   try {
-    assert.deepEqual(readDshPackage(fixture.bin), { name: '@deepseek-ai/dsh', version: '0.1.6-alpha.1' })
+    assert.deepEqual(readDshPackage(fixture.bin), { name: '@deepseek-ai/dsh', version: '0.1.7-rc.2' })
     assert.equal(PLUGIN_NAME, 'dsh-mobile-compat')
     assert.deepEqual(inject, [])
     assert.equal(plugin.name, PLUGIN_NAME)
@@ -80,7 +80,7 @@ test('Host resolves an adjacent CLI package manifest and owns its status route',
     assert.deepEqual(response.body, {
       ok: true,
       package: '@deepseek-ai/dsh',
-      version: '0.1.6-alpha.1'
+      version: '0.1.7-rc.2'
     })
 
     const unauthenticated = invoke(route, 'GET', { authenticated: false })

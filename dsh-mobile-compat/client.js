@@ -48,9 +48,9 @@ window.__ModuleLoader__.load({
     const TITLE_STRIP_ATTRIBUTE = 'data-dsh-mobile-title-strip'
     const SIDEBAR_ID = 'dsh-mobile-sidebar'
     const STATUS_PATH = '/dsh-mobile-compat/status'
-    const DSH_COMPATIBILITY_RANGE = '>=0.1.6-alpha.1 <0.1.7'
-    const VERIFIED_DSH_VERSIONS = new Set(['0.1.6-alpha.1', '0.1.6-alpha.2'])
-    const DSH_RELEASE_LINE = '0.1.6'
+    const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
+    const VERIFIED_DSH_VERSIONS = new Set(['0.1.7-rc.2'])
+    const DSH_RELEASE_LINE = '0.1.7'
     const DSH_MINIMUM_ALPHA = 1
     const MOBILE_QUERY = '(max-width: 720px), (pointer: coarse) and (max-width: 900px)'
     const DSH_NARROW_BREAKPOINT = 1024
@@ -152,10 +152,10 @@ body[${BODY_ATTRIBUTE}] {
   }
 
   /* The rightbar column keeps its zero-width grid track. Do NOT hide the column:
-     0.1.6 renders the right panel as an absolutely positioned overlay inside it
-     (position: fixed and inset: 0 while fullscreen, which is automatic below
-     768px), so display:none on the column would collapse the open right sidebar
-     to 0x0 and make it impossible to display on mobile. */
+     0.1.7 renders the right panel as an absolutely positioned overlay inside it
+     (100vw wide while fullscreen, which is derived from a viewport below 768px),
+     so display:none on the column would collapse the open right sidebar to 0x0
+     and make it impossible to display on mobile. */
 
   body[${BODY_ATTRIBUTE}] [${SHELL_ATTRIBUTE}] > [data-side] {
     display: none !important;
@@ -550,7 +550,9 @@ body[${BODY_ATTRIBUTE}] {
     min-height: 44px;
   }
 
-  /* 0.3.7: 0.1.6 renders the right sidebar as a dockkit panel that goes fullscreen below 768px.
+  /* 0.3.7, re-checked for 0.1.7: the right sidebar is a dockkit panel that goes fullscreen below
+     768px. dockkit was rewritten for that line, but the attribute names used here survived it
+     verbatim (only the tab close control's value changed from a boolean to the tab id).
      Only the pane body lacks a data attribute, so that single rule anchors on its class suffix;
      the strip and its chrome are named through dockkit's own data attributes. When either drifts
      the selectors stop matching and the panel falls back to DSH's own rendering.
@@ -760,10 +762,11 @@ body[${BODY_ATTRIBUTE}] {
       return null
     }
 
-    // 0.1.6 composes the center column as centerCol > main seat > (main.conversation
-    // Slot anchor) > ConversationRoot. Descend through the single-child Slot anchors
-    // that render as display:contents until the root whose last direct child holds a
-    // direct [data-conversation-scroll] appears, without naming internal slot ids.
+    // 0.1.7 composes the center column as centerCol > main seat (a keyed slot whose
+    // entry is picked by panelInfo.activePanelId) > (main.conversation Slot anchor) >
+    // ConversationRoot. Descend through the single-child Slot anchors that render as
+    // display:contents until the root whose last direct child holds a direct
+    // [data-conversation-scroll] appears, without naming internal slot ids.
     // Returns null while the seat holds something else — the plugin manager page, for
     // example — which is a valid shell, just not a conversation.
     function resolveConversationRoot(mainSeat) {
@@ -984,7 +987,7 @@ body[${BODY_ATTRIBUTE}] {
       saved.ownedValue = null
     }
 
-    /** The session header's title cluster (0.1.6: titleRow > titleCluster). */
+    /** The session header's title cluster (0.1.7: titleRow > titleCluster). */
     function titleCluster() {
       if (typeof document === 'undefined') return null
       const conversation = document.querySelector(`[${CONVERSATION_ATTRIBUTE}]`)
@@ -1391,8 +1394,8 @@ body[${BODY_ATTRIBUTE}] {
 
         const label = sidebarCollapsed ? openLabel : closeLabel
         // The same icon token the right panel's own control draws (dsh-client-ui-sidebar-right
-        // draws IconPanelLeftOutline16 on 0.1.6 and IconPanelLeftOutlineRegular on 0.1.7; our
-        // local token takes …Medium — identical paths, a slightly heavier stroke — at size 15),
+        // draws IconPanelLeftOutlineRegular on this line — 0.1.6 spelled it IconPanelLeftOutline16;
+        // our local token takes …Medium — identical paths, a slightly heavier stroke — at size 15),
         // so the pair reads as one icon family — measured ink identical (15x14.06, same y) once
         // both are drawn this way.
         const icon = sidebarCollapsed

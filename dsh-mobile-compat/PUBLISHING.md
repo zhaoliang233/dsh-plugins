@@ -12,8 +12,8 @@ npm publish --dry-run      # 跑 prepublishOnly 并构造包，不上传
 ## 打 tag
 
 ```bash
-git tag dsh-mobile-compat-v0.3.2        # 换成本次发布的版本，必须与 package.json#version 完全一致
-git push origin dsh-mobile-compat-v0.3.2
+git tag dsh-mobile-compat-v0.4.0        # 换成本次发布的版本，必须与 package.json#version 完全一致
+git push origin dsh-mobile-compat-v0.4.0
 ```
 
 ## 安装路线
@@ -26,7 +26,7 @@ git push origin dsh-mobile-compat-v0.3.2
 release_root="$(mktemp -d /tmp/dsh-mobile-compat-release.XXXXXX)"
 mkdir -p "$release_root/artifacts"
 npm pack --ignore-scripts --pack-destination "$release_root/artifacts"
-tarball="$release_root/artifacts/dsh-mobile-compat-0.3.2.tgz"   # 换成本次发布的版本
+tarball="$release_root/artifacts/dsh-mobile-compat-0.4.0.tgz"   # 换成本次发布的版本
 DSH_HOME="$release_root/dsh-home" \
   dsh plugin --profile web add "$tarball" --config.minimumReleaseAge=0
 DSH_HOME="$release_root/dsh-home" dsh web --dump-config
@@ -56,3 +56,11 @@ npm run test:browser
 ## CI
 
 `.github/workflows/ci.yml` 在 Node.js 20/22 上执行 `npm run publish:check`，不发布任何东西；发布是 `.github/workflows/release.yml` 的独立作业，走 OIDC 认证。
+
+## 跨发布线时的额外要求
+
+跨到新的兼容发布线（本次是 `0.1.6` → `0.1.7`）必须按插件 `AGENTS.md` 的「升级验证」七步走完，并且：
+
+- **逐包 diff 不能只看名字**：把两个版本共有的 `dsh-client-*` 发布包按 `lib/client.js` 的 sha256 逐包比对（`npm pack` 拉旧版本，与本机运行包对比），并把 seed 进 `dsh-web-frontend` 的 `index-*.js` / `index-*.css` 一起比 —— primitives、slots 与 dockkit 都在那里。
+- **浏览器回归要在与用户实际运行一致的 bundle 组成上跑**（至少带上 `@deepseek-ai/dsh-experimental-agent-team-profile`），否则标题栏 strip 里没有可量控件，断言会以「没有东西可量」的形式失败。
+- **上一发布线继续由上一发布线的插件版本服务**：本次 `0.3.7` 停在 `>=0.1.6-alpha.1 <0.1.7`，`0.4.0` 起服务 `>=0.1.7-alpha.1 <0.1.8`；不要用同一个版本同时服务两条线。

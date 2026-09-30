@@ -19,7 +19,7 @@
 
 ## 要求
 
-- DeepSeek Harness Web `>=0.1.6-alpha.1 <0.1.7`；`0.1.6-alpha.1` 与 `0.1.6-alpha.2` 已逐版本核对（两者的客户端产物逐文件比对只差 `agent-preset` 与 `cordis` 两个包）。同线后续 alpha/beta/rc/正式版允许带警告运行，并继续由公开能力与精确 DOM 结构检查 fail closed；跨到 `0.1.7`、低于 `0.1.6-alpha.1` 或落在其他发布线时拒绝运行。
+- DeepSeek Harness Web `>=0.1.7-alpha.1 <0.1.8`；`0.1.7-rc.2` 已逐版本核对（读的是该版本的发布包与本机运行包，并在隔离宿主 + 无头 Chromium 上重跑完整尺寸矩阵）。同线后续 alpha/beta/rc/正式版允许带警告运行，并继续由公开能力与精确 DOM 结构检查 fail closed；低于 `0.1.7-alpha.1`、跨到 `0.1.8` 或落在其他发布线时拒绝运行（`0.1.6` 及更早的版本请用 `0.3.7`）。
 - 浏览器需要支持 `:has()`：建议 iOS Safari 15.4 或同等能力的 Chromium。
 - Node.js 20 或更高版本（仅安装与发布检查需要）。
 
@@ -27,7 +27,7 @@
 
 ```bash
 dsh plugin --profile web add dsh-mobile-compat        # 安装
-dsh plugin --profile web add dsh-mobile-compat@0.3.6  # 升级到指定版本
+dsh plugin --profile web add dsh-mobile-compat@0.4.0  # 升级到指定版本
 dsh plugin --profile web remove dsh-mobile-compat     # 卸载
 ```
 

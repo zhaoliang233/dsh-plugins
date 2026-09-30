@@ -177,49 +177,153 @@ async function pasteAttachment() {
 
 // The phone header (and the strip inside it) only exists once a session with a conversation is
 // mounted; a fresh isolated instance otherwise fails the header assertions for the wrong reason.
+// DSH hides that chrome while a session is blank, so bootstrapping a cold profile means selecting
+// the blank session and sending one probe message. That handshake is timing sensitive (the reply
+// never arrives — an isolated profile has no credentials), so the whole sequence gets one retry
+// before the caller is told there is no session to measure.
 async function ensureSession() {
-  const hasCluster = () => evaluate(`Boolean(document.querySelector("[data-dsh-mobile-conversation-compatible] [class*='titleRow'] [class*='titleCluster']"))`)
-  const settle = async () => {
-    try {
-      await waitFor(`Boolean(document.querySelector("[data-dsh-mobile-conversation-compatible] [class*='titleRow'] [class*='titleCluster']"))`, 10000)
-      return true
-    } catch {
-      return false
-    }
-  }
   if (await hasCluster()) return true
-  await evaluate(`document.querySelector('.dmc-sidebar-toggle')?.click()`)
-  await delay(1200)
-  await evaluate(`(() => {
-    const rows = [...document.querySelectorAll("[class*='sessionRow']")]
-    const real = rows.find((node) => !/^\s*(新会话|New session|New Session)/i.test(node.textContent || ''))
-    const target = real || rows[0]
-    if (target) {
-      target.click()
-      return true
-    }
-    const create = [...document.querySelectorAll('button')].find((node) => /新会话|New session|New Session/i.test(node.textContent || ''))
-    if (create) create.click()
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await evaluate(`document.querySelector('.dmc-sidebar-toggle')?.click()`)
+    await delay(1200)
+    await evaluate(`(() => {
+      const rows = [...document.querySelectorAll("[class*='sessionRow']")]
+      const real = rows.find((node) => !/^\s*(新会话|New session|New Session)/i.test(node.textContent || ''))
+      const target = real || rows[0]
+      if (target) {
+        target.click()
+        return true
+      }
+      const create = [...document.querySelectorAll('button')].find((node) => /新会话|New session|New Session/i.test(node.textContent || ''))
+      if (create) create.click()
+      return false
+    })()`)
+    await delay(2500)
+    await evaluate(`document.querySelector('.dmc-sidebar-backdrop')?.click()`)
+    await delay(800)
+    if (await settle()) return true
+    await sendProbeMessage()
+    if (await settle()) return true
+    report.sessionDebug = { stage: `attempt-${attempt}`, ...(await sessionDebug()) }
+  }
+  return false
+}
+
+async function hasCluster() {
+  return evaluate(`Boolean(document.querySelector("[data-dsh-mobile-conversation-compatible] [class*='titleRow'] [class*='titleCluster']"))`)
+}
+
+async function settle(timeout = 10000) {
+  try {
+    await waitFor(`Boolean(document.querySelector("[data-dsh-mobile-conversation-compatible] [class*='titleRow'] [class*='titleCluster']"))`, timeout)
+    return true
+  } catch {
     return false
+  }
+}
+
+/** Session-side state used only when ensureSession() cannot produce a header. */
+async function sessionDebug() {
+  return evaluate(`(() => {
+    const frame = document.querySelector('[data-shell-overlay]')?.parentElement
+    return {
+      collapsed: frame?.hasAttribute('data-sidebar-collapsed'),
+      rows: [...document.querySelectorAll("[class*='sessionRow']")]
+        .map((node) => (node.textContent || '').trim().slice(0, 16) + '|' + node.getAttribute('aria-selected')),
+      titleRow: Boolean(document.querySelector("[class*='titleRow']")),
+      cluster: Boolean(document.querySelector("[class*='titleCluster']")),
+      composer: Boolean(document.querySelector("[role='textbox'][aria-multiline='true']")),
+      inputText: (document.querySelector("[role='textbox'][aria-multiline='true']")?.textContent || '').slice(0, 40),
+      send: (() => {
+        const button = [...document.querySelectorAll('button')].find((node) => /发送|Send/i.test(node.getAttribute('aria-label') || ''))
+        return button ? { label: button.getAttribute('aria-label'), disabled: button.disabled } : null
+      })(),
+      dialogs: [...document.querySelectorAll("div[role='dialog'][aria-modal='true']")]
+        .map((node) => (node.textContent || '').trim().slice(0, 60))
+    }
   })()`)
-  await delay(2500)
-  await evaluate(`document.querySelector('.dmc-sidebar-backdrop')?.click()`)
-  await delay(800)
-  if (await settle()) return true
-  // Still empty: send one probe message so DSH mounts a titled conversation.
-  await evaluate(`(() => {
-    const input = document.querySelector("[role='textbox'][aria-multiline='true'], textarea")
+}
+
+/** Send one probe message. The composer is a contenteditable div (role=textbox), not a textarea —
+ *  assigning through HTMLTextAreaElement.prototype's setter throws Illegal invocation on a div —
+ *  so the text has to arrive as real input events, and the send button only enables once it did. */
+async function sendProbeMessage() {
+  // An isolated profile has no credentials, so DSH answers a send by raising its own model setup
+  // dialog — which would steal the input and swallow the probe text into the API-key field. The
+  // composer is therefore only taken once no such dialog is up.
+  await dismissDialogs()
+  const focused = await evaluate(`(() => {
+    const input = [...document.querySelectorAll("[role='textbox'][aria-multiline='true'], textarea")]
+      .find((node) => node.closest("div[role='dialog']") === null)
     if (!input) return false
     input.focus()
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
-    if (setter) setter.call(input, 'mobile compat probe')
-    else input.value = 'mobile compat probe'
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    const send = [...document.querySelectorAll('button')].find((node) => /发送|Send/i.test(node.getAttribute('aria-label') || ''))
-    if (send) send.click()
     return true
   })()`)
-  return settle()
+  if (!focused) return false
+  await cdp.send('Input.insertText', { text: 'mobile compat probe' })
+  await delay(300)
+  const typed = await evaluate(`(() => {
+    const input = [...document.querySelectorAll("[role='textbox'][aria-multiline='true'], textarea")]
+      .find((node) => node.closest("div[role='dialog']") === null)
+    return (input?.textContent || '').includes('mobile compat probe')
+  })()`)
+  if (!typed) {
+    await evaluate(`(() => {
+      const input = [...document.querySelectorAll("[role='textbox'][aria-multiline='true']")]
+        .find((node) => node.closest("div[role='dialog']") === null)
+      input?.focus()
+      document.execCommand('insertText', false, 'mobile compat probe')
+      return true
+    })()`)
+    await delay(200)
+  }
+  await evaluate(`(() => {
+    const send = [...document.querySelectorAll('button')].find((node) => /发送|Send/i.test(node.getAttribute('aria-label') || ''))
+    send?.click()
+    return Boolean(send)
+  })()`)
+  return true
+}
+
+/** Close DSH's own setup dialogs (the model / API-key onboarding). The Settings panel is excluded:
+ *  it is the only dialog with a nav as its first child, and it must stay under test control. */
+async function dismissDialogs() {
+  for (let step = 0; step < 4; step += 1) {
+    const dismissed = await evaluate(`(() => {
+      const dialog = document.querySelector("div[role='dialog'][aria-modal='true']:not(:has(> nav:first-child))")
+      const button = dialog?.querySelector('button')
+      button?.click()
+      return Boolean(button)
+    })()`)
+    if (!dismissed) return
+    await delay(250)
+  }
+}
+
+/** The session-row tap needs two rows — the selected one and another — while an isolated profile
+ *  starts with a single blank one, so create sessions the same way ensureSession() does. */
+async function ensureSessionRows(min) {
+  const count = () => evaluate(`document.querySelectorAll("[class*='sessionRow']").length`)
+  let created = 0
+  // The session list only renders while the drawer is open — the collapsed rail has no rows.
+  await openSidebar()
+  let rows = await count()
+  for (let guard = 0; rows < min && guard < 3; guard += 1) {
+    await evaluate(`(() => {
+      const create = [...document.querySelectorAll('button')].find((node) => /新会话|New session|New Session/i.test(node.textContent || ''))
+      create?.click()
+      return Boolean(create)
+    })()`)
+    await delay(2500)
+    await evaluate(`document.querySelector('.dmc-sidebar-backdrop')?.click()`)
+    await delay(600)
+    created += 1
+    if (await sendProbeMessage()) await settle()
+    await openSidebar()
+    rows = await count()
+  }
+  await closeSidebar()
+  return { rows, created }
 }
 
 async function shellMetrics() {
@@ -479,16 +583,7 @@ try {
   await waitFor(`Boolean(document.querySelector('[data-shell-overlay]'))`)
   await delay(500)
 
-  for (let step = 0; step < 4; step += 1) {
-    const dismissed = await evaluate(`(() => {
-      const dialog = document.querySelector("div[role='dialog'][aria-modal='true']:not(:has(> nav:first-child))")
-      const button = dialog?.querySelector('button')
-      button?.click()
-      return Boolean(button)
-    })()`)
-    if (!dismissed) break
-    await delay(250)
-  }
+  await dismissDialogs()
 
   await setViewport(1280, 800, false)
   // The desktop track animates back from the phone's zero-width column and the mobile layer may
@@ -691,6 +786,9 @@ try {
   // about the main seat changes — the tap itself has to be recognised. The row that is already
   // selected counts too, which is the case users hit first.
   await closeSidebar()
+  // An isolated profile starts with one blank session: the "other row" variant needs a second one.
+  report.sessionRows = await ensureSessionRows(2)
+  assert(report.sessionRows.rows >= 2, 'could not produce a second session row for the tap probe', report.sessionRows)
   for (const variant of ['selected', 'other']) {
     await openSidebar()
     const wanted = variant === 'selected' ? 'true' : 'false'

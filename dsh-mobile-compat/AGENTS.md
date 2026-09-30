@@ -8,9 +8,11 @@ Client 主导、Host 只提供运行版本状态接口、外壳级且版本锁�
 
 ## 兼容发布线策略
 
-`compatibility.json` 是机器可读矩阵，`package.json#dshCompatibility` 必须满足：`policy: "compatible-release-line"`；package 为 `@deepseek-ai/dsh`；range `>=0.1.6-alpha.1 <0.1.7`；verifiedVersions 严格为 `0.1.6-alpha.1`、`0.1.6-alpha.2`；`futureVersionsRequireCapabilityChecks: true`；matrix 指向 `./compatibility.json`；`engines.dsh` 与 `dshCompatibility.range` 同源。
+`compatibility.json` 是机器可读矩阵，`package.json#dshCompatibility` 必须满足：`policy: "compatible-release-line"`；package 为 `@deepseek-ai/dsh`；range `>=0.1.7-alpha.1 <0.1.8`；verifiedVersions 严格为 `0.1.7-rc.2`；`futureVersionsRequireCapabilityChecks: true`；matrix 指向 `./compatibility.json`；`engines.dsh` 与 `dshCompatibility.range` 同源。
 
-`0.1.6-alpha.1` 与 `0.1.6-alpha.2` 已逐版本核对：把两个版本**全部 51 个 `dsh-client-*` 发布包**按文件哈希逐文件比对，只有 `dsh-client-ui-agent-preset`（hero chip 的 seat store）与 `dsh-client-ui-cordis`（会话选择器改为按视图）不同，本插件依赖的 layout/sidebar/sidebar-right/conversation/workspace/settings 产物逐字节相同。同一 `0.1.6` 发布线内的后续 alpha/beta/rc/正式版允许带警告运行，但版本门、公开能力和精确 DOM 结构探测必须继续 fail closed；跨到 `0.1.7` 之前、或收录低于 `0.1.6-alpha.1` 的版本，都必须重新读取源码并调整范围，禁止无上界范围或跨发布线猜测。
+**0.1.6 → 0.1.7 是跨发布线的大幅重写**，不是例行检查：把两个版本共有的 50 个 `dsh-client-*` 包按 `lib/client.js` 的 sha256 逐包比对，**47 个都有实质改动**（只有 `dsh-client-resources`、`dsh-client-ui-brand-official`、`dsh-client-ui-directory-picker-native` 三个逐字节相同），`dsh-client-ui-primitives` / `dsh-client-ui-slots` 与 dockkit 一起打在 `dsh-web-frontend` 的 `index-*.js` + `index-*.css` 里（两个产物哈希都变了），所以上一线的结论一条都不能继承。逐项复核与实测结论见 `compatibility.json#contracts` 与本文「0.1.7-rc.2 逐项核对记录」。
+
+`0.1.7-rc.2` 是本发布线目前唯一 source-verified 的版本：`0.1.7-alpha.1`/`alpha.2`/`rc.1` 的客户端产物经哈希比对与 rc.2 **不同**，因此它们只落在 range 内、按「带警告运行」处理，继续由运行时能力与精确结构探测 fail closed。同一 `0.1.7` 发布线内的后续 alpha/beta/rc/正式版允许带警告运行；跨到 `0.1.8` 之前、或收录低于 `0.1.7-alpha.1` 的版本，都必须重新读取源码并调整范围，禁止无上界范围或跨发布线猜测。范围外（含整个 `0.1.6` 线）保持 inert：上一线的用户留在上一线的插件版本（`0.3.7`），一个插件版本只服务一条发布线。
 
 `scripts/check-compat.js --installed` 比较 `dsh --version`。运行时 Host 从 CLI entry 解析实际 `@deepseek-ai/dsh/package.json` 并在 `GET /dsh-mobile-compat/status` 返回版本；route 先通过 DSH `connection.requestRejection(req)` 的 trusted-host 与签名浏览器 cookie 认证，Client fetch 显式使用 `credentials: 'same-origin'`。Client 只用 `connection.generation.getSnapshot()/subscribe()` 作为连接就绪/重试触发器，release version 始终来自插件状态接口；跨发布线版本必须保持 inert。
 
@@ -24,13 +26,13 @@ UI 只向 `shell.overlay` 注册 additive list entry：`{ name: 'shell.overlay',
 
 ## 结构 capability
 
-运行时必须先探测 0.1.6-alpha.1 已核对的精确 AppFrame：
+运行时必须先探测已核对的精确 AppFrame（0.1.6-alpha.1 定义，`0.1.7-rc.2` 逐项复核后形状不变）：
 
 1. `[data-shell-overlay]` 的 parent 是 frame；
-2. frame 的前四个 host children 是 Sidebar column、Center column、Rightbar column 与 overlay；
+2. frame 的前四个 host children 是 Sidebar column、Center column、Rightbar column 与 overlay（`DocumentTitle` 不产生 host 节点；shell.leading 与拖拽把手排在更后面）；
 3. 三列分别有 direct `sidebar`、`main`、`rightbar` Slot seat；
 4. Sidebar seat 有 first occupant；
-5. `main` seat 的 occupant 链（0.1.6 为 `main` seat → `main.conversation` Slot anchor → ConversationRoot）经只含单个 element child 的 `display:contents` Slot anchor 下探到 ConversationRoot，其最后一个 direct child 内有 direct `[data-conversation-scroll]`。**第 5 条是可选的**：main seat 也可以承载非会话页面 —— 点侧栏「插件」进入的 plugin manager 就是一个 `SECTION.X_2TxG_page` —— 那时只缺少 conversation 级标记，shell 级适配必须照常工作。
+5. `main` seat 的 occupant 链（0.1.7 起 `main` 是 keyed slot，entryKey 取 `panelInfo.activePanelId ?? 'conversation'`；链为 `main` seat → 该 entry 的 `main.conversation` Slot anchor → ConversationRoot）经只含单个 element child 的 `display:contents` Slot anchor 下探到 ConversationRoot，其最后一个 direct child（0.1.7 是 `div.body`）内有 direct `[data-conversation-scroll]`。**第 5 条是可选的**：main seat 也可以承载非会话页面 —— 点侧栏「插件」进入的 plugin manager 就是一个 `SECTION.X_2TxG_page` —— 那时只缺少 conversation 级标记，shell 级适配必须照常工作。
 
 1–4 满足即添加 `data-dsh-mobile-shell-compatible` 并激活 style、viewport、Locale 和 Slot；第 5 条也成立时才把 `data-dsh-mobile-conversation-compatible` 加到 ConversationRoot 上（会话页消失时移除该标记，shell 级适配不停）。把第 5 条当成必需要会踩坑：进入 plugin manager 时探测判 pending → 插件整个退场 → 手机上退回 DSH 桌面三列（280px 侧栏 + 110px 内容列），实测就是这个形态被用户报出来。结构 1–4 不符时卸载所有增强、保留原生布局，并输出一次诊断。
 
@@ -58,6 +60,8 @@ header clearance 必须落在 session-header Slot 内实际 header 元素的**�
 
 **操作行内部**：`header` 是 `space-between`，但「打开配置文件」在自己的 flex 行里、被 DSH 用一个很大的 `margin-left` 推到右侧，所以那条行要显式 `margin-left: 0` 才会落到左端（右侧留给关闭键）。那个次级动作是 `header > .actions > div > button`（**不是 header 的直接子**）——选择器写 `> :first-child > :first-child button`；它的 44px 会被触控下限撑得和关闭键一样重，这里显式收回 DSH 原生的 28px 高 + 12px 字，并用 `::after` 补 44px 靶区。
 
+**`0.1.7-rc.2` 起这个弹窗 portal 到 `document.body`**（不再是 `#root` 内部）：所有手机规则都写成「`body` 的后代」，实测折行、行序、左动作右关闭、桌面不受影响全部仍然成立。以 `#root` 为锚的写法在这一线会整体失效，别改回去。
+
 ### Composer、附件条与开关
 
 44px 命中下限只对**字形按钮**生效：`[data-composer-card]` / `[data-conversation-scroll]` / shell 首列 / `aria-modal` dialog 四处规则，以及 `[data-composer-seat]` 规则，都带 `:not(:is([role='group'], [role='group'] *, [role='switch']))`。两类控件是**固定形状**，撑大即破形，因此一并豁免：
@@ -76,7 +80,7 @@ Workspace patch 还需验证 `[data-slot=sidebar.workspaces]` 的 WorkspaceBrows
 - AppFrame：`data-shell-overlay`、`data-sidebar-collapsed`、`data-side`；
 - runtime markers：`data-dsh-mobile-shell-compatible`、`data-dsh-mobile-workspaces-compatible`、`data-dsh-mobile-conversation-compatible`；
 - Shell seats：`data-slot=sidebar`、`data-slot=main`、`data-slot=rightbar`、`data-slot=sidebar.workspaces` 及版本锁定 direct occupants；
-- 右栏 dockkit 面板（0.1.6 内唯一宿主）：`data-sidebar-right-panel`、`data-sidebar-right-open`、`data-sidebar-right-toggle`、`data-sidebar-right-expand`、`data-dockkit-strip`、`data-dockkit-strip-chrome`（回归断言另外读 `data-dockkit-tab-close`）；pane body 没有 data 属性，只能按 class 后缀 `[class*='paneBody']` 锚定（不匹配时静默回落到原生渲染）；
+- 右栏 dockkit 面板（本发布线内唯一宿主）：`data-sidebar-right-panel`、`data-sidebar-right-open`、`data-sidebar-right-toggle`、`data-sidebar-right-expand`、`data-dockkit-strip`、`data-dockkit-strip-chrome`（回归断言另外读 `data-dockkit-tab-close`）；pane body 没有 data 属性，只能按 class 后缀 `[class*='paneBody']` 锚定（不匹配时静默回落到原生渲染）；
 - Conversation 外层：`data-conversation-scroll`、`data-composer-seat`、`data-composer-card`，以及 Composer 的 `[role=textbox][aria-multiline=true]` 可访问语义；
 - Settings：`role=dialog`、`aria-modal=true`、direct `nav`。
 
@@ -88,7 +92,7 @@ AppFrame position、SidebarRoot inline width、Workspace header/search/action �
 - 焦点进入 Sidebar，Tab/Shift+Tab 保持在 Sidebar，Escape 关闭，cleanup 恢复入口焦点。
 - document 中出现任一可见且非 Drawer 自身的 `aria-modal` dialog（含 Settings 和 shell.overlay modal）时，暂停 Drawer dialog semantics 与 Tab/Escape trap，避免 competing modal 冲突。
 - 从 mobile query 离开到 DSH narrow 区间（901-1023px）时，若 Drawer 仍开就调用一次 `toggleSidebar()` 清除 `narrowExpanded`；直接进入 >=1024px 时只清理移动端 ARIA/inert/focus trap，不调用 toggle、不改桌面偏好。
-- 移动端只把第三列（Rightbar column）的 grid track 置 0，**禁止**对整列设置 `display:none`：0.1.6 的右侧栏面板是该列内的绝对定位浮层（fullscreen 时 `position:fixed; inset:0`，`<768px` 自动全屏），隐藏整列会把已打开的右侧栏压成 0×0，手机上根本显示不出来。
+- 移动端只把第三列（Rightbar column）的 grid track 置 0，**禁止**对整列设置 `display:none`：本发布线的右侧栏面板是该列内的绝对定位浮层（panel 自身 `position:absolute`、`z-index:auto`，`<768px` 时全屏由视口宽度派生并撑到 `100vw`，层级落在面板内 dock host 的 `--dsh-dockkit-dock-layer:40` 上），隐藏整列会把已打开的右侧栏压成 0×0，手机上根本显示不出来。
 - 触控命中区至少 44x44；Workspace search/action 容器要同步扩展，不能只放大 button。唯一的例外是**绝对定位在 pill 内部的 tab 控件**，见下节。
 - 侧栏里任何**导航离开当前页**的点击都要让抽屉自己收起来（抽屉是全屏表面，不收就等于把刚打开的页面盖住）。两条判据共用一个 `collapse()`，带 400ms 冷却窗——否则一次同时命中两条的点击会 toggle 两次、把抽屉又打开：
   1. **点击导航行本身**：`[class*='newSession']`（新会话）、`[class*='panelRow']`（对话/插件面板行）、`[class*='sessionRow']`（会话行）。会话行是工作区下的 `role=treeitem` **div**，而**两个会话之间切换会复用同一个 conversation occupant、main seat 的 childList 不变**，所以"只看 seat"永远抓不到它（用户报的「点工作区的对话没反应」就是这个）；点击目标是行内 button 时（行自己的「…」菜单，锚在行上的浮层）不收起。
@@ -98,7 +102,7 @@ AppFrame position、SidebarRoot inline width、Workspace header/search/action �
 
 ## 右栏 dockkit strip 的 44px 边界
 
-0.1.6 的右侧栏是 dockkit 面板，44px 命中盒**只给 strip 级控件**：`[data-dockkit-strip] > button`（新建标签、分屏）与 `[data-dockkit-strip] [data-dockkit-strip-chrome] button`（面板 chrome 的全屏 / 收起），并把 strip 与 chrome 容器同步撑到 44px（`[data-dockkit-strip]{min-height:44px}` 覆盖 dockkit 自己的 `height:28px`，容器与按钮一起长高才不会互相盖住）。
+本发布线的右侧栏是 dockkit 面板（0.1.7 把 dockkit 整体重写成 v2：新增 `data-dockkit-host`/`-surface`/`-strip-tabs`/`-strip-fill`/`-caret`/`-pane`/`-column`/`-float` 等标记，但**下面这些名字逐字保留**，只把 tab 关闭键的取值从布尔换成了 tab id），44px 命中盒**只给 strip 级控件**：`[data-dockkit-strip] > button`（新建标签、分屏）与 `[data-dockkit-strip] [data-dockkit-strip-chrome] button`（面板 chrome 的全屏 / 收起），并把 strip 与 chrome 容器同步撑到 44px（`[data-dockkit-strip]{min-height:44px}` 覆盖 dockkit 自己的 `height:28px`，容器与按钮一起长高才不会互相盖住）。
 
 **tab 内部的按钮一律保持 DSH 原生尺寸**：`data-dockkit-tab-close` 是 `position:absolute; top:4px; right:4px` 的 20×20，放大到 44px 会保持绝对锚点、把图标相对 pill **向左下各推 12px**（实测图标中心从距 tab 顶 14px 变成 26px、距右 14px 变成 26px，页面上的形态就是「关闭图标漂移到 pill 左下角」）。tab 的上下文菜单同样渲染在 tab 内部，放大按钮会破坏菜单行高。CSS 因此不能用 `[data-dockkit-strip] button` 这种后代万能选择器。
 
@@ -126,6 +130,32 @@ chrome 图标不再单独放大（曾写成 18px）：DSH 的 `iconButton` 是 2
 5. 运行 `test/browser-regression.mjs`，覆盖 320x568、390x844、457x707、568x320、844x390、900/901、1023/1024 和 desktop。
 6. 人工补测真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题和 Locale。
 7. 调整兼容范围上界（跨到 `0.1.7`）或下界之前，必须完成以上检查并重新读取源码。
+
+### 0.1.7-rc.2 逐项核对记录（2026-09-29，跨线）
+
+第 1 步取的是 npm 上 `0.1.6-alpha.2` 的发布包与本机运行包 `0.1.7-rc.2`（`node_modules/@deepseek-ai/dsh`，283 个组件、60 个 `dsh-client-*`），不看 dist-tag。第 2 步逐项结论（每一项都读了 0.1.7-rc.2 的实际产物，并在隔离宿主上实测）：
+
+| 契约面 | 0.1.7-rc.2 现状 | 结论 |
+|---|---|---|
+| `connection.generation` | `getSnapshot()`/`subscribe()` 原样（`dsh-client-connection` 的 generation source 注册与订阅未改名） | 不变 |
+| layout Service | `ctx.layout.toggleSidebar()` 仍在 `ILayout` 上；`closeRightbar()` 语义未变 | 不变 |
+| AppFrame 三列 + 四个 seat | 前四个 host children 仍是 sidebarCol / centerCol / rightbarCol / overlayLayer；三个 seat 仍是 direct `data-slot`；`main` 改为 keyed slot（entryKey = `panelInfo.activePanelId ?? 'conversation'`），下探链多一层 display:contents anchor | 探测逻辑无需改，文档已订正 |
+| SidebarRoot | 仍只在 `wide` 时写内联桌面宽度 | 不变 |
+| 侧栏导航行 | `newSession`（内含新的 `newSessionContent`/`newSessionLabelMask`/`newSessionShortcut` 与会话快捷键）、`panelRow`、`sessionRow` 三类 class 后缀都在；会话行的「切换会话不换 occupant」形态不变 | 不变（回归里选中/未选中两条会话行都实测收起） |
+| WorkspaceBrowser | root > sectionHeader > [sectionLabel, searchSlot（`button[aria-expanded]`）, headerActions] 顺序不变；rail 态不渲染 search slot | 不变 |
+| Settings | 弹窗改为 portal 到 `document.body`（0.1.6 在 `#root` 内），直系子关系 `nav` + 内容容器不变；插件规则本来就是 body 后代选择器 | 不变（实测全屏 390×844、折行 `display:contents`、行序与左右分端都对） |
+| Conversation 外层 | `data-conversation-scroll` 仍是 ConversationRoot 最后一个 direct child（`div.body`）内的直接子元素；`data-composer-seat`/`data-composer-card` 仍在；Composer 编辑器仍是 `contenteditable` + `role=textbox` + `aria-multiline=true` | 不变 |
+| 会话标题栏 | `titleRow > titleCluster` 与 `headerUtilities`/`headerCorner` 三个名字都在，tabs 仍是后一行；strip 安装与拖动断言全过 | 不变 |
+| 右栏 dockkit | strip/chrome/tab-close 等属性名保留，`[class*='paneBody']` 仍命中；tab 关闭键仍 20×20 绝对锚在 `top/right 4px`，strip 级控件被插件撑到 44×44，chrome 图标仍 15px | 不变 |
+| 右栏层级 | fullscreen 时面板 100vw、层级在 dock host 的 `--dsh-dockkit-dock-layer:40`（0.1.6 记的是面板自身的 `z-index:40`）；抽屉 30 仍在其下 | 行为不变，契约文本已订正 |
+| 图标 | 0.1.7 用档位词命名（`IconCloseOutlineRegular`、`IconPanelLeftOutlineMedium|Regular`），插件的 `iconOf()` 候选链第一项就命中 | 不变 |
+| viewport | `index.html` 仍是裸 `width=device-width, initial-scale=1`，插件补 `viewport-fit=cover` 实测生效 | 不变 |
+
+第 3 步改动：`package.json`（version → `0.4.0`、range/verifiedVersions/engines.dsh）、`compatibility.json`（range、verifiedVersions、`versions[0].note`、全部 16 个契约、新增 `sidebar-navigation-rows`）、`client.js` 的四个门常量、测试里的版本断言与本文件/README/CHANGELOG。**插件业务代码一字未改**——0.1.7 的 DOM 契约逐项满足，跨线本身没有引入需要适配的结构。
+
+第 4/5 步：`npm test`（25）、`check-compat --manifest`/`--installed`、`pack:check`、隔离 profile 的 add/remove 往返，以及在隔离宿主（随机端口 + 独立 `DSH_HOME` + 无头 Chromium）上跑完整尺寸矩阵全绿。回归脚本为 0.1.7 修了两处**环境适配**：`ensureSession()` 发探针消息改用 CDP `Input.insertText`（composer 是 contenteditable div，旧代码用 `HTMLTextAreaElement` 的 setter 会抛 `Illegal invocation`），并新增 `ensureSessionRows(2)`（新 profile 只有一个空会话，会话行用例需要两行）。另外隔离 profile 必须和用户实际运行的一样带上 `@deepseek-ai/dsh-experimental-agent-team-profile`：只有它注册的标题栏动作才让 strip 里有可量的控件，否则 strip 断言会在"没有控件可量"上失败（也正因如此，带警告运行的同线版本必须继续靠能力探测而不是靠断言放水）。
+
+第 6 步（需要用户在真机做的部分，本轮**未**覆盖）：真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题与 Locale。
 
 ## 发布与安装路线
 

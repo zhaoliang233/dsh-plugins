@@ -2,6 +2,27 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.4.0] - 2026-09-29
+
+### 兼容性（跨发布线）
+
+- **兼容发布线从 `>=0.1.6-alpha.1 <0.1.7` 跨到 `>=0.1.7-alpha.1 <0.1.8`**：本机运行的 DSH 已是 `0.1.7-rc.2`，而插件原先停在 0.1.6 线，在 rc.2 上整体 inert（零副作用、不报错）。跨线不是改个上界：把两个版本共有的 **50 个 `dsh-client-*` 包按 `lib/client.js` 的 sha256 逐包比对，47 个都有实质改动**（只有 `dsh-client-resources`、`dsh-client-ui-brand-official`、`dsh-client-ui-directory-picker-native` 逐字节相同），`dsh-client-ui-primitives` / `dsh-client-ui-slots` / dockkit 与官方 CSS 一起打在 `dsh-web-frontend` 的产物里（两个产物哈希都变了），所以上一线的结论一条都没有继承。
+- `0.1.7-rc.2` 成为唯一 source-verified 版本；`0.1.7-alpha.1` / `alpha.2` / `rc.1` 的产物与 rc.2 不同，继续按同线「带警告运行」处理（能力与结构探测仍是权威判定）。范围外——包括整个 `0.1.6` 线——保持 inert，旧线用户留在 `0.3.7`。
+- 逐项核对（读 0.1.7-rc.2 的发布包与本机运行包，并在隔离宿主 + 无头 Chromium 上实测）覆盖 `connection.generation`、`layout.toggleSidebar()`、AppFrame 三列与四个 seat、SidebarRoot 内联宽度、侧栏三类导航行、WorkspaceBrowser header、Settings、Conversation 外层属性、Composer textbox、右栏 dockkit 与 viewport。**结论是插件业务代码一字未改**——0.1.7 满足全部既有契约，本次跨线只换版本线、矩阵与文档。
+
+### 变更
+
+- `compatibility.json#contracts` 全量重写为 0.1.7 结构，并新增 `sidebar-navigation-rows` 条款（新会话 / 面板行 / 会话行三类 class 后缀，抽屉收起判据的落点）。
+- `settings-shell` 条款写明 0.1.7 起设置弹窗 portal 到 `document.body`（不再是 `#root` 内部）：插件规则本就是 body 后代选择器，这次只是把事实记录下来，避免以后有人改回 `#root` 锚点。
+- `right-panel-chrome` 与 `right-panel-overlay-stacking` 按 dockkit v2 订正：属性名逐字保留（tab 关闭键的取值从布尔改成 tab id），全屏层级落在面板内 dock host 的 `--dsh-dockkit-dock-layer: 40` 上，而不是 0.1.6 记的面板自身 `z-index: 40`。
+- `README.md` / `AGENTS.md` / `PUBLISHING.md` 同步到新发布线，并在 `AGENTS.md` 增加本轮「0.1.7-rc.2 逐项核对记录」。
+
+### 测试
+
+- 浏览器回归在 `0.1.7-rc.2` 上跑通完整尺寸矩阵（320x568、390x844、457x707、568x320、844x390、900/901、1023/1024 与桌面），覆盖抽屉、全屏设置页、plugin manager 非会话页、右栏 dockkit strip、附件条与开关靶区、会话行点击收起。
+- 回归脚本修两处 0.1.7 环境适配：探针消息改用 CDP `Input.insertText`（composer 是 contenteditable div，旧写法用 `HTMLTextAreaElement` 的 setter 会抛 `Illegal invocation`）；新增 `ensureSessionRows(2)`，因为隔离 profile 只有一个空会话，而「点会话行收起抽屉」用例需要两行。
+- 单元测试、manifest 版本守卫与 `check-compat` 的 range/verifiedVersions 断言同步到新发布线（25 个用例全绿）。
+
 ## [0.3.7] - 2026-09-20
 
 ### 修复
