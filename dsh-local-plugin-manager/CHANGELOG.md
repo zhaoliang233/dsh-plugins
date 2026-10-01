@@ -2,6 +2,15 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.3.0] - 2026-10-01
+
+### 变更
+
+- **兼容发布线从 `>=0.1.7-alpha.1 <0.1.8` 跨到 `>=0.2.0-rc.2 <0.2.1`**：本包点名的每一处契约都在 `0.2.0-rc.2` 的实际安装包里重读确认（profile 写锁的路径/mode/`waitMs`、官方 `writePluginEnabled` 的覆盖项四条语义、`include:<rowId>` 的行 id 方案、`dsh-hmr` 的热重载路径、`settings.section`/`settings.action` 的声明、`requestRejection` 与 `webServer.register`），**业务代码一字未改**。隔离宿主 + 无头 Chrome 上 `npm run verify`（45 项）与 `npm run gui:check`（20 项）全过，并复跑「与官方插件管理并存」的双向启停往返（两边轮流启停同一条，`cordis.patch.yml` 里该行始终只有一条覆盖项）。跨到 `0.2.1` 之前必须重新读取 DSH 源码与实时契约。
+- 版本门改为**从常量派生**（照抄已跨线的 `dsh-extra-context`）：`lib/profile-manager.js` 读 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`，`install.sh` 有等价的 shell 版（含 `prerelease_rank()`）。下界是 rc，所以同线内的 `alpha`/`beta`/更小的 `rc` 一律在门外，`0.2.0` 正式版在门内。
+- 运行时依赖 `@deepseek-ai/dsh-atomic-write` 由 `~0.1.7-alpha.1` 升到 `~0.2.0-rc.2`：两版逐字相同（锁路径与提交语义都没变），升级只是让**写锁与宿主用同一条线的实现**。
+- `test/manifest.test.js` 新增一条同源守卫（`range` ↔ 发布线/下界常量 ↔ `install.sh` 的五个常量），`gui-check.mjs` 修掉一条会在多插件环境里误报的断言。
+
 ## [0.2.1] - 2026-09-28
 
 ### 变更
