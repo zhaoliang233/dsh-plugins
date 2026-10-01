@@ -32,11 +32,11 @@ export const DSH_RELEASE_LINE = '0.2.0'
  * 兼容线下界（`0.2.0-rc.2`）：同线内更低 channel（alpha/beta）或更小序列号
  * 的 rc 都低于下界，判为不支持。跨线时只改这三个常量，判定逻辑不用动。
  */
-export const DSH_RELEASE_FLOOR = Object.freeze({ channel: 'rc', sequence: 2 })
+export const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
 /** prerelease channel 的先后顺序；下标即优先级。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = Object.freeze(['0.2.0-rc.2'])
+export const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
 export const DEFAULT_PROFILE = 'web'
 
 // state.json 只保留卸载墓碑；禁用状态的真源是 profile patch 的覆盖项本身。

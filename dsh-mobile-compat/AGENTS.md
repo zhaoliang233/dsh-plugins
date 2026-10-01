@@ -154,7 +154,7 @@ chrome 图标不再单独放大（曾写成 18px）：DSH 的 `iconButton` 是 2
 
 第 3 步改动：`package.json`（range `>=0.2.0-rc.2 <0.2.1`、verifiedVersions、`engines.dsh`）、`compatibility.json`（range、verifiedVersions、`versions[0].note` 重写为 0.2.0 证据、全部 16 个契约的 `versions`）、`client.js` 的四个门常量、`install.sh`、`scripts/check-compat.js`、测试里的版本断言与本文件/README/CHANGELOG。**插件业务代码一字未改**——0.2.0-rc.2 的 DOM 与能力契约逐项满足，跨线本身没有引入需要适配的结构。
 
-**门常量从「下界是 alpha」换成「下界是 rc」**：`client.js` 与 `scripts/check-compat.js` 都改成 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR{channel,sequence}` + `PRERELEASE_CHANNELS` 的 channel 优先级比较，`install.sh` 有等价的 shell 版（含 `prerelease_rank()`）。旧的 `channel !== 'alpha' || seq >= N` 表达的是「下界是 alpha」，下界换成 `rc.2` 后会把 `0.2.0-alpha.9` 静默判成兼容——`test/compatibility.test.js` 用 `0.2.0-alpha.9` / `beta.4` / `rc.1` / `alpha.1` 四档把它钉住，`test/manifest.test.js` 则把 range 反推回发布线与下界、并核对 `install.sh` 的四个常量同源（照抄 B1/B2 四个已跨线插件的形状）。
+**门常量从「下界是 alpha」换成「下界是 rc」**：`client.js` 与 `scripts/check-compat.js` 都改成 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR{channel,sequence}` + `PRERELEASE_CHANNELS` 的 channel 优先级比较，`install.sh` 有等价的 shell 版（含 `prerelease_rank()`）。旧的 `channel !== 'alpha' || seq >= N` 表达的是「下界是 alpha」，下界换成 `rc.2` 后会把 `0.2.0-alpha.9` 静默判成兼容——`test/compatibility.test.js` 用 `0.2.0-alpha.9` / `beta.4` / `rc.1` / `alpha.1` 四档把它钉住，`test/manifest.test.js` 则把 range 反推回发布线与下界、并核对 `install.sh` 的五个常量同源（照抄 B1/B2 四个已跨线插件的形状）。
 
 第 4/5 步：`npm test`（26）、`check-compat --manifest`/`--installed`、`pack:check`、隔离 profile 的 add/remove 往返，以及在隔离宿主（随机端口 + 独立 `DSH_HOME` + 无头 Chromium）上跑完整尺寸矩阵。隔离 profile 必须与用户实际运行的一样带上 `@deepseek-ai/dsh-experimental-agent-team-profile`——只有它注册的标题栏动作才让 strip 里有可量的控件，否则 strip 断言会在"没有控件可量"上失败。
 

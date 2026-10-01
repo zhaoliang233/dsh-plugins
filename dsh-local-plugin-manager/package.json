@@ -46,11 +46,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check lib/patch-writer.js && node --check lib/errors.js && node --check client.js && node --check scripts/gui-check.mjs && bash -n install.sh && bash -n uninstall.sh",
+    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check lib/patch-writer.js && node --check lib/errors.js && node --check client.js && node --check scripts/check-pack.js && node --check scripts/gui-check.mjs && bash -n install.sh && bash -n uninstall.sh",
     "test": "node --test test/*.test.js",
     "verify": "npm run check && npm test",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run verify && npm run pack:check",
     "gui:check": "node scripts/gui-check.mjs",
-    "prepublishOnly": "npm run verify"
+    "prepublishOnly": "npm run publish:check"
   },
   "engines": {
     "node": ">=20",

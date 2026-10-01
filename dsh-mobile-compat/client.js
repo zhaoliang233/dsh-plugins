@@ -50,7 +50,7 @@ window.__ModuleLoader__.load({
     const SIDEBAR_ID = 'dsh-mobile-sidebar'
     const STATUS_PATH = '/dsh-mobile-compat/status'
     const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
-    const VERIFIED_DSH_VERSIONS = new Set(['0.2.0-rc.2'])
+    const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
     const DSH_RELEASE_LINE = '0.2.0'
     /* The floor is 0.2.0-rc.2, so an alpha/beta/earlier-rc release inside the same line is BELOW
        it. The old shape (channel !== 'alpha' || seq >= N) encodes "the floor is an alpha" and
@@ -1465,7 +1465,7 @@ body[${BODY_ATTRIBUTE}] {
     function classifyDshVersion(version) {
       if (typeof version !== 'string') return { supported: false, verified: false }
       const normalized = version.split('+', 1)[0]
-      const verified = VERIFIED_DSH_VERSIONS.has(normalized)
+      const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
       if (normalized === DSH_RELEASE_LINE) return { supported: true, verified, normalized }
 
       const prerelease = new RegExp(`^${DSH_RELEASE_LINE.replace(/\./g, '\\.')}-(alpha|beta|rc)\\.(0|[1-9]\\d*)$`).exec(normalized)

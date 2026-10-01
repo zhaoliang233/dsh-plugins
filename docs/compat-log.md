@@ -8,6 +8,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| C1（2026-10-01，收口） | `0.2.0-rc.2` | 全仓一致性收口：9 个插件的四处声明逐字核对完毕、门常量形状统一、离线网全绿、7 个已发布包的 registry/provenance/GitHub Release 三件事复核通过；`dsh-default-overrides` 明确留在 0.1.7 线（跨线另立一轮），两个被占用的包名写清阻塞 |
 | B6（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-mobile-compat` 跨线完成：业务代码一字未改，全尺寸矩阵（9 档视口）在隔离宿主上全绿；顺带实测出「合成 PointerEvent 测不出真实触摸语义」与「下界从 alpha 换成 rc 时旧判定会静默放行」 |
 | B5（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-chat-archive-manager` 跨线完成：本轮真正改动的两个包逐行核对为「不在删除事务路径上」，隔离宿主 61+39 项全过（含中途中断与可恢复性闭环） |
 | B4（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-sticky-user-bubble` 跨线完成：六个几何常量在隔离宿主上重新量出且与 0.1.7 全线一致；顺带实测出「版本门盖不住纯客户端插件的浏览器半体」 |
@@ -18,6 +19,80 @@
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
 
 ---
+
+## C1：0.2.0 线收口（全仓一致性 + 发布状态复核，2026-10-01）
+
+八轮跨线（B1–B6，加上更早的 A1–A3）之后的一次**只做收口、不做跨线**的轮次：运行版本 `0.2.0-rc.2`，全部改动都在版本门常量形状、文档与发布闸门定义上，**没有一行业务逻辑**。
+
+### 1. 四处声明的逐字核对（9 个插件 × 5 个落点）
+
+核对的落点：`package.json#dshCompatibility.range`、`engines.dsh`、lib 门常量（`DSH_COMPATIBILITY_RANGE` / `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` / 清单常量）、`install.sh` 的五个常量、插件 `AGENTS.md` 与 `README.md` 的兼容段；`dsh-mobile-compat` 另加 `compatibility.json`。
+
+- **8 个已跨线插件：五处逐字一致**，全部 `>=0.2.0-rc.2 <0.2.1` / 清单 `0.2.0-rc.2` / 发布线 `0.2.0` / 下界 `rc.2`。**没有发现「改了 `package.json` 忘了 `install.sh`」这类半跨线**——这是本轮最想证伪的东西，结果是零命中。
+- `dsh-mobile-compat` 的 `compatibility.json`（`range` / `verifiedVersions` / `versions[0]` / 16 条 `contracts.versions`）与 `package.json` 同源，`scripts/check-compat.js` 每次 `npm run check` 都会强制核对（`--manifest` 离线、`--installed` 读 `dsh --version`）。
+- 第 9 个 `dsh-default-overrides` **四处自洽地停在 `>=0.1.7-alpha.1 <0.1.8`**（`0.1.7-rc.2` 已核对），所以在 `0.2.0-rc.2` 上 inert。它是唯一缺 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 与 `install.sh` 三个派生常量的插件。
+- `dsh-mobile-compat` 的宿主半体（`lib/index.js`，101 行）**不带版本门**，门在 client bundle + `install.sh`——与 B4 记下的「版本门盖不住纯客户端插件的浏览器半体」一致，是既定设计而非缺陷。
+
+### 2. 门常量形状统一（本轮的实质改动）
+
+统一前的形状矩阵（`lib` 侧；`install.sh` 侧 8 个已跨线插件本来就都有五个常量）：
+
+| 插件 | 清单常量 | 下界常量 | channel 数组 |
+|---|---|---|---|
+| `dsh-extra-context` / `dsh-default-workspace` / `dsh-auto-load-history` / `dsh-sticky-user-bubble` / `dsh-mcp-manager` | `VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']` | `{ channel: 'rc', sequence: 2 }` | ✅ |
+| `dsh-chat-archive-manager` | **`DSH_VERIFIED_VERSIONS` = `Object.freeze([...])`** | **`Object.freeze({...})`** | ✅ |
+| `dsh-local-plugin-manager` | `Object.freeze([...])` | **`Object.freeze({...})`** | ✅ |
+| `dsh-mobile-compat`（`client.js`） | **`new Set([...])`** | `{ channel: 'rc', sequence: 2 }` | ✅ |
+| `dsh-default-overrides` | `VERIFIED_DSH_VERSIONS = ['0.1.7-rc.2']` | 无 | 无 |
+
+四处等价差异（名称前缀、`Object.freeze`、`Set`、`install.sh` 里多行 vs 单行 `if`）**行为完全相同**，但形状不同会让下一次跨线无法照一个模板机械地改 9 个包。本轮按用户选择把前三处收敛到早期插件（`dsh-extra-context`）的基准形状，`install.sh` 的排版差异只记录不改：
+
+- `dsh-chat-archive-manager`：`DSH_VERIFIED_VERSIONS` → **`VERIFIED_DSH_VERSIONS`**，清单与下界都去掉 `Object.freeze`（`lib/index.js` + `install.sh` 注释 + `test/manifest.test.js` 三处引用同步）。
+- `dsh-local-plugin-manager`：清单与下界去掉 `Object.freeze`（`lib/profile-manager.js`）。
+- `dsh-mobile-compat`：`client.js` 的 `new Set(['0.2.0-rc.2'])` → `['0.2.0-rc.2']`，判定从 `.has()` 改 `.includes()`（`test/manifest.test.js` 的断言同步）。
+- **等价性是独立验证过的**，不是靠「测试还是绿的」推断：对三个改过的插件 + `dsh-extra-context` 跑同一张 13 档矩阵（`0.2.0-rc.2`、`+build.1`、`0.2.0`、`rc.3`、`0.2.1`、`0.1.7-rc.2`、`alpha.1`、`alpha.9`、`beta.4`、`rc.1`、`0.1.8-alpha.1`、`undefined`、空串），四列**逐行一致**（`rc.2`/`+build.1` 接受且 verified、`0.2.0`/`rc.3` 接受带警告、其余全部 reject）。
+- `install.sh` 侧仍是两种排版（`dsh-default-workspace` / `dsh-chat-archive-manager` / `dsh-mcp-manager` 用多行 `if ... then return 0 fi`，其余用单行），语义等价，**刻意不动**：`install.sh` 不在 npm 发布物里（`files` 白名单不含它），改它只为排版收益太低。
+
+### 3. 离线网（收口后重跑，全绿）
+
+| 闸门 | 结果 |
+|---|---|
+| 9 个插件 `npm test` | **454 项全过**（37 + 78 + 42 + 19 + 75 + 45 + 104 + 26 + 28），0 失败 |
+| `node tools/dsh-icons/build.js` + `check.js` | 无漂移（188 个图标，Medium/Regular 各 94）；build **幂等**，跑完 `git status` 干净 |
+| `verify-nav-icon.js --measure`（4 个有导航图标补丁的插件） | `dsh-extra-context` / `dsh-chat-archive-manager` / `dsh-local-plugin-manager` / `dsh-mcp-manager` 各 **六项全过**，`shellRow` 与 `patched` 的 `labelOffsetLeft/Top` 都是 36/9 |
+| `npm run publish:check`（改动过的三个包） | `dsh-chat-archive-manager` 78 项 + tarball 9 文件；`dsh-local-plugin-manager` 45 项 + tarball 10 文件；`dsh-mobile-compat` 26 项 + tarball 9 文件 |
+
+### 4. 发布闸门差异（顺手补齐）
+
+`dsh-local-plugin-manager` 是 9 个里唯一**没有 `publish:check`** 的：它的 `verify` 只有 `check` + `test`，缺 tarball 白名单校验，`prepublishOnly` 绑的也是 `verify`，`install.sh` 跑的还是 `npm run verify`。本轮补上 `scripts/check-pack.js`（复制既有实现，白名单按它真实的 10 个文件写死）、`pack:check` 与 `publish:check`（= `verify` + `pack:check`），并把 `prepublishOnly` 与 `install.sh` 都改为跑 `publish:check`——现在 9 个插件的发布闸门**同名同覆盖**。
+
+### 5. 发布状态与包名阻塞（三件事逐包复核）
+
+7 个名字归我们的包**已在 registry 上可见 0.2.0 线的版本**，且三件事全部通过：
+
+| 包 | registry 版本 | `dist.attestations` | GitHub Release |
+|---|---|---|---|
+| `dsh-extra-context` | `0.2.0` | ✅ `slsa.dev/provenance/v1` | ✅ `dsh-extra-context-v0.2.0` |
+| `dsh-default-workspace` | `0.2.0` | ✅ | ✅ `…-v0.2.0` |
+| `dsh-auto-load-history` | `0.2.0` | ✅ | ✅ `…-v0.2.0` |
+| `dsh-local-plugin-manager` | `0.3.0` | ✅ | ✅ `…-v0.3.0` |
+| `dsh-sticky-user-bubble` | `0.2.0` | ✅ | ✅ `…-v0.2.0` |
+| `dsh-mobile-compat` | `0.5.0` | ✅ | ✅ `…-v0.5.0` |
+| `dsh-chat-archive-manager` | `0.2.0` | ✅ | ✅ `…-v0.2.0` |
+
+`git tag` 与 `package.json#version` 一一对应、无未推送提交。**两个包名仍被第三方占用**（这一条本轮只做记录，不改名）：
+
+- `dsh-mcp-manager`：已跨到 0.2.0 线，但 registry 上的 `dsh-mcp-manager@0.6.0` 维护者是 `nichts`，描述与我们**同名同题**。它是唯一「跨线完成却发不出去」的包；用户本轮决定**不改名**，所以它继续留在本地 `link:` 路线。
+- `dsh-default-overrides`：registry 上是 `0.3.6`、维护者 `chenwei116057`（Bash/PowerShell overrides）。本轮决定**不跨线**，所以它两项都欠：既在 0.1.7 线、名字也不可用。
+
+### 6. 本轮的决定与「为什么」
+
+- **不跨 `dsh-default-overrides`**：按工作区规则跨线是立项（重读它自己点名的契约 + 隔离宿主 + 真实路由 cookie/CSRF 验证 + 四处同源 + 测试守卫），塞进收口轮会把「一致性核对」变成「半做的跨线」。它的等级、留在旧线的理由与跨线触发条件已写进根 `AGENTS.md`。
+- **只提交、不发版**：形状统一是内部命名调整，运行行为一字未变；本轮改动**不带版本号**，留到下一次真有功能改动的发版一起带上（已发布 artifact 与源码的这一处差异不影响任何用户）。
+- **改名留到用户给名字之后再做**：改名要同步 `package.json#name`、插件文档的改名落点与 `test/manifest.test.js` 守卫，属于独立一轮的工作。
+
+---
+
 
 ## B6：L3 跨线 `dsh-mobile-compat`（2026-10-01）
 

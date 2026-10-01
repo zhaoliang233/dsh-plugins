@@ -63,7 +63,7 @@ test('compatibility matrix declares the verified 0.2.0 release line', () => {
 
 test('client source declares release-line, connection, and structure gates', () => {
   assert.match(client, /DSH_COMPATIBILITY_RANGE = '>=0\.2\.0-rc\.2 <0\.2\.1'/)
-  assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.2\.0-rc\.2'\]\)/)
+  assert.match(client, /VERIFIED_DSH_VERSIONS = \['0\.2\.0-rc\.2'\]/)
   // classifyDshVersion() derives the gate from DSH_RELEASE_LINE + DSH_RELEASE_FLOOR, so the range
   // is reverse-engineered from those constants here: a release-line bump that only edits the range
   // (or only the client constants) would otherwise pass every other gate. The floor is an rc, so

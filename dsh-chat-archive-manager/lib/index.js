@@ -22,7 +22,8 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  * 能力探测仍然是权威判定：**线内**版本即使未逐条核对，也照常挂载并逐项 fail closed 降级。
  */
 export const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
-export const DSH_VERIFIED_VERSIONS = Object.freeze(['0.2.0-rc.2'])
+/** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
+export const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
 
 /**
  * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.0`、`0.2.0-<channel>.N`）。
@@ -36,7 +37,7 @@ export const DSH_RELEASE_LINE = '0.2.0'
  * 兼容线的下界：同线内更低 channel（alpha/beta）或更小序列号的 rc 都低于下界，
  * 判定为不支持。换线时只改 `DSH_RELEASE_LINE` 与这两个字段，判定逻辑不用动。
  */
-export const DSH_RELEASE_FLOOR = Object.freeze({ channel: 'rc', sequence: 2 })
+export const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
 
 /** prerelease channel 的先后顺序；下标即优先级。与 `install.sh` 的 `prerelease_rank()` 同序。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
@@ -54,7 +55,7 @@ const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 export function classifyDshVersion(version) {
   const normalized = typeof version === 'string' ? version.trim().split('+', 1)[0] : ''
   if (normalized === '') return { supported: false, verified: false, normalized: undefined }
-  const verified = DSH_VERIFIED_VERSIONS.includes(normalized)
+  const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
   if (normalized === DSH_RELEASE_LINE) return { supported: true, verified, normalized }
   const line = DSH_RELEASE_LINE.replace(/\./gu, '\\.')
   const prerelease = new RegExp(`^${line}-(alpha|beta|rc)\\.(0|[1-9]\\d*)$`, 'u').exec(normalized)

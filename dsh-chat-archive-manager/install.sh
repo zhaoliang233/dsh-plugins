@@ -5,7 +5,7 @@ PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 DSH_PROFILE="${DSH_PROFILE:-web}"
 # 兼容发布线：只服务这一条已逐包核对过契约的 DSH 发布线；范围外拒绝安装（插件运行时也会保持 inert）。
 DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"
-# 逐版本验证清单：必须与 lib/index.js 的 DSH_VERIFIED_VERSIONS 保持一致。
+# 逐版本验证清单：必须与 lib/index.js 的 VERIFIED_DSH_VERSIONS 保持一致。
 DSH_VERIFIED_VERSIONS="0.2.0-rc.2"
 # 发布线与下界：必须与 lib/index.js 的 DSH_RELEASE_LINE / DSH_RELEASE_FLOOR 同源。
 DSH_RELEASE_LINE="0.2.0"
