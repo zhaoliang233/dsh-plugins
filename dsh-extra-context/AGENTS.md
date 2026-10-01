@@ -1,11 +1,28 @@
 # dsh-extra-context — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.1.7`，兼容线 `>=0.1.7-alpha.1 <0.1.8`，逐版本核对的是 `0.1.7-alpha.1` 与 `0.1.7-rc.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+> 目标 DSH `0.2.0`，兼容线 `>=0.2.0-rc.2 <0.2.1`，逐版本核对的是 `0.2.0-rc.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
 
 ## 逐版本核对记录
 
-**`0.1.7-rc.2`（2026-09-28，DSH 从 `0.1.7-alpha.2` 升到 `0.1.7-rc.2` 后按根 `AGENTS.md` 的「插件兼容性检查」流程做）**：把两个版本用 `npm pack` 拉下来逐文件比对，本插件依赖的面里——`dsh-settings`、`dsh-config-editor`、`dsh-system-prompt`、`dsh-llm`、`dsh-compaction-basic`、`dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store`、`dsh-client-ui-dockkit` 逐字相同；`dsh-client-ui-settings-general/lib/client.js` 确实改了，但设置页导航仍是 `<nav>` + `navCell` 按钮、`navIcon` 白名单与「齿轮回落」未变，所以导航图标补丁继续成立（`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 六项全过）；`Switch` 的 props 与 DOM（`button[role=switch][aria-checked]` + `span.thumb`）不变，rc.2 只改了 CSS 内部；`dsh-client-locale` 只新增一条 `workspace.defaultName` 文案；图标集无删名。**实机证据**：本机 rc.2 的 system prompt 里带着本插件注入的额外上下文，说明完整链路在跑的版本上有效。**未覆盖**：压缩摘要补充指令（实现事实 5）在 rc.2 上的真实请求链路——`dsh-llm` 与 `dsh-compaction-basic` 逐字相同，按同源推断成立，但本轮没跑真实路由 A/B。
+**`0.2.0-rc.2`（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，**跨线是立项而不是例行检查**（换 range 上界 = 换发布线，旧线用户留在旧插件版本）。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）后，本插件依赖的面**全部保持**：
+
+| 契约面 | 0.2.0-rc.2 现状 |
+|---|---|
+| `ctx.systemPrompt.section` / `ScopedLayers` / `interpolate` / `renderPrompt()` | `dsh-system-prompt` 逐字相同；`dsh-agent-loop` 的 `renderPrompt` 调用点上下文逐字相同（该包本轮只改了失败步骤的工具结果恢复） |
+| 条目 config 模型（`Config` + `.volatile()` + loader `_commitVolatile`） | `cordis-plugin-loader`、`schemastery`、`dsh-settings` 逐字相同 |
+| `settings.describe()` 的 `{ns,value,user,base,revision,autoGenerate}` | `dsh-settings` 逐字相同；消费端 `dsh-config-editor` 的 `configuration()` 改了，但已用合成 profile 实测两版本输出逐字相同（见根 `AGENTS.md` 的 0.2.0 记录），`override`（判「用户写过没有」的字段）构造未变 |
+| `ctx.configForms.get()` / `settings.section` list slot 需 `id` / `Switch` | `dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store` 逐字相同；`Switch` 仍导出，`Switch.module.css` 只**新增**一条 `aria-checked='false'` 的 thumb 背景规则 |
+| 设置页导航图标白名单（`navIcon`）与齿轮回落 | `dsh-client-ui-settings-general/lib/client.js` 的 `navIcon` 函数与 0.1.7-rc.2 **逐字相同**；该文件本轮唯一实质改动是版本号字面量。`verify-nav-icon.js --measure` 六项全过 |
+| `llm/stream` waterfall 与压缩摘要（`COMPACTION_INSTRUCTION`） | `dsh-llm` 只改了 `lib/typert.host.js`（远程绑定），`lib/index.js` 逐字相同；`dsh-compaction-basic` 逐字相同 |
+| surface 节点 0 保护（`assertSystemHeadRewrite` / `applySurfacePlan`） | `dsh-session` 本轮改了工具结果恢复，但这两个函数与全部 `system/message` 处理点的上下文**逐字相同** |
+| 图标集 | `tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） |
+
+改动：`lib/index.js` 的版本门改成**从 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 派生**（跨线只需改这三个常量 + 清单，判定逻辑不动；alpha/beta/更低 rc 一律挡在门外），`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源更新，`install.sh` 的 shell 判定同步泛化（用假的 `dsh`/`pnpm`/`npm` 跑了十档版本矩阵，与 JS 分类器逐条一致）。**插件业务代码一字未改**——0.2.0 的契约面逐项满足。
+
+**未覆盖**：压缩摘要补充指令在 0.2.0 上的真实请求链路（`dsh-llm`/`dsh-compaction-basic` 逐字相同，按同源推断成立，本轮没跑真实路由 A/B）。
+
+**更早一轮（`0.1.7-rc.2`，2026-09-28）的逐包比对与实机证据**：已归档到 [`docs/compat-log.md`](../docs/compat-log.md)。那一轮的结论（导航图标补丁成立、`Switch` props 不变、图标无删名）仍然有效，但属于历史；本插件的**当前契约**以上面这节与下面的「已核对的契约」表为准。
 
 ## 一句话
 
@@ -123,7 +140,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ## 配置与安装
 
-- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.1.7-alpha.1 <0.1.8`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
+- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.2.0-rc.2 <0.2.1`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
 - `cordis.patch.yml`：一行 `insert`。**新增插件首次安装必须重启 `dsh web`**——bundle 列表只在启动时读取（`patchReload: live` 只热重载 patch 文件，不重读 bundle 列表）。
 - `install.sh` / `uninstall.sh`：兼容性检查（范围外拒绝安装）+ `npm run publish:check` + 官方 `dsh plugin --profile` 管理；卸载保留 profile 配置里的用户数据。
 

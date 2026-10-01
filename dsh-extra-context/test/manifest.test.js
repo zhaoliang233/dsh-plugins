@@ -45,8 +45,8 @@ test('插件身份与发布面', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.1.7-alpha.1 <0.1.8',
-    verifiedVersions: ['0.1.7-alpha.1', '0.1.7-rc.2'],
+    range: '>=0.2.0-rc.2 <0.2.1',
+    verifiedVersions: ['0.2.0-rc.2'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
@@ -99,11 +99,20 @@ test('安装脚本与运行时的"已验证版本清单"必须同源', () => {
   )
 })
 
-test('安装与卸载脚本走官方 profile 管理', () => {
-  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"'), true)
+test('安装与卸载脚本走官方 profile 管理，且发布线常量与宿主同源', () => {
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
-  assert.equal(installScript.includes('0\\.1\\.7-(alpha|beta|rc)'), true)
-  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1 0.1.7-rc.2"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.0-rc.2"'), true)
+  // 跨线时发布的发布线/下界是四个常量而不是一个 range 字符串；两边必须逐字同源，
+  // 否则宿主会放行一个安装脚本拒绝的版本（或反过来）。
+  const libLine = /DSH_RELEASE_LINE = '([^']+)'/u.exec(hostSource)
+  assert.notEqual(libLine, null, '宿主必须声明 DSH_RELEASE_LINE')
+  assert.equal(installScript.includes(`DSH_RELEASE_LINE="${libLine[1]}"`), true, 'install.sh 的发布线必须与宿主同源')
+  assert.equal(installScript.includes(libLine[1].replace(/\./gu, '\\.')), false, 'install.sh 不得再硬编码版本号字面量（应从 DSH_RELEASE_LINE 派生）')
+  const floor = /DSH_RELEASE_FLOOR = \{ channel: '([^']+)', sequence: (\d+) \}/u.exec(hostSource)
+  assert.notEqual(floor, null, '宿主必须声明 DSH_RELEASE_FLOOR')
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${floor[1]}"`), true, '下界 channel 必须同源')
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${floor[2]}`), true, '下界序列号必须同源')
   assert.equal(installScript.includes('npm run publish:check --prefix "$PLUGIN_DIR"'), true)
   assert.equal(installScript.includes('dsh plugin --profile "$DSH_PROFILE" add "link:$PLUGIN_DIR" --config.minimumReleaseAge=0'), true)
   assert.equal(installScript.includes('必须重启 dsh web'), true)
