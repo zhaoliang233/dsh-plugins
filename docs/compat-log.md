@@ -8,9 +8,64 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| B2（2026-10-01） | `0.2.0-rc.2` | L2 两个插件跨线完成：契约逐行有证据、隔离宿主端到端跑通 |
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## B2：L2 跨线 `dsh-auto-load-history` + `dsh-local-plugin-manager`（2026-10-01）
+
+两个插件从 `>=0.1.7-alpha.1 <0.1.8` 跨到 **`>=0.2.0-rc.2 <0.2.1`**，运行版本 `0.2.0-rc.2`。
+
+**为什么按 L2 而不是升成 L3**：A1–A3 的启发式「L2 命中它依赖的包就升 L3」只是"你还没看过"的替代品——`dsh-auto-load-history` 的契约包 `dsh-api-session-controller` 确实变了，但本轮把 `loadThrough`/`loadOlder`/`SessionSnapshot` 三处逐个在安装包里读了一遍，改动全在「失败步骤的工具结果恢复」等与分页无关的地方，**上下文逐字相同**，所以 L2 成立、两个插件同一轮做完。
+
+### 逐项复核（读的是实际安装包，不是 CHANGELOG）
+
+`dsh-auto-load-history` 契约表 10 行全部成立。行号在 0.2.0-rc.2 上普遍位移，文档已按新行号订正：`session.d.ts:127`（`loadOlder`）/`:140`（`loadThrough`）、`session.js:313`/`:338`/`:392`、`snapshot.d.ts:68-72`、`service.d.ts:76-83`、conversation 的 slot 声明 `:18268` 与渲染 `:16502`、`[data-conversation-scroll]` 在 `:16338`、客户端按钮条件 `hasMore && …` 在 `ui-chat:5271`、服务端 `paginate` 的 `cut > 0` 在 `history.js:425`（0.1.7 时是 `:445`）。renderer 的 `bindInjectSources`（`:424`）与 `locale` 座位（`:724`）逐字未变。
+
+`dsh-local-plugin-manager` 契约表 7 项全部成立：`dsh-plugin-manager`/`dsh-atomic-write`/`dsh-hmr` 与 0.1.7-rc.2 逐字相同（只有 `version` 变），`dsh-app-boot` 只多了 `OPTIONAL_BUNDLES` 里的一项。锁路径/mode/`waitMs`、`writePluginEnabled` 的四条覆盖项语义、`include:<rowId>`（含 `EntryTree.sep === ':'`）、hmr 的 `reconcileProfilePatches`、`settings.section`/`settings.action` 的声明、`requestRejection`、`webServer.register` 全部逐字或语义等价；peerDependencies 预检仍在但不门禁本包（本工作区插件都没声明它）。
+
+### 两个新事实（都是"文档写错了"而不是"DSH 变了"）
+
+- **`settings.general.item` 的内置 order 上限已经不是 20**：0.2.0-rc.2 上是 `settings-session-log` 90、`current-version` 100（此外 `link-opening` 17、`performance-usage` 30、`shortcuts` 16）。`dsh-auto-load-history` 的 `order: 110` 仍排在全部内置项之后，**无并列冲突**——但插件 AGENTS.md 里那句「内置行最大是 composer-enter 20」已作废，已订正。`settings.section` 的内置上限**仍是 20**（account −10 / general 0 / models 10 / plugins 15 / agent-presets 20），所以 `dsh-local-plugin-manager` 的 100 不受影响。
+- `settings.section` 的注册选项仍无 `icon`，壳层 `navIcon(id)` 白名单是 account/models/agent-presets/plugins/archived-sessions——DOM 补丁依旧必要。
+
+### 版本门从常量派生（照抄 B1 的 `dsh-extra-context`）
+
+lib 侧 `DSH_RELEASE_LINE='0.2.0'` + `DSH_RELEASE_FLOOR={channel:'rc',sequence:2}` + `PRERELEASE_CHANNELS`，`install.sh` 有一份等价的 shell 版（含 `prerelease_rank()`）。下界是 rc 时，同线内的 alpha/beta/更低 rc 必须靠 channel 优先级比较挡住——旧的 `channel !== 'alpha' || seq >= 1` 写法会把 `0.2.0-alpha.9` 判成兼容。两个插件的 `test/manifest.test.js` 各新增一条守卫：把 range 反推回发布线与下界、并核对 `install.sh` 的五个常量。`dsh-local-plugin-manager` 的运行时依赖 `@deepseek-ai/dsh-atomic-write` 同时由 `~0.1.7-alpha.1` 升到 `~0.2.0-rc.2`（两版逐字相同，升它只是让写锁与宿主用同一条线的实现）。
+
+### 隔离宿主实机（`DSH_HOME=/tmp/dsh-020-home`、端口 5911、headless Chrome 153/CDP 9344；用户的 3080 全程未触碰，验证后按 `lsof -nP -iTCP:<端口> -sTCP:LISTEN -t` 拿 PID 停止）
+
+`dsh-auto-load-history`（脚本在 `/tmp/dsh-alh-020/`，非发布物）：
+
+| 判据 | 结果 |
+|---|---|
+| 补齐到 `hasMore === false` | 大会话 `f8e6ec6b` 5 批（+4514 / +6035 / +19446 / +28264 / +13334 px）→ 4350 行 / 71704px，顶部按钮消失 |
+| 反向对照（偏好 `false`） | 停在 200 行 / 5307px，按钮常驻 27.6 秒 |
+| 锚点零漂移 | 只钉一次视口：同一 `data-chat-anchor-key` 行停留 2524 帧、top 恒 −226（跨度 0、相邻帧位移 0） |
+| defer 让位 | 4 秒 `wheel` 突发（19 次）窗口内 **0 批**，停手后 **1470ms** 恢复 |
+| 会话切换 A→B→A | `920768ca`（250 行）↔ 切回 A 重新分页到 4350 行 |
+| 视图切换 | Chat ↔ Trajectory：slot 全程 4167 帧不重挂，切回后 4350 行保持 |
+| console | 本插件 0 个 error/warning/exception |
+
+`dsh-local-plugin-manager`：`npm run verify` **45 项全过**；`npm run gui:check` **20 项全过**；「与官方插件管理并存」双向往返——管理器禁用 → 官方详情页读到 `aria-checked=false` → 官方就地启用 → patch 里**同一条覆盖项**被改写为 `disabled: false`（条目数恒为 1）→ 管理器再读为已启用，反向亦然；运行态用 boot graph 判据：禁用后该包的 client bundle 消失、重新启用后回来。
+
+### 踩坑与可复用技巧
+
+- **隔离 `DSH_HOME` 不能直接 `cp -a` 用户 profile**：profile 的 `node_modules/<包名>` 是**相对**符号链接（`../../../../Documents/dsh-plugins/<包名>`），复制到 `/tmp` 后全部解析失败，宿主启动时把 9 个 link 插件逐个 skip 掉。修法是在隔离 profile 的 `node_modules/` 里把这些链接重建为绝对路径（或改用官方 `dsh plugin add link:`）。症状很好认：启动日志里一串 `skipping profile bundle ... cannot resolve`。
+- **官方插件页的行级开关必须"进详情"才能点**：同一页里 `aria-label="启用 <包名>"`（列表上的 **bundle 选择**，`setBundleEnabled`）与 `aria-label="启用组件 <包名>"`（详情里的行级 `setPluginEnabled`）会同时存在，按前者定位会点到错的那个。
+- **侧边栏的 workspace 行是 toggle**：点一次展开该 workspace 的会话列表、再点一次折叠。脚本里"先无脑点一次 workspace"会在列表已展开时把它折叠掉，于是"找不到会话行"。要先判断目标行是否已可见，再决定点不点。
+- **`gui-check.mjs` 的一条断言在多插件环境里必然失败**：「本分区排在 DSH 自带项之后」原写成 `indexOf === length - 1`（要求它是**最后一行**），而别的插件同样贡献 ≥100 的 `settings.section`（extra-context 100、default-overrides/mcp-manager 110、chat-archive-manager 120）。已改为按内置 label 白名单定位最后一个自带项再比较——**断言要度量契约，别度量环境巧合**。
+- **锚点漂移的两种测法要分清**：只钉一次视口（读者不干预）时 top 恒定、跨度 0；若每帧强推 `scrollTop`（defer 场景必须这样做，否则插件按 fail-open 继续补齐），同一锚点行的 top 会在 17px 内摆动——那是「插件补偿」与「外部每帧重新定位」的合成结果，不是补偿漂移。写断言前先确认自己测的是哪一种。
+- **`npm test` 偶发一项失败**：本轮有 1 次在与另一个 npm 任务并行、CPU 繁忙时出现 1 项失败，随后串行连跑 8 次（含 5 次完整 `publish:check`）全绿。`test/client.test.js` 用真实定时器（`BATCH_GAP_MS=32`、`READER_IDLE_MS=1000`），高负载下的时序敏感是可疑点；没有复现证据，先记为观察项。
+
+### 仍未覆盖
+
+- 两个插件的主观流畅度与真实输入手感（滚轮/触控板连续滚动、真机触控）——按各自 README/AGENTS.md 的 GUI 验证清单请用户在 3080 上看一眼。
+- `dsh-local-plugin-manager` 的**卸载**路径（真机 `dsh plugin remove` + 墓碑清理）本轮没跑：它会在隔离 profile 里真删依赖，属于可破坏操作，留待需要时单独做。
+- 0.2.0 **正式版**尚未发布，本轮的下界 `0.2.0-rc.2` 是线内最低已核对版本；正式版发布后按判据它在门内、但会打「未逐版本验证」的警告，届时把清单加一个版本即可。
 
 ---
 

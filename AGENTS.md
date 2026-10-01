@@ -72,7 +72,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 目前工作区同时跨两条线：`dsh-extra-context`、`dsh-default-workspace` 在 `>=0.2.0-rc.2 <0.2.1`，其余 6 个在 `>=0.1.7-alpha.1 <0.1.8`。**当前运行的是 `0.2.0-rc.2`，所以那 6 个按版本门保持 inert（零副作用）**——要么整体退回 `0.1.7-rc.2` 使用，要么按下面的「插件兼容性检查」逐个重走跨线立项流程。
+- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 目前工作区同时跨两条线：`dsh-extra-context`、`dsh-default-workspace`、`dsh-auto-load-history`、`dsh-local-plugin-manager` 在 `>=0.2.0-rc.2 <0.2.1`，其余 5 个在 `>=0.1.7-alpha.1 <0.1.8`。**当前运行的是 `0.2.0-rc.2`，所以那 5 个按版本门保持 inert（零副作用）**——要么整体退回 `0.1.7-rc.2` 使用，要么按下面的「插件兼容性检查」逐个重走跨线立项流程。
 - 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-overrides` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
@@ -98,19 +98,19 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 ### 当前归属
 
-定级变了就更新本表（判据见上一节，别在这里论证）：
+定级变了就更新本表（判据见上一节，别在这里论证）。「当前线」列只是状态速查：范围与验证清单的权威来源仍是各插件自己的 `package.json#dshCompatibility`。
 
-| 等级 | 插件 | 为什么是这个等级 |
-|---|---|---|
-| L1 | `dsh-default-workspace` | 公开 `workspaceRegistry` + 一个 slot；唯一私有触碰是客户端 `workspaces` 的 `rename/delete/insertBefore` 补丁（fail closed、可摘除） |
-| L1 | `dsh-extra-context` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
-| L2 | `dsh-auto-load-history` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
-| L2 | `dsh-local-plugin-manager` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
-| L2 | `dsh-default-overrides` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到 |
-| L3 | `dsh-chat-archive-manager` | 3056 行 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
-| L3 | `dsh-mcp-manager` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收 |
-| L3 | `dsh-sticky-user-bubble` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
-| L3 | `dsh-mobile-compat` | 壳层 DOM + 几何 + 客户端包哈希矩阵；跨线必须重跑整张浏览器尺寸矩阵，**上一线结论一条都不能继承** |
+| 等级 | 插件 | 当前线 | 为什么是这个等级 |
+|---|---|---|---|
+| L1 | `dsh-default-workspace` | `0.2.0` | 公开 `workspaceRegistry` + 一个 slot；唯一私有触碰是客户端 `workspaces` 的 `rename/delete/insertBefore` 补丁（fail closed、可摘除） |
+| L1 | `dsh-extra-context` | `0.2.0` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
+| L2 | `dsh-auto-load-history` | `0.2.0` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
+| L2 | `dsh-local-plugin-manager` | `0.2.0` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
+| L2 | `dsh-default-overrides` | `0.1.7` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到 |
+| L3 | `dsh-chat-archive-manager` | `0.1.7` | 3056 行 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
+| L3 | `dsh-mcp-manager` | `0.1.7` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收 |
+| L3 | `dsh-sticky-user-bubble` | `0.1.7` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
+| L3 | `dsh-mobile-compat` | `0.1.7` | 壳层 DOM + 几何 + 客户端包哈希矩阵；跨线必须重跑整张浏览器尺寸矩阵，**上一线结论一条都不能继承** |
 
 ### 固定动作
 
