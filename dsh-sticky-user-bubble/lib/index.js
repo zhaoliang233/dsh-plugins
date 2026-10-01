@@ -3,20 +3,37 @@ import { dirname, join } from 'node:path'
 
 export const PLUGIN_NAME = 'dsh-sticky-user-bubble'
 export const inject = []
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
-const VERIFIED_DSH_VERSIONS = new Set(['0.1.7-alpha.1', '0.1.7-rc.2'])
-const DSH_VERSION_PATTERN = /^0\.1\.7(?:-(alpha|beta|rc)\.(0|[1-9]\d*))?$/u
-const DSH_PRERELEASE_ORDER = { alpha: 0, beta: 1, rc: 2 }
+/**
+ * 兼容发布线。与 `package.json#dshCompatibility.range` / `engines.dsh` /
+ * `install.sh` 的 `DSH_COMPATIBILITY_RANGE` **同源**。
+ */
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
+/** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
+export const DSH_RELEASE_LINE = '0.2.0'
+/**
+ * 兼容线下界（`0.2.0-rc.2`）：同线内更低 channel（alpha/beta）或更小序列号
+ * 的 rc 都低于下界，判为不支持。跨线时改这三个常量即可，判定逻辑不用动。
+ */
+export const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
+/** prerelease channel 的先后顺序；下标即优先级。 */
+const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
+/** 逐版本核对清单；与 `package.json#dshCompatibility.verifiedVersions` / `install.sh` 同源。 */
+export const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
 
 export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }
   const normalized = version.split('+', 1)[0]
-  const match = DSH_VERSION_PATTERN.exec(normalized)
-  if (match === null) return { supported: false, verified: false, normalized }
-  const supported = match[1] === undefined
-    || DSH_PRERELEASE_ORDER[match[1]] > DSH_PRERELEASE_ORDER.alpha
-    || Number(match[2]) >= 1
-  return { supported, verified: supported && VERIFIED_DSH_VERSIONS.has(normalized), normalized }
+  const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
+  if (normalized === DSH_RELEASE_LINE) return { supported: true, verified, normalized }
+  const prerelease = new RegExp(`^${DSH_RELEASE_LINE.replace(/\./gu, '\\.')}-(alpha|beta|rc)\\.(0|[1-9]\\d*)$`, 'u').exec(
+    normalized
+  )
+  if (prerelease === null) return { supported: false, verified: false, normalized }
+  const rank = PRERELEASE_CHANNELS.indexOf(prerelease[1])
+  const floorRank = PRERELEASE_CHANNELS.indexOf(DSH_RELEASE_FLOOR.channel)
+  const supported =
+    rank > floorRank || (rank === floorRank && Number(prerelease[2]) >= DSH_RELEASE_FLOOR.sequence)
+  return { supported, verified: supported && verified, normalized }
 }
 
 export function readDshPackage(entryPath = process.argv[1]) {

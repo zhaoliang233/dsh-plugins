@@ -4,30 +4,29 @@ import test from 'node:test'
 import plugin, { PLUGIN_NAME, applyForVersion, classifyDshVersion, inject } from '../lib/index.js'
 
 test('keeps the Host half inert outside the audited release line', () => {
-  assert.equal(classifyDshVersion('0.1.7-alpha.1+local').supported, true)
-  assert.equal(classifyDshVersion('0.1.7-alpha.1+local').verified, true)
-  assert.equal(classifyDshVersion('0.1.7-alpha.2').supported, true)
-  assert.equal(classifyDshVersion('0.1.7-alpha.2').verified, false, 'same line but not individually verified')
-  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, true)
-  assert.equal(classifyDshVersion('0.1.7-rc.2').verified, true, 'individually verified within the line')
-  assert.equal(classifyDshVersion('0.1.7-rc.1').verified, false, 'sibling prereleases stay unlisted')
-  assert.equal(classifyDshVersion('0.1.7-beta.0').supported, true)
-  assert.equal(classifyDshVersion('0.1.7').supported, true)
-  assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false)
-  assert.equal(classifyDshVersion('0.1.6-alpha.2').supported, false, 'previous verified line is now outside')
+  assert.equal(classifyDshVersion('0.2.0-rc.2+local').supported, true)
+  assert.equal(classifyDshVersion('0.2.0-rc.2+local').verified, true, 'build metadata is stripped before the check')
+  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, true)
+  assert.equal(classifyDshVersion('0.2.0-rc.2').verified, true, 'individually verified within the line')
+  assert.equal(classifyDshVersion('0.2.0-rc.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.0-rc.3').verified, false, 'same line but not individually verified')
+  assert.equal(classifyDshVersion('0.2.0').supported, true, 'the stable release of the line stays inside')
+  assert.equal(classifyDshVersion('0.2.0').verified, false, 'the stable release is still unlisted until audited')
+  assert.equal(classifyDshVersion('0.2.0-rc.1').supported, false, 'sibling prereleases below the floor are unsupported')
+  assert.equal(classifyDshVersion('0.2.0-beta.9').supported, false, 'a lower channel is below an rc floor')
+  assert.equal(classifyDshVersion('0.2.0-alpha.1').supported, false, 'a lower channel is below an rc floor')
+  assert.equal(classifyDshVersion('0.2.1').supported, false, 'the next patch line belongs to another plugin version')
+  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, 'previous verified line is now outside')
 
   let warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.6-alpha.2')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.7-rc.2')
   assert.equal(warnings, 1, 'a version below the line must warn and stay inert')
   warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.7')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.0')
   assert.equal(warnings, 1, 'an unlisted same-line version must warn but still run')
   warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.7-alpha.1')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.0-rc.2')
   assert.equal(warnings, 0, 'the verified version must be silent')
-  warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.1.7-rc.2')
-  assert.equal(warnings, 0, 'every individually verified version must be silent')
 })
 
 test('exports an inert Host half for the client-only feature', () => {

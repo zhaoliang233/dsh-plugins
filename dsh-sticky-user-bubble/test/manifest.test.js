@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import { DSH_RELEASE_FLOOR, DSH_RELEASE_LINE, VERIFIED_DSH_VERSIONS } from '../lib/index.js'
+
 const manifest = JSON.parse(
   await readFile(new URL('../package.json', import.meta.url), 'utf8')
 )
@@ -24,13 +26,13 @@ test('declares a publishable Web client bundle', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.1.7-alpha.1 <0.1.8',
-    verifiedVersions: ['0.1.7-alpha.1', '0.1.7-rc.2'],
+    range: '>=0.2.0-rc.2 <0.2.1',
+    verifiedVersions: ['0.2.0-rc.2'],
     futureVersionsRequireCapabilityChecks: true
   })
-  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"'), true)
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"'), true)
   assert.equal(
-    installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1 0.1.7-rc.2"'),
+    installScript.includes('DSH_VERIFIED_VERSIONS="0.2.0-rc.2"'),
     true,
     'install.sh must list exactly the verified versions (space separated)'
   )
@@ -41,6 +43,22 @@ test('declares a publishable Web client bundle', () => {
   assert.ok(manifest.files.includes('PUBLISHING.md'))
   assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
   assert.notEqual(manifest.private, true)
+})
+
+// 版本门从常量派生：range、发布线、下界与验证清单在四处保持同源
+// （package.json / lib/index.js / install.sh / 插件文档）。
+test('the release line, its floor, and the verified list stay in sync across all four places', () => {
+  assert.deepEqual(VERIFIED_DSH_VERSIONS, manifest.dshCompatibility.verifiedVersions)
+  // 上界由发布线自身派生：0.2.0 线只服务 <0.2.1。
+  const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
+  assert.equal(
+    manifest.dshCompatibility.range,
+    `>=${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence} <${nextPatch}`
+  )
+  assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range)
+  assert.equal(installScript.includes(`DSH_RELEASE_LINE="${DSH_RELEASE_LINE}"`), true)
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${DSH_RELEASE_FLOOR.channel}"`), true)
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${DSH_RELEASE_FLOOR.sequence}`), true)
 })
 
 test('bundle patch inserts the package by its published name', () => {
