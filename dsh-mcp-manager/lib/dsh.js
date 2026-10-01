@@ -17,13 +17,31 @@ import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-/** 与本包 manifest 的 `dshCompatibility.range` / `engines.dsh` 同源。 */
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
+/**
+ * 兼容发布线。与 `package.json#dshCompatibility.range` / `engines.dsh` /
+ * `install.sh` 的 `DSH_COMPATIBILITY_RANGE` **同源**。
+ */
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
+/** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
+export const DSH_RELEASE_LINE = '0.2.0'
+/**
+ * 兼容线下界（`0.2.0-rc.2`）：同线内更低 channel（alpha/beta）或更小序列号
+ * 的 rc 都低于下界，判为不支持。跨线时改这几个常量即可，判定逻辑不用动。
+ */
+export const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
+/** prerelease channel 的先后顺序；下标即优先级。 */
+const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /** 逐版本核对过的 DSH 版本（其它同线版本带警告运行）。 */
-export const VERIFIED_DSH_VERSIONS = ['0.1.7-alpha.2', '0.1.7-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
 
 /**
  * 判定 DSH 版本是否落在已核对契约的兼容线内。
+ *
+ * 只按版本号形状判定，不猜「看起来差不多」的版本：正式版与
+ * `0.2.0-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律
+ * `supported: false`。下界是 rc 时必须比较 channel 优先级——旧的
+ * `channel !== 'alpha' || seq >= N` 写法会把 `0.2.0-alpha.9` 判成兼容。
+ *
  * @param {unknown} version
  * @returns {{supported: boolean, verified: boolean, normalized?: string}}
  */
@@ -31,10 +49,14 @@ export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }
   const normalized = version.split('+', 1)[0]
   const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
-  if (normalized === '0.1.7') return { supported: true, verified, normalized }
-  const prerelease = /^0\.1\.7-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
+  if (normalized === DSH_RELEASE_LINE) return { supported: true, verified, normalized }
+  const prerelease = new RegExp(`^${DSH_RELEASE_LINE.replace(/\./gu, '\\.')}-(alpha|beta|rc)\\.(0|[1-9]\\d*)$`, 'u').exec(
+    normalized
+  )
   if (prerelease === null) return { supported: false, verified: false, normalized }
-  const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= 1
+  const rank = PRERELEASE_CHANNELS.indexOf(prerelease[1])
+  const floorRank = PRERELEASE_CHANNELS.indexOf(DSH_RELEASE_FLOOR.channel)
+  const supported = rank > floorRank || (rank === floorRank && Number(prerelease[2]) >= DSH_RELEASE_FLOOR.sequence)
   return { supported, verified: supported && verified, normalized }
 }
 

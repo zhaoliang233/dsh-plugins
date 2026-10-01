@@ -20,20 +20,19 @@ import {
 } from '../lib/index.js'
 import { unwrapModule } from '../lib/dsh.js'
 
-test('版本门：线内通过、线外拒绝，且只把已核对过的 0.1.7-alpha.2 / 0.1.7-rc.2 当逐版本验证版本', () => {
-  assert.deepEqual(classifyDshVersion('0.1.7-alpha.2'), { supported: true, verified: true, normalized: '0.1.7-alpha.2' })
-  assert.deepEqual(classifyDshVersion('0.1.7-rc.2'), { supported: true, verified: true, normalized: '0.1.7-rc.2' })
-  assert.deepEqual(classifyDshVersion('0.1.7-alpha.1'), { supported: true, verified: false, normalized: '0.1.7-alpha.1' })
-  assert.equal(classifyDshVersion('0.1.7-beta.1').supported, true)
-  assert.equal(classifyDshVersion('0.1.7-rc.3').supported, true)
+test('版本门：线内通过、线外拒绝，且只把已核对过的 0.2.0-rc.2 当逐版本验证版本', () => {
+  assert.deepEqual(classifyDshVersion('0.2.0-rc.2'), { supported: true, verified: true, normalized: '0.2.0-rc.2' })
+  assert.deepEqual(classifyDshVersion('0.2.0-rc.3'), { supported: true, verified: false, normalized: '0.2.0-rc.3' })
   // rc.3 落在兼容线内但没逐版本核对过 —— 只允许"带警告运行"，不能算已验证版本
-  assert.equal(classifyDshVersion('0.1.7-rc.3').verified, false)
-  assert.equal(classifyDshVersion('0.1.7').supported, true)
-  assert.equal(classifyDshVersion('0.1.7-alpha.0').supported, false, 'alpha.0 早于已核对契约')
-  assert.equal(classifyDshVersion('0.1.6').supported, false, '上一发布线不再支持')
-  assert.equal(classifyDshVersion('0.1.8-alpha.1').supported, false, '跨发布线要重新核对契约后再放行')
+  assert.equal(classifyDshVersion('0.2.0-rc.1').supported, false, '下界是 rc.2，同线内更低的 rc 在门外')
+  assert.equal(classifyDshVersion('0.2.0-beta.9').supported, false, 'beta 的 channel 优先级低于 rc 下界')
+  assert.equal(classifyDshVersion('0.2.0-alpha.9').supported, false, '旧的「只挡 alpha 低序号」写法会误放行这里')
+  assert.equal(classifyDshVersion('0.2.0').supported, true)
+  assert.equal(classifyDshVersion('0.2.0').verified, false, '正式版尚未逐版本核对，按带警告处理')
+  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, '上一发布线不再支持')
+  assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false, '跨发布线要重新核对契约后再放行')
   assert.equal(classifyDshVersion(undefined).supported, false)
-  assert.equal(classifyDshVersion('0.1.7+build9').supported, true, '构建元数据不影响判定')
+  assert.equal(classifyDshVersion('0.2.0+build9').supported, true, '构建元数据不影响判定')
 })
 
 test('设置条目 id 与包名同源（客户端 bundle 里的字面量必须一致）', () => {
@@ -167,7 +166,7 @@ test('statusPayload：与配置文件同名的托管条目要给出即时提示�
   const state = {
     csrfToken: 'tok',
     runtime: 'ready',
-    version: '0.1.7-alpha.2',
+    version: '0.2.0-rc.2',
     versionSupported: true,
     module: {},
     moduleStrategy: 'loader-import',

@@ -1,5 +1,14 @@
 # 变更记录
 
+## 未发布（换线到 DSH 0.2.0）
+
+本插件**还没有发布过**，包名 `dsh-mcp-manager` 在 npm 上被第三方占用，因此在改名之前没有版本号可写——这一节只记录已经落在源码里的变更。
+
+- 兼容线由 DSH `>=0.1.7-alpha.1 <0.1.8` **整体换到** `>=0.2.0-rc.2 <0.2.1`（逐版本验证 `0.2.0-rc.2`）。上一线的用户留在上一线的插件版本，不维护分叉实现。
+- 版本门改为从 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 常量派生：同线内更低的 channel（alpha/beta）与更小的 rc 序列号一律挡在门外（旧的「只挡 alpha 低序号」写法会把 `0.2.0-alpha.9` 误判成兼容）；`install.sh` 有一份等价的 shell 版。
+- 新增 `test/manifest.test.js`：守卫「发布线 / 下界 / 验证清单」四处同源，以及**改名落点**（`package.json#name`、`cordis.patch.yml` 的 id/name、客户端 bundle 的 module id、`lib/store.js` 的 `PLUGIN_NAME` 与 `SETTINGS_ENTRY`）必须一致。
+- **业务代码一字未改**：0.2.0 的契约面（动态挂载与卸载、volatile 对账、凭据解析与写入、设置写入、只读投影、导航图标补丁）逐项复核后全部成立。隔离宿主上 104 项单测、52 条 GUI 验收（连跑两轮）、导航图标六项几何全过。
+
 ## 0.1.0
 
 首个版本。

@@ -1,7 +1,7 @@
 # dsh-mcp-manager — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.1.7-rc.2`，兼容线 `>=0.1.7-alpha.1 <0.1.8`；逐版本验证过 `0.1.7-alpha.2`（单测 + 真机 GUI）与 `0.1.7-rc.2`（单测 + 真机 GUI 52/52 + CSRF 14 例 + 对账幂等实测）。
+> 目标 DSH `0.2.0`，兼容线 `>=0.2.0-rc.2 <0.2.1`；逐版本验证过 `0.2.0-rc.2`（单测 104 项 + 真机 GUI 52/52 连跑两轮 + 鉴权/CSRF 12 项 + 动态挂载与凭据链实测 + 导航图标六项）。
 
 ## 一句话
 
@@ -43,7 +43,7 @@
 
 结论：动态挂载/卸载、两种传输、与 host 全局工具层的关系都已证实。**这份探针不在交付包里**（在 `/tmp/dsh-mcp-spike/`），但它证明了 README 里「不需要重启」的说法。（这张表是 0.1.6 线做的；0.1.7 线的等价路径由下面那张表和真机 GUI 验收覆盖。）
 
-## 本插件在隔离宿主上的端到端实测（0.1.7-alpha.2 起，rc.2 复跑）
+## 本插件在隔离宿主上的端到端实测（0.1.7-alpha.2 起；0.2.0-rc.2 复跑）
 
 用独立 `DSH_HOME`（alpha.2 那轮是 `/tmp/dsh-mcp-migrate/home`，rc.2 这轮是 `/tmp/dsh-mcp-rc2`）+ 从 web 模板初始化出的 profile 装**本插件自己**（`link:`）并启动宿主（`--port 3099`，全程不碰用户正在用的 3080），逐项核对用户可见承诺。**首次落地在 `0.1.7-alpha.2`；下表每一行都在 `0.1.7-rc.2` 上重新跑过一遍**（rc.2 的 `dsh-mcp-client` / `dsh-credentials` / `dsh-config-editor` / `dsh-settings` 与 alpha.2 逐字相同，复核重点因而落在动态挂载与对账链上）：
 
@@ -60,13 +60,33 @@
 
 > 0.1.6 线那张旧表（`/tmp/dsh-mcp-spike/home2`，往 `settings.yaml` 写条目、按 `settings` scope 的 watch 对账）已随换线失效：那条链在 0.1.7 里不存在了。
 
+### 0.2.0-rc.2 复跑（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）
+
+隔离环境 `DSH_HOME=/tmp/dsh-mcp-020/home`、profile `web`、端口 **5922**（非 3080；验证后按端口取 PID 停止）、headless Chrome 153 + CDP 9333。profile 里手写两行 `dsh-mcp-client`：**第 1 行是 URL 带 token + `Authorization` 的 `patchy2`**（GUI 脚本的「导入」断言按它取锚点），第 2 行是 stdio fixture（20 个工具）。
+
+| 场景 | 实测结果 |
+|---|---|
+| 启动装配 | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`versionSupported=true`、`dshVersion=0.2.0-rc.2`、`compatibilityRange=>=0.2.0-rc.2 <0.2.1`、`verifiedVersions=["0.2.0-rc.2"]` |
+| **`loader/volatile-update` → 对账**（换线时最关键、最容易静默失效的一环） | 直接往 profile 的 `cordis.patch.yml` 写 `config.servers` → `lastReconcile.reason=settings`、`mounted:["volprobe"]`、`live.state=mounted`、20 个工具 |
+| **对账幂等** | 紧接着手动 `reconcile`：`mounted:[] / unmounted:[] / unchanged:["srv-volatile"]`，`live.mountedAt` **不变**（没有偷偷重挂） |
+| **凭据占位符链路** | 加一条 `env: { VOLPROBE_TOKEN: 'credential:VOLPROBE_TOK' }` 的条目 → 被拦（`blockedReason` 指名缺 `VOLPROBE_TOK`、`live.state=null`；同一轮 `mounted` 里仍有它，这是「已知边界」记过的形态）→ 把值写进 `.credentials.yaml` 后**无需手动对账**：`reason=credentials`（证明 `credentials/reference-updated` 到达插件）、`mounted:["credprobe"]`、`blocked:[]`、20 个工具、`unchanged` 仍只含上一个条目；明文 `probe-value` 在状态载荷里出现 **0 次** |
+| **凭据写入走官方服务** | 隔离 `DSH_HOME` 的 `.credentials.yaml`（mode **0600**）里出现 `MCP_PATCHY2_HEADERS_AUTHORIZATION` / `MCP_PATCHY2_URL_URL`（「导入」动作写入）与 `URL_TOK`（GUI 里「保存凭据」写入）——三条都由宿主经 `ctx.credentials.set` 落盘。插件自己**不解析 yaml**：全仓 grep 只有 `lib/store.js` 一行注释提到该文件名，没有任何读取/解析代码 |
+| 真机 GUI（`scripts/gui-flow.mjs`） | **52/52 连跑两轮全过**；浮层实测 `279x205` 在面板 `472x335` 内（与 rc.2 的数字逐字一致） |
+| 鉴权 / CSRF 边界 | **12/12**：缺自定义客户端头 403、头值非 1 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、同源头 200、动作缺 CSRF 403、错 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、方法不符 405、非 JSON 415、正确 CSRF 200 |
+| `npm run verify` | **104/104**（跨线新增 5 条：包名/条目 id/bundle id 同源、发布线与下界四处同源、`install.sh` 两处清单、版本门矩阵） |
+| 导航图标 | `verify-nav-icon.js --measure` 六项全过（label 偏移 36/9 与壳层原生行一致、原 svg 被隐藏、mask 生效、`::before` 恰好 16×16、壳层行未被动过）；`tools/dsh-icons/check.js` 188 个图标无漂移 |
+| 设置分区 order | 0.2.0 新增的 `ui-settings-session-log` 是 **`settings.general.item`（order 90）**，不是 `settings.section`；`settings.section` 的内置项仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，本插件的 **110 仍排在全部内置分区之后** |
+
+**结论：业务代码一字未改**，本轮改动只有 `lib/dsh.js` 与 `install.sh` 的版本门、`package.json` 的两处范围、`test/manifest.test.js`（新增）、`test/host.test.js` 的版本门用例与四份文档。
+
 ### 逐版本核对记录
 
 | DSH 版本 | 本轮核对方式 | 结论 |
 |---|---|---|
 | `0.1.7-alpha.2` | 逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 契约差异后换线；隔离宿主端到端 + 真机 GUI 52/52 | 首次验证通过（本节上表的首次落地） |
 | `0.1.7-rc.2`（2026-09-29） | 复用工作区已做的逐包 diff（`dsh-mcp-client` / `dsh-credentials` / `dsh-config-editor` / `dsh-settings` / `dsh-host-webserver` 与 alpha.2 **逐字相同**；真的动过的是 `dsh-app-boot` +424/-48、`dsh-plugin-manager` +757/-154、`dsh-tools` 仅新增 `displayReason` 字段）；在**独立的 `DSH_HOME=/tmp/dsh-mcp-rc2`** 上重跑端到端断言 + 真机 GUI（连跑两次 52/52）+ 14 例鉴权/CSRF + 对账幂等与凭据链实测；`npm run verify` 99/99 | 通过，**代码无需适配**：动态挂载链路（`ctx.plugin` / `fiber.dispose` / `loader/volatile-update` → 对账）在 rc.2 上行为不变；本插件不声明 `peerDependencies`，rc.2 新增的插件兼容预检不门禁本条目（`runtime=ready`、`settingsAvailable=true` 证明装配期没抛错）；设置/凭据/配置编辑三条链路的契约包逐字相同，实测也照旧 |
-| 其它 `0.1.7-*` prerelease | 未逐版本核对 | 落在兼容线内、带警告运行；能力探测仍是权威判定 |
+| **`0.2.0-rc.2`（2026-10-01，跨发布线）** | 复用工作区的逐包 diff（A1–A3：本插件点名的 `dsh-mcp-client` / `dsh-credentials` / `dsh-settings` / `dsh-tools` / `dsh-host-webserver` **逐字相同**，只有 `version` 字段变），并在**实际安装包**里把「已核对的契约」表逐项重读（`dsh-acp:12,218` 的动态挂载先例、`cordis` 的 `plugin()`、`cordis-plugin-loader` 的 `_commitVolatile`/`loader/volatile-update`、`dsh-credentials-local` 的 `resolve(473)/describe(491)/set(513)/unset(517)`、`dsh-config-editor` 的 `withFileLock(package.json)`+`writeFileAtomic(..., {mode:384})`+`reconcileProfilePatches`、`dsh-settings` 的 `ns: entry.options.id`、`dsh-host-webserver:179` 的重复路由 throw）；独立 `DSH_HOME=/tmp/dsh-mcp-020/home` + 端口 5922 上跑端到端 + 真机 GUI（连跑两轮 52/52）+ 12 项鉴权/CSRF + 对账幂等 + 凭据链；`npm run verify` 104/104 | 通过，**业务代码一字未改**：本轮只改了版本门（`lib/dsh.js` 从 `DSH_RELEASE_LINE`/`DSH_RELEASE_FLOOR` 派生、`install.sh` 的等价 shell 版含 `prerelease_rank()`）、`package.json` 的 range/engines/清单、测试守卫与文档。**特别注意**：下界从 `alpha.1` 换成 `rc.2` 后必须比较 channel 优先级——旧的 `channel !== 'alpha' || seq >= 1` 会把 `0.2.0-alpha.9` 误判成兼容（`test/manifest.test.js` 的版本门矩阵守着） |
+| 其它 `0.2.0-*` prerelease / `0.2.0` 正式版 | 未逐版本核对 | 落在兼容线内、带警告运行；能力探测仍是权威判定。正式版发布后按判据它在门内，届时把它加进 `VERIFIED_DSH_VERSIONS` 与 `install.sh` 清单即可 |
 
 ## 结构
 
@@ -180,10 +200,10 @@
 
 ```bash
 npm run check       # node --check ×10 + bash -n ×2
-npm test            # 99 项：store 13 / plan 10 / mount-manager 12 / targets 10 / host 16 / client 38
+npm test            # 104 项：store 13 / plan 10 / mount-manager 12 / targets 10 / host 14 / client 40 / manifest 5
 npm run pack:check  # 发布物 = 12 个文件
 npm run publish:check   # = verify + pack:check，已绑定 prepublishOnly
-npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（52/52，0.1.7-alpha.2 与 0.1.7-rc.2 都是）
+npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（52/52；0.1.7-alpha.2、0.1.7-rc.2、0.2.0-rc.2 都是，0.2.0-rc.2 连跑两轮）
 ```
 
 > `gui:check` 跑的是**隔离宿主**：`DSH_HOME=/tmp/<隔离目录> dsh --profile web --port <非 3080> --no-open`（首次会初始化 profile），再装 `link:` 本插件并起无头 Chrome。**别用 `--port 0`**：脚本要从 URL 里取 `port`，随机端口它读不到。
@@ -212,9 +232,30 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   #
 
 ## 发布与安装路线
 
-- 用户路线：`dsh plugin --profile web add dsh-mcp-manager`（升级必须显式写 `@<版本>`）；`./install.sh` 只服务源码 `link:` 开发路线，它会先跑 `npm run verify` 再调用官方 `dsh plugin add`。
+> **⚠️ 包名被第三方占用，发版前必须先改名。** `dsh-mcp-manager` 这个包名在 npm 上**不是我们的**（本包从未发布过）。在改名之前：① `dsh plugin --profile web add dsh-mcp-manager` 会装到**别人的包**上；② 直接 bump 版本打 tag 会在 `.github/workflows/release.yml` 里以**无权限失败**，并留下一个空 release。所以**不要**为它改 `package.json#version`（留一个发不出去、只会误导人的版本号没有意义），也不要打 tag。
+
+### 改名时要同步的落点
+
+| # | 落点 | 说明 |
+|---|---|---|
+| 1 | `package.json#name` | 包名本体：profile 依赖键、`dsh plugin add` 的参数、npm trusted publisher 配置都是它 |
+| 2 | `cordis.patch.yml` 的 `- id:` 与 `name:` | profile 里的 loader 条目 id 与模块名，**两行都要改**且 id 必须等于包名 |
+| 3 | `client.js` 顶部的 `window.__ModuleLoader__.load({ id: … })` | 就是 `dsh.client` 那半体在浏览器 boot graph 里的注册名；与包名不一致时 bundle 不会被加载（页面毫无反应） |
+| 4 | `lib/store.js` 的 `PLUGIN_NAME` 与 `SETTINGS_ENTRY` | 「两处常量」。后者是设置条目 id（= 包名），客户端 `configForms.get()` 与宿主 `settings.describe()` 的 `ns` 都靠它 |
+| 5 | `client.js` 内部的 `PLUGIN_ID` / `SETTINGS_ENTRY` 字面量 | 客户端 bundle 是 CJS 单文件、读不到宿主常量，必须手改 |
+| 6 | 路由与固定头名（可选，但**两处必须同源**） | `lib/index.js` 与 `client.js` 各有一份 `STATUS_PATH` / `ACTION_PATH` / `CLIENT_HEADER` / `CSRF_HEADER` |
+| 7 | `uninstall.sh` 的 `remove <包名>`、两个脚本的提示文案、README / AGENTS.md / CHANGELOG / `docs/compat-log.md` 里的包名 | 脚本与文档 |
+| 8 | 测试与验收脚本里的字面量 | `test/host.test.js`（`SETTINGS_ENTRY`、`CLIENT_HEADER`/`CSRF_HEADER`）、`test/client.test.js`、`scripts/gui-flow.mjs` 的状态接口头 |
+
+**只改其中一处不会报错**，症状分别是「设置页没有分区」（条目 id 与客户端 `configForms.get()` 对不上）或「插件进了 profile 但页面毫无反应」（bundle 注册名 ≠ 包名）——`test/manifest.test.js` 的第一条用例（包名/条目 id/bundle id 四处同源）就是为这个加的，改名前先让它变绿再改。
+
+改完必须重跑：`npm run publish:check`（含改名守卫）、`node tools/dsh-icons/verify-nav-icon.js --plugin <新包名> --measure`（六项）、以及 `npm run gui:check` 一次——客户端 bundle 的注册名变了，这一轮最容易漏。
+
+### 其余
+
+- 用户路线：`dsh plugin --profile web add <包名>`（升级必须显式写 `@<版本>`）；`./install.sh` 只服务源码 `link:` 开发路线，它会先跑 `npm run verify` 再调用官方 `dsh plugin add`。
 - 本包**没有运行时依赖**（`dependencies` 为空），因此 release 工作流不需要为它装依赖。
-- 发布：`npm run publish:check` 是唯一闸门（语法 + 测试 + 打包白名单），`prepublishOnly` 已绑定；发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-mcp-manager-v<版本>` tag 后经 npm trusted publishing（OIDC）完成。
+- 发布：`npm run publish:check` 是唯一闸门（语法 + 测试 + 打包白名单），`prepublishOnly` 已绑定；改名之后由根仓库 `.github/workflows/release.yml` 收到 `<新包名>-v<版本>` tag 后经 npm trusted publishing（OIDC）完成（tag 名要跟着新包名走）。
 - 兼容线四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 的版本门、本文件与 `lib/dsh.js` 的 `DSH_COMPATIBILITY_RANGE`。
 
 ## 排查顺序
