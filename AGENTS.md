@@ -149,7 +149,9 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 ## 发布与分发（npm / OIDC）
 
-7 个包都已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token：
+7 个包已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token。
+
+**发版前先确认包名归我们所有**（`npm view <包名> maintainers`）：`dsh-mcp-manager` 与 `dsh-default-overrides` 都还没有发过。其中 **`dsh-default-overrides` 的包名已被第三方占用**（registry 上是 0.3.6、维护者 `chenwei116057`、描述是 Bash/PowerShell overrides，与本插件无关），**在改名之前它发不了版**——不要直接 bump 版本打 tag，那会在 workflow 里以无权限失败并留下一个空 release。
 
 - 发布流程：改 `package.json#version` → 写 `CHANGELOG.md` 条目 → 跑该插件的 `npm run publish:check` → `git tag dsh-<插件>-v<版本>` → `git push origin HEAD && git push origin dsh-<插件>-v<版本>`。tag 必须与 `package.json#version` 完全一致；工作流还会拒绝 `private: true` 的包，并在发布后回查 registry。
 - 发版必须由用户明确授权：`commit`/`tag`/`push` 都属「提交规范」里的受限操作（只读检查不受限）。

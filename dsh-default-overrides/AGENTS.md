@@ -137,5 +137,6 @@
 
 ## 待办
 
+- **发版前必须先改名**：`dsh-default-overrides` 这个包名在 npm registry 上**已被第三方占用**（2026-10-01 实测：registry 上是 0.3.6、维护者 `chenwei116057`、描述是 "Configurable Bash and PowerShell overrides for the DSH standard preset"，与本插件无关）。在改名（并同步 `package.json#name`、`cordis.patch.yml` 的行 id/name、`dsh.client` 与两处常量）之前，本插件**发不了版**——直接 bump 版本打 tag 会在 release workflow 里以无权限失败并留下一个空 release。本插件也还没有 `scripts/check-pack.js`，发布前要补。
 - 白名单扩展（压缩阈值、subagent 并发、Web 搜索等），按同一张表加。
 - 高级模式目前只支持"清除整块覆盖"；若以后要支持任意字段编辑，需要先解决"非白名单字段写坏组合"的风险（二次确认 + 组合校验 + 一键回滚）。
