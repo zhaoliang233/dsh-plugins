@@ -8,6 +8,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| D1（2026-10-01） | `0.2.0-rc.2` | L2 插件 `dsh-default-overrides` 跨线完成（工作区最后一个停在旧线的插件）：契约面逐项有证据、门常量照基准形状改成从常量派生、13 档矩阵 + 四处同源全过；隔离宿主实测「范围外零注册（两种形态）」与「门内可写 profile 补丁」；顺带证伪了一条假守卫（文档腿 `includes` 判据）与一条错误取证方式（靠 cordis 日志） |
 | C1（2026-10-01，收口） | `0.2.0-rc.2` | 全仓一致性收口：9 个插件的四处声明逐字核对完毕、门常量形状统一、离线网全绿、7 个已发布包的 registry/provenance/GitHub Release 三件事复核通过；`dsh-default-overrides` 明确留在 0.1.7 线（跨线另立一轮），两个被占用的包名写清阻塞 |
 | B6（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-mobile-compat` 跨线完成：业务代码一字未改，全尺寸矩阵（9 档视口）在隔离宿主上全绿；顺带实测出「合成 PointerEvent 测不出真实触摸语义」与「下界从 alpha 换成 rc 时旧判定会静默放行」 |
 | B5（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-chat-archive-manager` 跨线完成：本轮真正改动的两个包逐行核对为「不在删除事务路径上」，隔离宿主 61+39 项全过（含中途中断与可恢复性闭环） |
@@ -17,6 +18,66 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## D1：L2 跨线 `dsh-default-overrides`（2026-10-01）
+
+工作区里**最后一个**停在旧线的插件（`>=0.1.7-alpha.1 <0.1.8`）跨到 **`>=0.2.0-rc.2 <0.2.1`**，运行版本 `0.2.0-rc.2`。**本轮不改 `package.json#version`、不提交、不打 tag、不改名、不发版**（包名仍被第三方占用，见 C1 第 5 节）。
+
+### 为什么按 L2 做完而不是升成 L3
+
+按根 `AGENTS.md` 的临时定级规则先取逐包 diff（`npm install @deepseek-ai/dsh@0.1.7-rc.2` 到临时目录 vs 本机运行安装）：它点名的契约面里**只有两处真的动了**（`dsh-config-editor` 的 `configuration()`、`dsh-app-boot` 的 `OPTIONAL_BUNDLES`），其余逐字相同；而它"整块改写 profile 补丁"的风险点全在 `ConfigEditor.edit()` 里，那一整段（文件锁 → 条目身份复核 → `internal/config` 校验 → js-yaml 原地改节点 → 原子写 → 失败回滚）**逐字未变**。所以 L2 成立，一个会话做完。
+
+### 契约面逐项复核（读的是实际安装包，不是 CHANGELOG）
+
+| 契约项 | 0.2.0-rc.2 现状（行号取自该版本） | 与 0.1.7-rc.2 的关系 |
+|---|---|---|
+| profile 补丁事务 `configEditor.edit()` | `dsh-config-editor/lib/index.js:69-135`：锁 profile 的 `package.json`（`:72`）→ 条目身份复核（`:73` "no longer available"、`:76` "changed during reload"）→ `next = change(current, inherited)`（`:77-79`）→ `fiber.state !== 2` 拒绝（`:81` "Configuration plugin is no longer active"）→ 先 `waterfall('internal/config')` + `resolveConfig()` 校验再落盘（`:82-83`）→ 原地替换 / 追加 `config`（`:98`、`:105-110`）→ `!!js` 由 `__jsExpr` 标记重建（`:111-116`）→ 候选 == 继承层时删 `config`、只剩 id/name 时连行删（`:99-104`）→ 更高层覆盖报错（`:122`）→ `writeFileAtomic(..., { mode: 384 })`（`:123`）→ reconcile 失败回写原文 + 重放旧 patches（`:124-130`） | **逐字相同** |
+| `configuration()` | 只有一处 hunk（`dsh-config-editor/lib/index.js:39-53`）：不在 `overridden` 里的条目改成一次 `composeEntries()` 查表，不再逐个调 `inherited()` | A1–A3 已用 8 场景合成 profile 证明两版输出逐字相同（等价重构）；插件只消费 `{entry, inherited, override}` 这层形状，未受影响 |
+| 事务的底层依赖 | `dsh-atomic-write` / `cordis-plugin-loader` / `@deepseek-ai/cordis` / `schemastery` 逐字相同；`dsh-app-boot` 只有 `OPTIONAL_BUNDLES` 加一项（`lib/index.js:552-556`） | 逐字相同（app-boot 的 compose/read/reconcile profile 三个函数未动） |
+| 目标条目 schema（整块写入的前提） | `dsh-session-title-first-prompt-llm/lib/index.js:73-81` 的 5 个字段全 `.required()`；`dsh-session-title/lib/index.js:203-205` 的 3 个字段全 `.required()` | 两个包 lib 逐字相同（只有 `package.json` 的 version 变）。白名单 8 个字段都在顶层，写的是"当前生效配置 + 新值"，required 项必然齐全 |
+| 标题预检口径 | `frameMessages()`（`dsh-session-title-llm/lib/index.js:157`）与插件 `TITLE_INPUT_PREFIX`（`lib/overrides.js:269`）逐字一致；超限文案在 `:193-194`，与插件正则一致；`titleInput` 投影注册在 `dsh-session-title/lib/index.js:237`、`stateOf` 在 `dsh-session-projection/lib/index.js:127` | 逐字相同 |
+| 会话与标题服务 | `sessionTitle.get(session)`（`dsh-session-title/lib/index.js:281`）、`refresh(session, signal)`（`:319`）逐字相同；`dsh-session` 的 `get(id)`（`:1855` 前）与 `list()`（`:1868`）未变 | `dsh-session` 的 4 处 hunk 全在 `repair.js` 的失败工具结果恢复与导出表 |
+| 状态路由与能力探测 | `dsh-host-webserver/lib/index.js:177-186`（`{kind:'exact'|'prefix', path, handler}`、重复路径抛错、返回 disposer）、`dsh-client-connection/lib/index.js:586-589`（`403` 栅栏 → `401` 未认证 → `undefined` 放行） | lib 逐字相同（只有 `package.json` 的 version 变） |
+| 客户端 slot | `settings.section` 仍由 `dsh-client-ui-settings-general/lib/client.js:1111-1141` 声明为 list slot（需 `id`）；内置分区 order 仍是 −10/0/10/15/20（上限 20）；插件 `id:'default-overrides'` / `order:110` 无并列 | `dsh-client-ui-settings/lib/client.js` **逐字节相同** |
+| 官方控件与图标 | `dsh-client-ui-primitives/lib/index.js` 导出表（`:12381`）里 `Button`/`Input`/`Tag`/`IconTriangleRightFillMedium`/`IconTriangleRightFillRegular` 全在；`Input` 只是包了 `forwardRef`，props 与形态不变 | `Button`/`Tag` 定义逐字相同 |
+| `dsh-settings` | lib 逐字相同（只有 `package.json` 的 version 变）。本插件宿主**不消费 `settings` 服务**（`ctx.get` 清单里没有它） | 逐字相同 |
+| 图标集 | `node tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） | — |
+
+**改动面**：`lib/index.js` 的门改成从 `DSH_RELEASE_LINE='0.2.0'` + `DSH_RELEASE_FLOOR={channel:'rc',sequence:2}` + `PRERELEASE_CHANNELS` 派生（清单 `VERIFIED_DSH_VERSIONS=['0.2.0-rc.2']`，全部普通字面量，形状照已跨线的 8 个插件）；`install.sh` 补上五个常量 + `prerelease_rank()`；`package.json`/`engines.dsh`/`README.md`/`AGENTS.md` 四处同源。**业务代码一字未改**。
+
+### 隔离宿主实测（`DSH_HOME=/tmp/ddo-020-home`、端口 5945；验证后已停掉并删除目录，用户的 3080 全程未触碰）
+
+手工搭的隔离 profile 只有 `dsh-base` + `dsh-web-app` + 本插件（+ 一个取证探针），不走 `dsh plugin add`。三组判据：
+
+| 场景 | 判据 | 结果 |
+|---|---|---|
+| 范围外（跨线前，声明 `>=0.1.7-alpha.1 <0.1.8`） | 探针抢占两个 exact 路由 | **都抢到**（路径空闲）；插件条目 `fiber.state = 2`、`configEditor`/`sessions`/`sessionTitle` 都在；两个路由 **404**（与随机路径同码） |
+| 范围外（新门第二形态：副本声明 `>=0.2.1 <0.2.2`） | 同上 + 补丁文件 md5 | 两个路由同样空闲；**profile 补丁 md5 与启动前逐字节一致**（零副作用） |
+| 门内（跨线后同一宿主重启） | 探针抢占 + status/action 真实往返 | 两个路由**抢不到**（duplicate）；未认证 401；带 cookie + 客户端头的 status **200**、两个条目 `writable:true`、8 个字段默认值 4096/64/60000/5/10 与 80/5/40；apply 写 `maxInputBytes=8192` → 补丁追加**整块 config**、注释未丢 → `dsh --profile web --dump-config` 独立核对也读到 8192 → reset 后补丁**逐字节还原**、生效值回到 4096 |
+
+离线网：本插件 `npm run publish:check`（44 项 + tarball 8 文件）通过；工作区 9 个插件 `npm test` 共 **456 项全过**；`node tools/dsh-icons/check.js` 无漂移。
+
+**shell 侧与 lib 侧逐条一致**（单测只按行解析 `install.sh` 的常量，这里真跑一遍判定）：用桩 `dsh`（`--version` 回放被测版本）+ 桩 `pnpm`/`npm` 跑 `install.sh`，13 档矩阵的「接受且已核对 / 接受带警告 / 拒绝」与 `classifyDshVersion()` **逐行相同**，另加 `0.2.0-rc.0`、`0.3.0` 两档也一致——`0.2.0-alpha.9` 这一档正是下界从 alpha 换成 rc 后旧判定会静默放行的那个。
+
+### 两条被实测证伪的做法（本轮新事实，跨轮有效）
+
+- **"看日志确认插件 inert"是假证据**：cordis 的默认 logger exporter 只把消息塞进内存 ring buffer（`cordis/lib/index.js:598-601`，`bufferSize = 1000`），既不写 stdout 也不落文件——隔离宿主启动后逐字 grep 不到 `unsupported DSH …` 完全不能说明什么。可靠判据是**路由表**：`dsh-host-webserver.register()` 对重复 (kind, path) 抛错，所以让一个探针插件去抢占被测插件自己的 exact 路由，"抢到 = 没注册、抢不到（duplicate）= 已注册"；再加未认证时的 401（门内）与 404（范围外）作旁证。
+- **`assert.ok(text.includes('<版本>'))` 的文档腿守卫是假的**：清单版本号恰好是 range 下界的子串，把 `AGENTS.md` / `README.md` 的兼容段整行改掉**仍然全绿**（本轮注入缺陷实测）。改成"先定位含「兼容线」/「逐版本验证」的那一行，再核对 range 与清单逐字相等"才真正拦得住（现在把任一处改掉都会红）。
+
+### 踩坑与可复用技巧
+
+- **隔离 profile 不必 `dsh plugin add`**：`~/.dsh/profiles/web` 只有 60K——`node_modules` 里除 11 个 `link:` 符号链接外基本是空壳，`@deepseek-ai/*` 由安装锚点解析。手写一份 `package.json`（`dsh.profile.bundles` = `dsh-base` + `dsh-web-app` + 目标插件）+ 空的 `cordis.patch.yml` + 一个指向源码目录的**绝对**符号链接即可起宿主，省掉 pnpm 安装与网络。
+- **认证 cookie 从启动 URL 拿**：`dsh --profile web --port <非 3080> --no-open` 会把 `http://127.0.0.1:<p>/?token=…` 打到 stdout；`curl -c cookies.txt "<那个 URL>"`（返回 303）就拿到 `dsh-auth-…` cookie，之后带 cookie + `x-dsh-<插件>-client: 1` 才能过 `connection.requestRejection`。
+- **门内/门外的判别码不同**：同一路径在门内未认证是 **401**、在范围外是 **404**——这个差值本身就是"路由有没有注册"的判据，比看日志可靠。
+- **探测入口形状**：插件的 `readDshPackage(process.argv[1])` 只认 `@deepseek-ai/dsh/package.json`；用假 DSH 目录（改版本号）+ 转发到真实 `bin.js` 的做法**起不来宿主**（静默退出），想造"宿主版本不在门内"的场景不能走这条路——用探针插件副本改声明，或直接用纯函数 + `applyForVersion` 的零注册用例。
+
+### 仍未覆盖
+
+- 隔离宿主里**没开浏览器目视** inert 时的客户端文案（单测与代码路径已覆盖）。
+- 真机（用户 `127.0.0.1:3080`）要等用户**重启 `dsh web`**：`lib/` 属 Host 代码，重启后该插件才从"按版本门 inert"变成"门内可用"；客户端 bundle 刷新页面即可。
+- 会话标题重算与"兜底会话列表"两条正向路径仍未造出（历史遗留，见本插件 `AGENTS.md`）。
 
 ---
 

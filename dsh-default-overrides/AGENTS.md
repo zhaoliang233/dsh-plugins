@@ -13,11 +13,13 @@
 | `client.js` | 设置分区 UI（单文件 bundle，无构建） |
 | `cordis.patch.yml` | bundle patch：把 `dsh-default-overrides` 条目插进组合 |
 
-## 兼容发布线与版本门（2026-10-01 补）
+## 兼容发布线与版本门（2026-10-01 补，同日跨线到 0.2.0）
 
-兼容线 `>=0.1.7-alpha.1 <0.1.8`，逐版本核对清单 `0.1.7-rc.2`。
+兼容线 `>=0.2.0-rc.2 <0.2.1`，逐版本核对清单 `0.2.0-rc.2`（跨线当轮的逐包证据见下面「逐版本核对记录」）。
 
-**声明必须四处同源**：`package.json#dshCompatibility.range`（+ `engines.dsh`）⟷ `lib/index.js` 的 `DSH_COMPATIBILITY_RANGE` / `VERIFIED_DSH_VERSIONS` ⟷ `install.sh` 的 `DSH_COMPATIBILITY_RANGE` / `DSH_VERIFIED_VERSIONS`（**多版本用空格分隔**，脚本按词分割消费）⟷ 本文件与 `README.md` 的兼容段。`test/manifest.test.js` 的「四处同源」用例按行解析这些赋值逐字比对，加版本时必须四边一起改。
+**声明必须四处同源**：`package.json#dshCompatibility.range`（+ `engines.dsh`）⟷ `lib/index.js` 的 `DSH_COMPATIBILITY_RANGE` / `VERIFIED_DSH_VERSIONS`（发布线与下界从 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 派生）⟷ `install.sh` 的五个常量 `DSH_COMPATIBILITY_RANGE` / `DSH_VERIFIED_VERSIONS` / `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR_CHANNEL` / `DSH_RELEASE_FLOOR_SEQUENCE`（**多版本用空格分隔**，脚本按词分割消费）+ 一份等价的 `prerelease_rank()` ⟷ 本文件与 `README.md` 的兼容段。`test/manifest.test.js` 的「四处同源」用例按行解析这些赋值逐字比对（并且把 range 反推回发布线与下界），加版本时必须四边一起改。
+
+**跨线只改常量，判定逻辑不动**：`classifyDshVersion()` 从发布线 + 下界派生，五个常量都是普通字面量（**不要 `Object.freeze`、不要 `Set`**，形状与 8 个已跨线插件一致）。下界是 rc 时，同线内的 alpha/beta/更低 rc 必须靠 **channel 优先级比较**挡住——旧写法 `channel !== 'alpha' || seq >= N` 只能表达"下界是 alpha"，换成 rc 后会静默放行 `0.2.0-alpha.9`。
 
 **范围外必须 inert**：`applyForEntry()` 从 DSH CLI 入口 realpath 后向上 ≤4 层定位 `@deepseek-ai/dsh/package.json` 读真实版本，`applyForVersion()` 判定超出范围就只打一条 error 日志并返回——不注册路由、不读 profile、不写任何文件。线内未逐条核对的版本继续运行但打 warn（能力探测仍是权威判定）。
 
@@ -26,6 +28,28 @@
 **2026-10-01 的真实缺陷**：在此之前上面两段全是空话——`package.json`、`install.sh`、README 都声明了范围与清单，运行时的 `apply()` 却只有一句 `ctx.inject([...])`，从不判定版本。于是本机 DSH 升到 `0.2.0-rc.2` 后它照常注册路由、照常可写 profile，而 9 个兄弟插件里另外 8 个都按版本门退成了 inert。补上后新增 `test/version-gate.test.js`（7 个用例：纯函数判定矩阵、范围外零注册 + error 日志、已核对版本装配与不告警、同线未核对版本告警、入口定位失败 inert、`readDshPackage` 的包根探测与拒绝、常量同源）与 `manifest.test.js` 的四处同源守卫。
 
 **客户端在 inert 下的表现**：宿主没注册路由时 `/dsh-default-overrides/status` 是空 body 的 404，`response.json()` 会抛 `SyntaxError`，页面只剩「读取状态失败：Unexpected end of JSON input」。`client.js` 因此显式识别 404 并给出可读文案，并单独捕获非 JSON 响应——这是「探测不到的能力各自降级，不要让整页 404」的落地。
+
+## 逐版本核对记录
+
+**`0.2.0-rc.2`（2026-10-01 跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，跨线是立项而不是例行检查。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装）后，本插件点名的契约面**逐条在 0.2.0-rc.2 的实际安装包里重读**（行号取自 0.2.0-rc.2）：
+
+| 契约项 | 0.2.0-rc.2 现状（读的是实际安装包，不是 CHANGELOG） |
+|---|---|
+| profile 补丁事务（`configEditor.edit()`） | `dsh-config-editor/lib/index.js` 全 138 行：文件锁（`:72`，锁 profile 的 `package.json`）→ 条目身份复核（`:73` "no longer available"、`:76` "changed during reload"）→ `next = change(current, inherited)`（`:77-79`）→ `fiber.state !== 2` 拒绝（`:81` "Configuration plugin is no longer active"）→ 经 `internal/config` waterfall + `resolveConfig()` **先校验后落盘**（`:82-83`）→ js-yaml `Document` 原地替换 `config` 节点 / 不存在则追加（`:98`、`:105-110`）→ `!!js` 由 `__jsExpr` 标记重建为 `tag:yaml.org,2002:js` 标量（`:111-116`，注释因此在块外保留）→ 候选等于继承层时删 `config`、只剩 id/name 时连行删（`:99-104`）→ 更高层覆盖报错（`:122`）→ `writeFileAtomic(path, String(document), { mode: 384 })`（`:123`）→ reconcile 失败时回写原文并重放旧 patches（`:124-130`）。**与 0.1.7-rc.2 逐字相同** |
+| `configuration()` 的语义 | 与 0.1.7-rc.2 的唯一差异是这一处 hunk（`dsh-config-editor/lib/index.js:39-53`）：不在 `overridden` 集合里的条目不再逐个调 `inherited()`，改成一次 `composeEntries()` 查表。A1–A3 轮已用 8 个场景的合成 profile 实测两版输出逐字相同（等价重构）；本插件只消费 `{entry, inherited, override}` 这层形状，**未受影响** |
+| 事务的底层依赖 | `dsh-atomic-write`（`writeFileAtomic`/`withFileLock`）、`cordis-plugin-loader`、`@deepseek-ai/cordis`、`schemastery` 与 0.1.7-rc.2 **逐字相同**；`dsh-app-boot` 只有一处改动（`lib/index.js:552-556` 给 `OPTIONAL_BUNDLES` 追加 `dsh-experimental-schedule-bundle`），`composeEntries`/`loadProfileDirectory`/`readProfilePatches`/`reconcileProfilePatches` 未动 |
+| 目标条目 schema（整块写入的前提） | `dsh-session-title-first-prompt-llm` 与 `dsh-session-title` **lib 逐字相同**（只有 `package.json` 的 version 变）：`targetWords`/`targetCjkCharacters`/`maxInputBytes`/`maxOutputTokens`/`timeoutMs` 全是 `.required()`（`dsh-session-title-llm/lib/index.js:73-81`），`fallbackMaxWords`/`fallbackMaxBytes`/`maxTitleBytes` 也是（`dsh-session-title/lib/index.js:203-205`）。白名单 8 个字段全在顶层，且 `planFieldWrite` 写的是「当前生效配置 + 一个新值」，required 项必然齐全 |
+| 标题预检口径 | `frameMessages()`（`dsh-session-title-llm/lib/index.js:157`）与插件 `TITLE_INPUT_PREFIX`（`lib/overrides.js:269`）逐字一致；超限文案 `input is N bytes, exceeding maxInputBytes M`（同文件 `:193-194`）与插件正则一致；`titleInput` 投影由 `dsh-session-title/lib/index.js:237` 注册、`stateOf` 在 `dsh-session-projection/lib/index.js:127`；该包 lib 与 0.1.7-rc.2 逐字相同 |
+| 会话与标题服务 | `dsh-session-title` 的 `get(session)`（`:281`）与 `refresh(session, signal)`（`:319`）逐字相同；`dsh-session` 的 `get(id)`（`:1855` 前）与 `list()`（`:1868`）未变，该包 4 处 hunk 全在 `repair.js` 的失败工具结果恢复（`openTurnClosers` 重写 + 新增 `ToolCallRecovery`）与导出表 |
+| 状态路由与能力探测 | `dsh-host-webserver/lib/index.js:177-186` 的 `register()` 仍是 `{kind:'exact'|'prefix', path, handler}`、重复 (kind,path) 抛错、返回 disposer；`dsh-client-connection/lib/index.js:586-589` 的 `requestRejection()` 仍是 `403`（host/origin 栅栏）→ `401`（未认证）→ `undefined`（放行），正是两级守卫的语义 |
+| 客户端 slot | `dsh-client-ui-settings/lib/client.js` **逐字节相同**；`settings.section` 仍由 `dsh-client-ui-settings-general/lib/client.js:1111-1141` 在 `sidebar.settings` 的 children 里声明为 **list slot**（注册必须带 `id`），插件注册 `id:'default-overrides'` / `order:110`（`client.js:576-579`）。内置分区 order 不变：account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（上限 20），110 无并列 |
+| 官方控件与图标 | `dsh-client-ui-primitives/lib/index.js` 的导出表（`:12381`）里 `Button`/`Input`/`Tag`/`IconTriangleRightFillMedium`/`IconTriangleRightFillRegular` **全在**；`Button`（`:3216`）与 `Tag`（`:3327`）定义逐字相同，`Input`（`:3529`）只是包了一层 `forwardRef`（props 与「wrapper span + 原生 input」形态不变） |
+| `dsh-settings` | lib 与 0.1.7-rc.2 **逐字相同**（只有 `package.json` 的 version 变）。本插件宿主**不消费 `settings` 服务**（`ctx.get` 的清单里没有它），它依赖的是 `configEditor` 的条目配置模型 + 目标包自己的 Config schema，两者分别由上面的条目与 `cordis-plugin-loader`（逐字相同）承担 |
+| 图标集 | `node tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） |
+
+改动：`lib/index.js` 的门改成**从常量派生**（`DSH_RELEASE_LINE='0.2.0'` + `DSH_RELEASE_FLOOR={channel:'rc',sequence:2}` + `PRERELEASE_CHANNELS`，清单 `VERIFIED_DSH_VERSIONS=['0.2.0-rc.2']`，全部普通字面量），`install.sh` 补上五个常量与 `prerelease_rank()`，`package.json`/`engines.dsh`/`README.md` 四处同源更新，`test/` 同步为 13 档矩阵 + 四处同源（含文档腿加强）。**插件业务代码一字未改**。
+
+**更早一轮（`0.1.7-rc.2`，2026-10-01）的版本门补缺与实机证据**：已归档到 [`docs/compat-log.md`](../docs/compat-log.md)。本插件的**当前**契约以上面这节与「兼容发布线与版本门」一节为准。
 
 ## 为什么不是"把清单存进插件自己的配置"
 
@@ -111,7 +135,7 @@
 
 已验证（隔离 `DSH_HOME` + 独立端口 + 本会话专属无头 Chrome，2026-09-28）：
 
-- `npm run check` + `npm test`（42 个用例：白名单、候选配置计算、可用性、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状、版本门与四处同源）。
+- `npm run check` + `npm test`（当前 44 个用例：白名单、候选配置计算、可用性、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状、13 档版本矩阵与发布线派生、入口定位失败 inert、四处同源（含文档腿逐行解析））。
 - 发布闸门 `npm run publish:check`（= `check` + `test` + `pack:check`）：`scripts/check-pack.js` 断言发布物恰好 8 个文件（`CHANGELOG.md` / `LICENSE` / `README.md` / `client.js` / `cordis.patch.yml` / `lib/index.js` / `lib/overrides.js` / `package.json`），`prepublishOnly` 与 `install.sh` 都跑它。**它不随发布物出去**（`files` 白名单里没有 `scripts/`）。
 - 宿主端到端（curl 走真实路由，带 cookie 认证 + CSRF）：status 读取、apply 写 8192、reset 还原——reset 后补丁文件与原始配置**逐字节一致**。
 - 错误路径：非法值（400 `invalid-value`）、白名单外字段（400）、缺 CSRF（403）、无覆盖时恢复默认、重算未知会话（404 `session-not-live`）。
@@ -121,11 +145,15 @@
 - 真机（用户 `127.0.0.1:3080`，重启后）：`/dsh-default-overrides/status` 返回 401 而随机路径 404（路由已注册）；用户点「应用」后补丁新增 8 行整块 config（`maxInputBytes: 32768`），注释 16→16、`!!js` 2→2 未丢；点「重新生成」后本会话多出一条 `provider` 标题记录（官方 UI 无此入口，只可能来自本插件）。
 - 客户端 bundle 已进入页面启动图（`dsh-default-overrides/client.js&rev=…` 出现在 `/` 的 HTML 里）。
 
-版本门（2026-10-01，本机 DSH `0.2.0-rc.2`）：
+版本门（2026-10-01 跨线轮，本机 DSH `0.2.0-rc.2`；隔离 `DSH_HOME=/tmp/ddo-020-home` + 端口 5945，验证后已停掉并删除目录，用户的 3080 全程未触碰）：
 
-- **真机宿主验证**：`applyForEntry()` 用真实 DSH 入口（`realpath "$(command -v dsh)"` → `…/dsh/lib/bin.js`）探测到版本 `0.2.0-rc.2`，`ctx.inject` 调用次数 **0**，日志为 `dsh-default-overrides: unsupported DSH 0.2.0-rc.2; expected >=0.1.7-alpha.1 <0.1.8. Plugin stays inert.`——即范围外完全 inert。
-- **守卫注入缺陷验证**（在副本上做，四处各自必须变红）：①把 `classifyDshVersion` 的判定换成恒真 → `version-gate.test.js` 2 个用例红；②只改 `lib` 的 `VERIFIED_DSH_VERSIONS` → `manifest.test.js` 红；③只改 `install.sh` 的 `DSH_VERIFIED_VERSIONS` → 红；④把 `AGENTS.md` 里的版本号改掉 → 红。四处同源不是纸面约定。
-- **未覆盖**：客户端在 inert 下的可读文案只做了代码路径与单测层面的确认，**没有在隔离宿主上真的打开设置页目视**（宿主已 inert，需要先把版本门临时放宽才能造出该场景）。
+- **范围外零注册（真有宿主取证，跨线前）**：插件当时声明 `>=0.1.7-alpha.1 <0.1.8`，在 `0.2.0-rc.2` 宿主上——取证探针尝试抢占 `/dsh-default-overrides/status` 与 `/dsh-default-overrides/action` 两个 exact 路由**都抢到了**（`dsh-host-webserver` 对重复路径抛错，抢到即证明没注册）；插件条目 `fiber.state = 2`（模块已加载、`apply()` 已执行完并返回）、`configEditor`/`sessions`/`sessionTitle` 三个服务都在，直接请求两个路由都是 **404**（与随机路径同码，且未认证时门内路由本该是 401）。
+- **范围外零注册（新门的第二形态）**：把一份插件副本的声明改成 `>=0.2.1 <0.2.2`（下界高于宿主）后用同一套探针取证——两个路由同样空闲、`fiber.state` 仍是 2，**profile 补丁文件的 md5 与启动前逐字节一致**（零副作用）。
+- **门内可用（跨线后同一宿主重启）**：两个路由被插件占用（探针抢不到）、未认证请求返回 **401**（与范围外的 404 形成对照）；带 cookie 与 `x-dsh-default-overrides-client: 1` 的 status 返回 **200**，`session-title-llm` / `session-title` 两个条目 `writable:true`，8 个字段读出默认值 4096/64/60000/5/10 与 80/5/40；POST apply 写 `maxInputBytes=8192` → 补丁追加**整块 config**、原有注释未丢 → 用 `dsh --profile web --dump-config` 独立核对也读到 8192；reset 后补丁文件与写入前**逐字节一致**、生效值回到 4096。
+- **13 档版本矩阵**（`test/version-gate.test.js`，与 8 个已跨线插件同形）：`0.2.0-rc.2` 与 `0.2.0-rc.2+build.1` 接受且 verified；`0.2.0`、`0.2.0-rc.3` 接受带警告；`0.2.1` / `0.1.7-rc.2` / `0.2.0-alpha.1` / `0.2.0-alpha.9` / `0.2.0-beta.4` / `0.2.0-rc.1` / `0.1.8-alpha.1` / `undefined` / 空串全部拒绝。
+- **守卫注入缺陷验证**（在副本上做，七处各自必须变红，本轮实测）：①`classifyDshVersion` 恒真 → 3 个用例红；②lib 的 `VERIFIED_DSH_VERSIONS` 改掉 → 6 个红；③`install.sh` 的 `DSH_VERIFIED_VERSIONS` 改掉 → 2 个红；④`install.sh` 的 `DSH_RELEASE_FLOOR_SEQUENCE` 改掉 → 1 个红；⑤`install.sh` 的 range 上界改掉 → 2 个红；⑥`AGENTS.md` 兼容段改掉（range 或清单，任一处）→ 1 个红；⑦`README.md` 兼容段改掉 → 1 个红。**⑥⑦是本轮加严的**：原先只断言"版本号在全文任意处出现"，而清单版本号（`0.2.0-rc.2`）恰好是 range 下界的子串，改掉兼容段照样全绿（已实测复现），现在改成逐行解析「兼容线」/「逐版本验证」那一行并核对 range + 清单。
+- **shell 侧与 lib 侧逐条一致**：用桩 `dsh`（`--version` 回放被测版本）+ 桩 `pnpm`/`npm` 真跑 `install.sh`，13 档矩阵的「接受且已核对 / 接受带警告 / 拒绝」与 `classifyDshVersion()` **逐行相同**（另加 `0.2.0-rc.0`、`0.3.0` 两档同样一致）。单测只按行解析 `install.sh` 的常量，这条才是那套 shell 判定的行为证据。
+- **未覆盖**：客户端在 inert 下的可读文案仍只做了代码路径与单测层面的确认（隔离宿主里没开浏览器目视）；`lib/` 是 Host 代码，真机（用户 3080）要等用户重启 `dsh web` 后刷新页面才切到新线。
 
 未验证 / 踩到的墙：
 
