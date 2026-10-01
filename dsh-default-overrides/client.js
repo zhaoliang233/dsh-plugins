@@ -234,7 +234,23 @@ window.__ModuleLoader__.load({
             credentials: 'same-origin',
             headers: { [CLIENT_HEADER]: '1' }
           })
-          const payload = await response.json()
+          // 宿主半体没注册路由时这里是空 body 的 404，`json()` 会抛 SyntaxError，
+          // 页面上只剩「读取状态失败：Unexpected end of JSON input」看不出所以然。
+          // 最常见的原因是 DSH 版本不在兼容发布线内、宿主按版本门保持 inert。
+          if (response.status === 404) {
+            setState({
+              phase: 'error',
+              error: '宿主半体没有注册路由（HTTP 404）：本插件可能因当前运行的 DSH 版本不在兼容发布线内而未启用，也可能是条目未加载。请查看 Host 日志里 dsh-default-overrides 前缀的告警。'
+            })
+            return
+          }
+          let payload
+          try {
+            payload = await response.json()
+          } catch {
+            setState({ phase: 'error', error: `读取状态失败（HTTP ${String(response.status)}，响应不是 JSON）` })
+            return
+          }
           if (!response.ok || payload.ok !== true) {
             setState({ phase: 'error', error: payload.error ?? `读取状态失败（HTTP ${String(response.status)}）` })
             return

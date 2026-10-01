@@ -8,6 +8,8 @@
  * 客户端通过同源 HTTP 读状态、提交写入（`lib/overrides.js` 里有白名单契约说明）。
  */
 import { randomUUID } from 'node:crypto'
+import { readFile, realpath } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 import {
   ACTION_PATH,
@@ -459,13 +461,150 @@ function registerRoutes(ctx) {
 }
 
 /**
- * 插件入口。
- * @param ctx - 插件上下文。
+ * 本插件已逐版本核对过契约的 DSH 发布线。
+ *
+ * 与 `package.json#dshCompatibility.range` / `engines.dsh` / `install.sh` 的
+ * `DSH_COMPATIBILITY_RANGE` **同源**，改一处必须四处一起改。
  */
-export function apply(ctx) {
-  // configEditor 只在带配置编辑器的 profile 出现；webServer/connection 只在 Web 出现。
-  // 三者齐备才注册路由，其余组合下插件安静地不工作（其余功能仍是纯前端页面）。
+export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
+
+/**
+ * 逐版本核对清单，与 `package.json#dshCompatibility.verifiedVersions` 和
+ * `install.sh` 的 `DSH_VERIFIED_VERSIONS` 同源。
+ */
+export const VERIFIED_DSH_VERSIONS = ['0.1.7-rc.2']
+
+/**
+ * 判定 DSH 版本是否落在兼容线内。
+ *
+ * 判据只看版本号形状，不猜「看起来差不多」的版本：
+ * `0.1.7` 正式版与 `0.1.7-{alpha,beta,rc}.N`（alpha 从 1 起）算同线，
+ * 其余一律 `supported: false`。
+ *
+ * @param {unknown} version
+ * @returns {{supported: boolean, verified: boolean, normalized?: string}}
+ */
+export function classifyDshVersion(version) {
+  if (typeof version !== 'string') return { supported: false, verified: false }
+  const normalized = version.split('+', 1)[0]
+  const verified = VERIFIED_DSH_VERSIONS.includes(normalized)
+  if (normalized === '0.1.7') return { supported: true, verified, normalized }
+  const prerelease = /^0\.1\.7-(alpha|beta|rc)\.(0|[1-9]\d*)$/u.exec(normalized)
+  if (prerelease === null) return { supported: false, verified: false, normalized }
+  const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= 1
+  return { supported, verified: supported && verified, normalized }
+}
+
+/**
+ * 从 DSH CLI 入口向上找 `@deepseek-ai/dsh` 的安装目录。
+ *
+ * 复用工作区既有的位置探测方式：`dsh` 是全局 bin 软链，realpath 后向上最多 4 层
+ * 即可命中包根。测试进程（`node --test`）里 `process.argv[1]` 不是 DSH 入口，
+ * 那时必须显式传入真实入口路径。
+ *
+ * @param {string} [entryPath]
+ * @returns {Promise<{version: string, root: string}>}
+ */
+export async function readDshPackage(entryPath = process.argv[1]) {
+  if (typeof entryPath !== 'string' || entryPath.trim() === '') {
+    throw new Error('cannot locate the DSH CLI entry path')
+  }
+  let directory = dirname(await realpathSafe(entryPath))
+  for (let depth = 0; depth < 4; depth += 1) {
+    const manifestPath = join(directory, 'package.json')
+    try {
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+      if (manifest?.name === '@deepseek-ai/dsh') {
+        if (typeof manifest.version !== 'string' || manifest.version.trim() === '') {
+          throw new Error('@deepseek-ai/dsh package.json has no version')
+        }
+        return { version: manifest.version, root: directory }
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) throw new Error(`cannot parse ${manifestPath}: ${error.message}`)
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error
+    }
+    const parent = dirname(directory)
+    if (parent === directory) break
+    directory = parent
+  }
+  throw new Error('cannot locate @deepseek-ai/dsh/package.json from the DSH CLI entry')
+}
+
+async function realpathSafe(path) {
+  try {
+    return await realpath(path)
+  } catch {
+    return path
+  }
+}
+
+function messageOf(error) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 版本门放行后真正装配插件。
+ *
+ * configEditor 只在带配置编辑器的 profile 出现；webServer/connection 只在 Web 出现。
+ * 三者齐备才注册路由，其余组合下插件安静地不工作（其余功能仍是纯前端页面）。
+ */
+function applyCompatibleRuntime(ctx) {
   ctx.inject(['configEditor', 'webServer', 'connection'], registerRoutes)
 }
 
+/**
+ * 版本门：先核对 DSH 版本，再决定是否装配。
+ *
+ * 范围外保持 **inert**（不注册路由、不读 profile、不写任何文件）。这条是硬要求而不是
+ * 保守习惯：本插件会整块改写 profile 补丁里的 `config`，写错的后果是目标条目因
+ * `required` 校验失败而加载失败（`fiber.state = 3`），此时 `configEditor` 会拒绝服务
+ * （"Configuration plugin is no longer active"），只能手改文件救回来。
+ *
+ * @param {any} ctx
+ * @param {unknown} version
+ */
+export async function applyForVersion(ctx, version) {
+  const compatibility = classifyDshVersion(version)
+  if (!compatibility.supported) {
+    ctx.logger?.error?.(
+      `${PLUGIN_NAME}: unsupported DSH ${String(version)}; expected ${DSH_COMPATIBILITY_RANGE}. Plugin stays inert.`
+    )
+    return
+  }
+  if (!compatibility.verified) {
+    ctx.logger?.warn?.(
+      `${PLUGIN_NAME}: DSH ${String(version)} is inside ${DSH_COMPATIBILITY_RANGE} but is not individually verified; capability checks remain authoritative`
+    )
+  }
+  return applyCompatibleRuntime(ctx)
+}
+
+/**
+ * 入口：定位当前运行的 DSH 版本。定位失败同样保持 inert——宁可整块不工作，
+ * 也不要在未知版本上写 profile 补丁。
+ *
+ * @param {any} ctx
+ * @param {string} [entryPath]
+ */
+export async function applyForEntry(ctx, entryPath = process.argv[1]) {
+  let manifest
+  try {
+    manifest = await readDshPackage(entryPath)
+  } catch (error) {
+    ctx.logger?.error?.(`${PLUGIN_NAME}: cannot verify the running DSH package; plugin remains inert: ${messageOf(error)}`)
+    return
+  }
+  return applyForVersion(ctx, manifest.version)
+}
+
+/**
+ * 插件入口。
+ * @param {any} ctx - 插件上下文。
+ */
+export async function apply(ctx) {
+  return applyForEntry(ctx, process.argv[1])
+}
+
 export const name = PLUGIN_NAME
+

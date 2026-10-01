@@ -23,10 +23,43 @@ test('package.json 声明双面包与 bundle patch', () => {
   assert.ok(manifest.files.includes('lib'))
 })
 
-test('兼容发布线与安装脚本的逐版本清单一致', () => {
+test('兼容发布线「四处同源」：package.json ⟷ lib ⟷ install.sh ⟷ 文档', async () => {
+  const agentsText = read('AGENTS.md')
+  const host = await import(new URL('lib/index.js', root))
+
+  // 1) package.json 内部：dshCompatibility.range 与 engines.dsh 必须逐字相同
+  assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh 必须与 dshCompatibility.range 同源')
+  // 2) lib 的运行时常量
+  assert.equal(
+    host.DSH_COMPATIBILITY_RANGE,
+    manifest.dshCompatibility.range,
+    'lib 的 DSH_COMPATIBILITY_RANGE 必须与 package.json 同源'
+  )
+  // 3) install.sh：按行解析赋值，而不是 includes 子串匹配
+  const shellRange = /^DSH_COMPATIBILITY_RANGE="([^"]*)"/mu.exec(installText)
+  assert.ok(shellRange !== null, 'install.sh 必须声明 DSH_COMPATIBILITY_RANGE')
+  assert.equal(
+    shellRange[1],
+    manifest.dshCompatibility.range,
+    'install.sh 的 DSH_COMPATIBILITY_RANGE 必须与 package.json 同源'
+  )
+
   const verified = manifest.dshCompatibility.verifiedVersions
-  for (const version of verified) assert.ok(installText.includes(version), `${version} 应出现在 install.sh`)
-  assert.ok(installText.includes(manifest.dshCompatibility.range))
+  assert.deepEqual(host.VERIFIED_DSH_VERSIONS, verified, 'lib 的 VERIFIED_DSH_VERSIONS 必须与 package.json 同源')
+  const shellVerified = /^DSH_VERIFIED_VERSIONS="([^"]*)"/mu.exec(installText)
+  assert.ok(shellVerified !== null, 'install.sh 必须声明 DSH_VERIFIED_VERSIONS')
+  // 多版本用空格分隔，脚本按词分割消费
+  assert.deepEqual(shellVerified[1].split(/\s+/u).filter(Boolean), verified, 'install.sh 的清单必须与 package.json 同源')
+  for (const version of verified) {
+    assert.equal(host.classifyDshVersion(version).verified, true, `${version}：lib 必须认它是已核对版本`)
+    assert.ok(agentsText.includes(version), `${version} 应出现在 AGENTS.md 的逐版本核对记录里`)
+    assert.ok(read('README.md').includes(version), `${version} 应出现在 README 的要求段里`)
+  }
+
+  // 范围外必须 inert：行为用例在 test/version-gate.test.js，这里只确认运行时门确实存在
+  // （曾经的缺陷正是声明齐全、四处同源，却完全没有实现）。
+  assert.equal(typeof host.classifyDshVersion, 'function', '宿主必须实现版本门')
+  assert.equal(host.classifyDshVersion('0.2.0-rc.2').supported, false, '下一发布线必须被挡在门外')
 })
 
 test('bundle patch 只插入一个插件条目', () => {

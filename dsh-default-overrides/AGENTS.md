@@ -13,6 +13,20 @@
 | `client.js` | 设置分区 UI（单文件 bundle，无构建） |
 | `cordis.patch.yml` | bundle patch：把 `dsh-default-overrides` 条目插进组合 |
 
+## 兼容发布线与版本门（2026-10-01 补）
+
+兼容线 `>=0.1.7-alpha.1 <0.1.8`，逐版本核对清单 `0.1.7-rc.2`。
+
+**声明必须四处同源**：`package.json#dshCompatibility.range`（+ `engines.dsh`）⟷ `lib/index.js` 的 `DSH_COMPATIBILITY_RANGE` / `VERIFIED_DSH_VERSIONS` ⟷ `install.sh` 的 `DSH_COMPATIBILITY_RANGE` / `DSH_VERIFIED_VERSIONS`（**多版本用空格分隔**，脚本按词分割消费）⟷ 本文件与 `README.md` 的兼容段。`test/manifest.test.js` 的「四处同源」用例按行解析这些赋值逐字比对，加版本时必须四边一起改。
+
+**范围外必须 inert**：`applyForEntry()` 从 DSH CLI 入口 realpath 后向上 ≤4 层定位 `@deepseek-ai/dsh/package.json` 读真实版本，`applyForVersion()` 判定超出范围就只打一条 error 日志并返回——不注册路由、不读 profile、不写任何文件。线内未逐条核对的版本继续运行但打 warn（能力探测仍是权威判定）。
+
+这条不是保守习惯，是**写错就救不回来**：本插件整块改写 profile 补丁里的 `config`，写错的后果是目标条目因 `required` 校验失败而加载失败（`fiber.state = 3`），此时 `configEditor` 会拒绝服务（"Configuration plugin is no longer active"），只能手改文件救回来。
+
+**2026-10-01 的真实缺陷**：在此之前上面两段全是空话——`package.json`、`install.sh`、README 都声明了范围与清单，运行时的 `apply()` 却只有一句 `ctx.inject([...])`，从不判定版本。于是本机 DSH 升到 `0.2.0-rc.2` 后它照常注册路由、照常可写 profile，而 9 个兄弟插件里另外 8 个都按版本门退成了 inert。补上后新增 `test/version-gate.test.js`（7 个用例：纯函数判定矩阵、范围外零注册 + error 日志、已核对版本装配与不告警、同线未核对版本告警、入口定位失败 inert、`readDshPackage` 的包根探测与拒绝、常量同源）与 `manifest.test.js` 的四处同源守卫。
+
+**客户端在 inert 下的表现**：宿主没注册路由时 `/dsh-default-overrides/status` 是空 body 的 404，`response.json()` 会抛 `SyntaxError`，页面只剩「读取状态失败：Unexpected end of JSON input」。`client.js` 因此显式识别 404 并给出可读文案，并单独捕获非 JSON 响应——这是「探测不到的能力各自降级，不要让整页 404」的落地。
+
 ## 为什么不是"把清单存进插件自己的配置"
 
 最初设想的方案是"插件自己的条目存覆盖清单，宿主对账后落盘"。放弃它是因为会出现**两份状态**：清单一份、目标条目在补丁里的覆盖一份，用户手写覆盖后两者必然分叉，恢复默认还要额外记 `managed` 集合。
@@ -97,7 +111,7 @@
 
 已验证（隔离 `DSH_HOME` + 独立端口 + 本会话专属无头 Chrome，2026-09-28）：
 
-- `npm run check` + `npm test`（23 个用例：白名单、候选配置计算、可用性、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状）。
+- `npm run check` + `npm test`（42 个用例：白名单、候选配置计算、可用性、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状、版本门与四处同源）。
 - 宿主端到端（curl 走真实路由，带 cookie 认证 + CSRF）：status 读取、apply 写 8192、reset 还原——reset 后补丁文件与原始配置**逐字节一致**。
 - 错误路径：非法值（400 `invalid-value`）、白名单外字段（400）、缺 CSRF（403）、无覆盖时恢复默认、重算未知会话（404 `session-not-live`）。
 - 浏览器端到端（CDP 驱动无头 Chrome，缓存已禁用）：设置面板打开 →「默认设置覆盖」分区渲染出 8 个输入框 → 点「应用」写入 32768（提示「已写入 session-title-llm.maxInputBytes = 32768。」、实际生效同步、「已覆盖」1 个 +「随整块写入」4 个）→ 高级模式展开列出 10 个带覆盖条目 → 会话标题重算卡片列出活跃会话、点「重新生成」得到「已请求重算标题（原：无）。」→ 点「恢复默认」回到 4096、标记清零。
@@ -105,6 +119,12 @@
 - 版本不同步窗口（用"旧宿主 + 新客户端"专门复现）：把插件副本的宿主过滤临时改回"返回全部会话、不带统计字段"，页面仍显示「当前 1 个活跃会话，其中 0 个需要重算」且列表 0 行——证明客户端兜底过滤与统计回退都生效。
 - 真机（用户 `127.0.0.1:3080`，重启后）：`/dsh-default-overrides/status` 返回 401 而随机路径 404（路由已注册）；用户点「应用」后补丁新增 8 行整块 config（`maxInputBytes: 32768`），注释 16→16、`!!js` 2→2 未丢；点「重新生成」后本会话多出一条 `provider` 标题记录（官方 UI 无此入口，只可能来自本插件）。
 - 客户端 bundle 已进入页面启动图（`dsh-default-overrides/client.js&rev=…` 出现在 `/` 的 HTML 里）。
+
+版本门（2026-10-01，本机 DSH `0.2.0-rc.2`）：
+
+- **真机宿主验证**：`applyForEntry()` 用真实 DSH 入口（`realpath "$(command -v dsh)"` → `…/dsh/lib/bin.js`）探测到版本 `0.2.0-rc.2`，`ctx.inject` 调用次数 **0**，日志为 `dsh-default-overrides: unsupported DSH 0.2.0-rc.2; expected >=0.1.7-alpha.1 <0.1.8. Plugin stays inert.`——即范围外完全 inert。
+- **守卫注入缺陷验证**（在副本上做，四处各自必须变红）：①把 `classifyDshVersion` 的判定换成恒真 → `version-gate.test.js` 2 个用例红；②只改 `lib` 的 `VERIFIED_DSH_VERSIONS` → `manifest.test.js` 红；③只改 `install.sh` 的 `DSH_VERIFIED_VERSIONS` → 红；④把 `AGENTS.md` 里的版本号改掉 → 红。四处同源不是纸面约定。
+- **未覆盖**：客户端在 inert 下的可读文案只做了代码路径与单测层面的确认，**没有在隔离宿主上真的打开设置页目视**（宿主已 inert，需要先把版本门临时放宽才能造出该场景）。
 
 未验证 / 踩到的墙：
 
