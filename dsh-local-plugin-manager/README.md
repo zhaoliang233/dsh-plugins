@@ -25,7 +25,7 @@
 
 ## 要求
 
-- DeepSeek Harness Web `>=0.1.7-alpha.1 <0.1.8`；`0.1.7-alpha.1`、`0.1.7-alpha.2` 与 `0.1.7-rc.2` 已逐版本验证。同一 `0.1.7` 发布线内的其他 alpha/beta/rc/正式版允许启动，未列入逐版本验证清单时给出警告，并继续由 profile 结构、bundle patch、Loader 方法与 Settings Slot 等运行时能力检查 fail closed；跨到 `0.1.8` 或其他发布线前必须先重新核对契约。
+- DeepSeek Harness Web `>=0.2.0-rc.2 <0.2.1`；`0.2.0-rc.2` 已逐版本验证。同一 `0.2.0` 发布线内的其他 alpha/beta/rc/正式版允许启动，未列入逐版本验证清单时给出警告，并继续由 profile 结构、bundle patch、Loader 方法与 Settings Slot 等运行时能力检查 fail closed；跨到 `0.2.1` 或其他发布线前必须先重新核对契约。
 - `web` profile。
 - Node.js 20 或更高版本。
 

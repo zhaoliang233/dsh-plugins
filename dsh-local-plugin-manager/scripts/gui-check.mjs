@@ -188,7 +188,16 @@ for (let attempt = 0; attempt < 4; attempt += 1) {
 }
 const labels = nav.map((row) => row.label)
 check(`设置菜单里出现「${SECTION_LABEL}」`, labels.includes(SECTION_LABEL), JSON.stringify(labels))
-check('本分区排在 DSH 自带项之后', labels.indexOf(SECTION_LABEL) === labels.length - 1, JSON.stringify(labels))
+// 契约是「排在 DSH 自带项之后」，不是「排在最后一行」：别的插件同样会贡献 ≥100 的分区
+// （extra-context 100、default-overrides 与 mcp-manager 110、chat-archive-manager 120），
+// 所以「最后一行」只在只装本插件的隔离环境里才成立。这里按内置 label 定位最后一个自带项。
+const BUILTIN_SECTION_LABELS = ['通用设置', '模型', '内置插件', 'Agent 预设']
+const lastBuiltinIndex = Math.max(...BUILTIN_SECTION_LABELS.map((label) => labels.indexOf(label)))
+check(
+  '本分区排在 DSH 自带项之后',
+  BUILTIN_SECTION_LABELS.every((label) => labels.includes(label)) && labels.indexOf(SECTION_LABEL) > lastBuiltinIndex,
+  JSON.stringify(labels)
+)
 const selfRow = nav.find((row) => row.label === SECTION_LABEL)
 check('导航行的专属图标补丁已打上', selfRow?.patched === true && selfRow.mask.startsWith('url("data:image/svg'), JSON.stringify(selfRow))
 check('专属图标真的画了出来（::before 的 mask 生效）', typeof selfRow?.drawn === 'string' && selfRow.drawn.includes('data:image/svg'), selfRow?.drawn)

@@ -4,6 +4,8 @@ import test from 'node:test'
 
 import {
   DSH_COMPATIBILITY_RANGE,
+  DSH_RELEASE_FLOOR,
+  DSH_RELEASE_LINE,
   PLUGIN_NAME,
   VERIFIED_DSH_VERSIONS
 } from '../lib/profile-manager.js'
@@ -21,8 +23,10 @@ test('declares one compatible-release-line dual Host and Settings-section bundle
   assert.equal(manifest.engines.node, '>=20')
   // 运行时依赖固定为官方同一套实现：profile 写锁与原子提交用 dsh-atomic-write，
   // patch 编辑用官方也在用的 yaml（只有 Document API 能保注释地就地改覆盖项）。
+  // 依赖范围随发布线一起走：插件跑在 0.2.0 线上，写锁就必须是同一线的实现
+  // （锁路径 `<锚点>.lock` + `wx` + mode 0o600 与 0.1.7 线逐字相同，见 AGENTS.md）。
   assert.deepEqual(manifest.dependencies, {
-    '@deepseek-ai/dsh-atomic-write': '~0.1.7-alpha.1',
+    '@deepseek-ai/dsh-atomic-write': '~0.2.0-rc.2',
     yaml: '^2.9.0'
   })
   assert.equal(manifest.files.includes('CHANGELOG.md'), true)
@@ -42,8 +46,24 @@ test('declares one compatible-release-line dual Host and Settings-section bundle
   })
   assert.equal(installScript.includes(`DSH_COMPATIBILITY_RANGE="${DSH_COMPATIBILITY_RANGE}"`), true)
   assert.equal(manifest.engines.dsh, DSH_COMPATIBILITY_RANGE, 'engines.dsh must stay in sync with the declared range')
-  assert.equal(installScript.includes('0\\.1\\.7-(alpha|beta|rc)'), true)
+  assert.equal(installScript.includes('-(alpha|beta|rc)'), true)
   assert.equal(patch, '- insert:\n    - id: dsh-local-plugin-manager\n      name: dsh-local-plugin-manager\n      config:\n        profile: web\n')
+})
+
+// 跨线时四处必须同时改：package.json 的 range 与 engines.dsh、install.sh 的五个版本门常量，
+// 以及 lib/profile-manager.js 的 DSH_RELEASE_LINE / DSH_RELEASE_FLOOR / VERIFIED_DSH_VERSIONS。
+// 这条守卫拦住"只换了 range 忘改下界"这类半改：下界是 rc 时 alpha/beta/更低 rc 必须仍在门外。
+test('发布线、下界与验证清单在四处保持同源', () => {
+  assert.equal(installScript.includes(`DSH_RELEASE_LINE="${DSH_RELEASE_LINE}"`), true)
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${DSH_RELEASE_FLOOR.channel}"`), true)
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${DSH_RELEASE_FLOOR.sequence}`), true)
+  assert.deepEqual([...VERIFIED_DSH_VERSIONS], manifest.dshCompatibility.verifiedVersions)
+  // 上界由发布线自身派生：0.2.0 线只服务 <0.2.1。
+  const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
+  assert.equal(
+    DSH_COMPATIBILITY_RANGE,
+    `>=${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence} <${nextPatch}`
+  )
 })
 
 test('安装脚本的兼容范围与逐版本验证清单必须与宿主、manifest 同源', () => {
@@ -53,9 +73,9 @@ test('安装脚本的兼容范围与逐版本验证清单必须与宿主、manif
   assert.notEqual(range, null, 'install.sh 必须声明兼容范围')
   assert.equal(range[1], DSH_COMPATIBILITY_RANGE, 'install.sh 与宿主的兼容范围必须逐字一致')
 
-  const list = /VERIFIED_DSH_VERSIONS=\(([^)]*)\)/u.exec(installScript)
+  const list = /DSH_VERIFIED_VERSIONS="([^"]*)"/u.exec(installScript)
   assert.notEqual(list, null, 'install.sh 必须声明逐版本验证清单')
-  const versions = [...list[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1])
+  const versions = list[1].split(/\s+/u).filter((version) => version !== '')
   assert.equal(versions.length > 0, true, '逐版本验证清单不得为空')
   assert.deepEqual(versions, [...VERIFIED_DSH_VERSIONS], 'install.sh、宿主与 package.json 的清单必须一致')
 })
