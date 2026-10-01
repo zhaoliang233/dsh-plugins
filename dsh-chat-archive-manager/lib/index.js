@@ -21,52 +21,49 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  *
  * 能力探测仍然是权威判定：**线内**版本即使未逐条核对，也照常挂载并逐项 fail closed 降级。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
-export const DSH_VERIFIED_VERSIONS = Object.freeze(['0.1.7-alpha.1', '0.1.7-rc.2'])
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
+export const DSH_VERIFIED_VERSIONS = Object.freeze(['0.2.0-rc.2'])
 
 /**
- * 兼容发布线的**版本三元组**：只有 `0.1.7` 这一条在声明范围内（`0.1.7`、`0.1.7-alpha|beta|rc.N`，
- * 其中 alpha 至少 1）。语义与 `install.sh` 的 `is_compatible_dsh_version()` 逐字对应，并与
- * `DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"` 一致：**0.1.8 的 prerelease 不算在内**
- * （上一线 0.1.6、下一线 0.1.8 都要重新核对契约后另发版本）。
+ * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.0`、`0.2.0-<channel>.N`）。
+ * 语义与 `install.sh` 的 `DSH_RELEASE_LINE` 逐字对应，并与
+ * `DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"` 一致：**0.2.1 的 prerelease 不算在内**
+ * （上一线 0.1.7、下一线 0.2.1 都要重新核对契约后另发版本）。
  */
-export const DSH_RELEASE_LINE = Object.freeze({ major: 0, minor: 1, patch: 7 })
+export const DSH_RELEASE_LINE = '0.2.0'
 
-/** 解析 `major.minor.patch[-tag.N]`；拒绝其它写法（返回 undefined）。 */
-function parseVersion(version) {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+)\.(\d+))?$/u.exec(version)
-  if (match === null) return undefined
-  return {
-    numbers: [Number(match[1]), Number(match[2]), Number(match[3])],
-    prerelease: match[4] === undefined
-      ? undefined
-      : { tag: match[4].toLowerCase(), sequence: Number(match[5]) }
-  }
-}
+/**
+ * 兼容线的下界：同线内更低 channel（alpha/beta）或更小序列号的 rc 都低于下界，
+ * 判定为不支持。换线时只改 `DSH_RELEASE_LINE` 与这两个字段，判定逻辑不用动。
+ */
+export const DSH_RELEASE_FLOOR = Object.freeze({ channel: 'rc', sequence: 2 })
+
+/** prerelease channel 的先后顺序；下标即优先级。与 `install.sh` 的 `prerelease_rank()` 同序。 */
+const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 
 /**
  * 把运行中的 DSH 版本分类成"在不在兼容发布线上/是否逐条核对过"。
+ *
+ * 只按版本号形状判定，不猜"看起来差不多"的版本：`0.2.0` 正式版与
+ * `0.2.0-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律 `supported: false`。
+ * `build` 元数据（`+local.1`）不参与比较。
+ *
  * @param version - `@deepseek-ai/dsh` 的版本号，或任何未知输入。
  * @returns `{ supported, verified, normalized }`；`supported: false` 时插件保持 inert。
  */
 export function classifyDshVersion(version) {
   const normalized = typeof version === 'string' ? version.trim().split('+', 1)[0] : ''
-  const parsed = normalized === '' ? undefined : parseVersion(normalized)
-  if (parsed === undefined) return { supported: false, verified: false, normalized: undefined }
-  const onLine = parsed.numbers[0] === DSH_RELEASE_LINE.major
-    && parsed.numbers[1] === DSH_RELEASE_LINE.minor
-    && parsed.numbers[2] === DSH_RELEASE_LINE.patch
-  if (!onLine) return { supported: false, verified: false, normalized }
-  const known = ['alpha', 'beta', 'rc']
-  if (parsed.prerelease !== undefined
-    && (!known.includes(parsed.prerelease.tag) || (parsed.prerelease.tag === 'alpha' && parsed.prerelease.sequence < 1))) {
-    return { supported: false, verified: false, normalized }
-  }
-  return {
-    supported: true,
-    verified: DSH_VERIFIED_VERSIONS.includes(normalized),
-    normalized
-  }
+  if (normalized === '') return { supported: false, verified: false, normalized: undefined }
+  const verified = DSH_VERIFIED_VERSIONS.includes(normalized)
+  if (normalized === DSH_RELEASE_LINE) return { supported: true, verified, normalized }
+  const line = DSH_RELEASE_LINE.replace(/\./gu, '\\.')
+  const prerelease = new RegExp(`^${line}-(alpha|beta|rc)\\.(0|[1-9]\\d*)$`, 'u').exec(normalized)
+  if (prerelease === null) return { supported: false, verified: false, normalized }
+  const rank = PRERELEASE_CHANNELS.indexOf(prerelease[1])
+  const floorRank = PRERELEASE_CHANNELS.indexOf(DSH_RELEASE_FLOOR.channel)
+  const supported = rank > floorRank
+    || (rank === floorRank && Number(prerelease[2]) >= DSH_RELEASE_FLOOR.sequence)
+  return { supported, verified: supported && verified, normalized }
 }
 
 export async function readDshPackage(entryPath = process.argv[1]) {

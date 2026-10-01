@@ -6,12 +6,13 @@
 
 ### 兼容发布线（工作区规则）
 
-兼容发布线 `>=0.1.7-alpha.1 <0.1.8`：**一个插件版本只服务它逐包核对过契约的那一条 DSH 发布线**，不为同一个版本维护跨线实现，也不把版本号当"能力开关"：
+兼容发布线 `>=0.2.0-rc.2 <0.2.1`：**一个插件版本只服务它逐包核对过契约的那一条 DSH 发布线**，不为同一个版本维护跨线实现，也不把版本号当"能力开关"：
 
-- 范围外（`0.1.6` 一线与 `0.1.8` 起，含 0.1.8 的 prerelease）保持 **inert**：不注册路由、不碰 registry、不做 legacy 迁移；`install.sh` 同样拒绝安装。上一线用户应留在上一线的插件版本。
-- 线内后续 prerelease（`0.1.7-alpha.N`/`beta`/`rc`）带警告运行，能力探测仍是权威判定：探测不到的能力各自 fail closed（501/503）并在页面上写明原因，其余功能照常——**绝不因为版本号让整页 404**。
+- 范围外（`0.1.7` 一线与 `0.2.1` 起，含 `0.2.1` 的 prerelease）保持 **inert**：不注册路由、不碰 registry、不做 legacy 迁移；`install.sh` 同样拒绝安装。上一线用户应留在上一线的插件版本。
+- 线内后续 prerelease（`0.2.0-alpha.|beta.|rc.N` 里够到或高于 `rc.2` 的那些，以及 `0.2.0` 正式版）带警告运行，能力探测仍是权威判定：探测不到的能力各自 fail closed（501/503）并在页面上写明原因，其余功能照常——**绝不因为版本号让整页 404**。
 - 支持新版本 DSH 的正确做法：重新读源码核对契约差异 → 补适配与回归测试 → 同步四处同源声明（`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 的 `DSH_COMPATIBILITY_RANGE`/`DSH_VERIFIED_VERSIONS`、本文档）→ 发新版本。`test/manifest.test.js`、`test/install.test.js`、`test/host.test.js` 有同源与范围断言守卫。
-- 运行时的版本分类（`classifyDshVersion`）与 `install.sh` 的 `is_compatible_dsh_version()` 语义逐字对应：`0.1.7`、`0.1.7-alpha.N(N≥1)`、`0.1.7-beta.N`、`0.1.7-rc.N` 在范围内，其余不在。status 里回传 `dshVersion`/`dshVersionVerified` 供页面提示。
+- 运行时的版本分类（`classifyDshVersion`）与 `install.sh` 的 `is_compatible_dsh_version()` 语义逐字对应，且都从**发布线 + 下界**派生：`lib/index.js` 是 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`，`install.sh` 是同样的常量加一份 `prerelease_rank()`。`0.2.0` 与 `0.2.0-{alpha,beta,rc}.N` 里够到或高于 `rc.2` 的版本在范围内，其余不在。status 里回传 `dshVersion`/`dshVersionVerified` 供页面提示。
+  **下界不是 alpha 时不能沿用旧的写法**：`channel !== 'alpha' || seq >= 1` 会把 `0.2.0-alpha.9`/`0.2.0-beta.9`/`0.2.0-rc.1` 全判成兼容，必须做 channel 优先级比较。
 
 ### DSH `0.1.7-alpha.1` 契约差异（2026-09-22 逐包核对，`verifiedVersions` 已含该版本）
 
@@ -35,6 +36,45 @@
 - **真机隔离宿主实测（rc.2）**：status（未认证 401 / 认证 200，三布尔全 true，`dshVersion: "0.1.7-rc.2"`）；`POST /restore` v4 → 200 且 `storages/workspace.json` 同步收缩，重复 → 409；`POST /delete` 纯 v4 → 200（目录消失、trash 清空、journal 归 `null`）、v3+v4 并存 → 200（两份日志连同 `session.lock` 整目录消失）、仅 v3 → 501、v0 legacy（无 `vN` 的 `session.jsonl.zstd`）→ 501，两者都不写 journal、不动文件、status 仍 `deletionSupported: true`；未归档 → 409、归档集合内但存储缺失 → 404、缺 `x-dsh-chat-archive-manager-client` 或跨源 `Origin` → 403。插件的 client bundle 在 `__DSH_BOOT__` 的 combo URL 里被广告，按该 URL 取回的内容与源码只差尾部追加的 `sourceMappingURL`。
 - **`quiesceSession()` 端到端已由用户在真实 GUI 补验（2026-09-28）**：打开一个本进程 resume 过的归档会话 → 走红色「永久删除」→ 确认后该聊天从侧边栏与存储中消失（真机 200）。无头环境触发不了 DSH 自身"打开会话 + 归档"的交互，所以这一条永远是"离线证据 + 真机补验"的组合：形状与 dispose 顺序走源码比对，执行走单测（`fakeLiveRuntime()`），能力开关走 `sessionQuiescenceSupported`，最终实删必须真机确认（`lsof` 是否仍持有 `session.lock` 未单独核对）。
 - **已决策（2026-09-28，用户选择"保持现状"）：单条永久删除不加额外文字反馈。** 现状是"确认弹窗关闭 + 该行从列表消失 + 计数减少"，`confirmDelete()` 成功分支只做 `setConfirmTarget(null)`（失败才显示 `.dac-error`）——**这是设计，不是故障**；批量删除另有 `batchOutcomeText` 结果文案。用户真机删除后曾出现"是否真的删掉了"的疑问，评估后仍决定不加提示（行消失 + 计数减少已构成反馈）。**后续不要再自动补 toast/页内提示**；若将来重开这个讨论，先看 DSH 壳层自己对行操作的方案（`shell.overlay` 里注册的 `workspace.row-toast`，`dsh-client-ui-workspace:4379`；插件目前没有接任何全局提示渠道）。
+
+### DSH `0.2.0-rc.2` 逐版本核对记录（2026-10-01，`verifiedVersions` 已含该版本）
+
+`0.1.7-rc.2 → 0.2.0-rc.2` 的运行时改动集中在「失败步骤的工具结果恢复」。本轮用 0.1.7-rc.2 全树（284 个包）与运行安装逐文件 diff，再在隔离宿主上跑了两轮端到端（61 + 39 项）。**结论：业务代码无需适配**，只换版本门与验证清单。
+
+- **本轮真正的变化只有两处，而两处都不在删除事务的路径上**——这是 L3 跨线唯一不能靠"包名没变"推断的一条：
+  - `dsh-session`：`openTurnClosers()` 重构出 `ToolCallRecovery` 类（新增导出），把「未答复的工具请求」从 `Map<callId,{step}>` 改成 `Map<callId,{turn,step}>`，且 `tool/result` 只在 `surfaceOp === 'append'` 且 turn/step 匹配时才解除 pending（替换型结果不再误清）。**只影响崩溃恢复与 fork seed 的合成 closer 事件。**
+  - `dsh-agent-loop`：`run()` 在 step 前订阅 `session/event` 建立跟踪，step 抛错时先补发合成 `tool/result` 再 rethrow，`finally` 里 `stopRecovery()` 之后才 `session.append('step/end', …)`。**新增的是订阅与补发，事件类型与 shape 一个都没变。**
+  - 插件**完全不接触 session 事件追加语义**：`session/event`、`append(`、`surfaceOp`、`tool/result`、`step/end`、`interruptedTurnClosers` 在 `lib/*.js` 与 `client.js` 里 **0 命中**；它只读 `persistence.locate()/stat()/list()` 与 snapshot 的 `header`/`revision`。所以这两处改动对本插件的影响面为零。
+- **私有 ABI 形状逐项复核（读安装包，不靠 CHANGELOG）**：
+  - `dsh-agent`：`lib/index.js` 与 0.1.7-rc.2 **逐字相同**（只有 `package.json` 的 version 变）→ `store = new Map()`（`:323`）、`detachEntered(entry)`（`:538`）、`enter()` 的 `agent.id !== agent.session.id` 断言（`:512`）全在原处。
+  - `dsh-agent-loop`：全文件 5 个 hunk / 31 行，**factory 的 dispose 序列（`:1687-1702`：`cancel({kind:'disposed'})` → `whenIdle()` → `scope.dispose()` → `handle?.close()` → `detachAgent?.()` / `detachSession?.()`）逐行未变**；`ReactLoopAgent` 的 `id`/`session`/`inbox`/`phase`/`scope`、`get status()`（`:790`，仍只返回 `idle`/`running`）、`cancel(cause, options)`（`:815`）、`whenIdle()`（`:870`）、`ReactLoopInbox.hasPending`（`:88`，getter → boolean）全部原位。`status` 的语义细节：`maintenance` 阶段也报 `idle`，插件靠**同时要求 `phase.kind === 'idle'`** 保持保守判定，两者一起读才不会把维护中的会话当成空闲。
+  - `dsh-session`：`SESSION_FORMAT_VERSION = 4`（`:56`）、`SessionStore` 的 `store = new Map()`（`:1596`）+ `get`/`list`/`detachEntered`（`:1861`/`:1868`/`:1767`）原位；两个 hunk 分别在 `SessionStore` 之前与 `openTurnClosers` 内部。
+  - `dsh-session-persistence-jsonl`：**`lib/index.js` 与 0.1.7-rc.2 的 sha256 完全相同**（`0845707017acc2b4…c1e31b`）；该包只改了 `lib/worker.cjs` 一行（`hasIntrinsicConstructor()` 的 native-code 指纹比较，属 LLM 请求投影）。`JsonlSessionPersistence` 的 `name`/`root`/`compression`/`coldLogMemo`/`migrationPreparations`、`JsonlBackendTracker` 的 `openHandles`(Set)/`writers`(Map)/`pending`(Map)/`hasPending(id)`/`pendingEntries()`、`locate()` 的 `{kind:'jsonl', path}` 形状全部未变。
+  - **逐字相同（仅 version 变）**：`dsh-workspace`、`dsh-session-persistence`、`dsh-session-format`、`dsh-session-format-catalog`、`dsh-storage-domain`、`dsh-client-connection`、`dsh-client-modules`、`dsh-client-ui-settings`、`dsh-host-webserver`。`WorkspaceRegistry` 三个 Map 缓存（`:360-362`）、`enqueueOperation`/`requireState`/`setState`、`unarchiveSession()` 的幂等 no-op（`:551-560`）、`Workspace.detachSession()`（`:148`）、`connection.requestRejection()`（`undefined|401|403`，`:586`）全部原位。
+  - 客户端：`SessionListState` 仍是 `ids`/`byId`/`phase`/`projectionsBySession`（唯一的构造点 `dsh-api-session-controller/lib/client.js:3570`）；`(row.retainedBy.mainView ?? 0) > 0` 在 layout / workspace / session 里逐字相同；`navIcon()` 映射表与"未知 id 回落 `IconSettingsOutlineMedium`"**逐项一致**（`archived-chats` 仍不在白名单，DOM 补丁仍是唯一手段）；`settings.section` 仍是 `{kind:'list', scope:'root'}`、注册选项仍无 `icon`、内置分区上限仍是 **20**（account −10 / general 0 / models 10 / plugins 15 / agent-presets 20）。
+  - `dsh-client-ui-settings-general/lib/client.js` 有 8 个 hunk，**全部与本插件无关**：Settings 面板的 `--dsh-frame-top-clearance` 改名成 `--dsh-frame-chrome-top`/`--dsh-frame-overlay-top`、桌面更新状态文案、`general.currentVersion` 里的版本号、快捷键 `Comma` 加 `alt`。nav 结构与 `settings.section` 渲染未动（几何由 `verify-nav-icon.js --measure` 独立钉住）。
+
+- **隔离宿主实测（`DSH_HOME=/tmp/dsh-cam-020`、端口 5942；用户的 3080 全程未触碰，验证后按端口拿 PID 停止）**：数据是本轮**自己造**的（只含 header 行的合法 v4/v3/v0 artifact，**零用户会话数据**；v4 用 `zlib.zstdCompressSync` 压，与 DSH 解码器同一实现）。轮次 A **61 项全过**、轮次 B **39 项全过**。
+
+  | 判据 | 结果 |
+  |---|---|
+  | 跨线前基线 | 三个路由全 404 —— 范围外确实 inert、零副作用 |
+  | status / 能力布尔 | 未认证 401；认证 200，`deletionSupported`/`sessionQuiescenceSupported`/`restorationSupported` 全 true，`dshVersion: "0.2.0-rc.2"`、`dshVersionVerified: true` |
+  | 恢复往返 | `POST /restore` v4 → 200，归档集合 6→5，仍保留 W2 的 `sessionIds` 席位，存储未动；重复 → 409 `session-not-archived` |
+  | 请求边界 | 缺 client 头 / 跨源 403、非 JSON 415、坏 JSON 400、GET 405、未认证 401、缺 sessionId 400 |
+  | 准入拒绝 | 未归档 409、归档但存储缺失 404，均零副作用 |
+  | 旧 generation fail closed | 仅 v3 → 501、v0 legacy → 501，文案里的 generation 是**运行期反解**的（v3 / v0 各不相同，证明没写死）；目录未动、**连 journal 文件都没创建**、status 仍 `deletionSupported: true` |
+  | 实删 | v3+v4 并存目录整段消失 → 200；v4 zstd → 200；两者 trash 都清空、journal 归 `null`、`archivedSessionIds` 与 W1 席位同步收缩 |
+  | 中途中断 | 让 trash 根不可写后 `POST /delete` → 500 `archive-delete-quarantined`；journal 停在 `phase: "prepared"` 且带完整 witness，source 目录与 artifact 都在，trash 0 项，核心记账未动 |
+  | quarantine 降级 | 三布尔全 false，`deletionCode: archive-delete-quarantined` / `restorationCode: deletion-recovery-required`；该会话与**其它**归档会话的 delete / restore 全 503 |
+  | 冷启动 | 目录 inode、日志 inode/size、journal sha 逐项与中断前**完全一致**，trash 仍空，仍 quarantine（503 + `deletion-recovery-required`） |
+  | 升级遗留事务 | 手工把 witness 写成上一代 `session.v3.jsonl.zstd` 后冷启动 → 仍被认出（delete / restore 503），目录 inode 与 journal sha 未变，trash 未创建 |
+  | 可恢复性 | 人工清空事务 → 重启 → 三布尔恢复 true，重试删除 → 200，目录消失、trash 清空、journal 归 `null` |
+  | boot graph | `__DSH_BOOT__` 广告 `plugins/??dsh-chat-archive-manager/client.js&rev=…` 且 inject 三条；取回内容以源码**逐字节开头**、仅尾部 `;\n//# sourceMappingURL=…`；裸 `/plugins/<包名>/client.js` 仍 404 |
+
+- **两个跨轮有效的新事实（都是造隔离数据时踩出来的）**：
+  - JSONL backend 要求**同一个 root 下所有 artifact 的压缩方式一致**（`checkRootEncoding`）：隔离数据里混放 `.jsonl`（none）与 `.jsonl.zstd` 会让 `workspace` 服务在启动时抛 `encodingMismatch`，连带 `workspaceRegistry` 不可用、后续条目全部 pending。造数据必须按 profile 的 `session-persistence-jsonl` 配置统一压缩（本机是 zstd）。副作用：**未压缩 header 的 `O_NOFOLLOW` 路径在默认部署里跑不到**，它只由单测覆盖。
+  - 历史 generation 的 artifact 必须带**能解码的合法 header**：`listArtifacts()` 走 `resolveGenerationInDirectory()` + `readGenerationHeader()`，解不开的历史 generation 会被**静默跳过**（`SessionFormatUnsupportedError` / `SessionPersistenceCorruptionError` → `continue`），于是 `preflight()` 在 `list()` 阶段就以 `session-not-found`(404) 结束，永远走不到 `lstatCurrentGenerationArtifact()` 的 501 分支。要测「旧 generation fail closed」必须用合法历史 header：**v3 与 v4 的字段集完全相同，只差 `version`**；v0 没有 `isSeeded`、可带 `parentSession`/`origin`。
 
 ### Host
 
@@ -71,7 +111,7 @@ DSH 会保留**本进程 resume 过的每一个会话**直到进程退出：agen
 - 只有**完全空闲**才卸载：`phase.kind === 'idle'`、`status === 'idle'`、`inbox.hasPending === false`；否则抛 `session-busy`(409)。`whenIdle()` 有 30s 上限（`QUIESCE_TIMEOUT_MS`），超时只放弃本次删除，不进入半卸载状态。
 - 顺序固定为 factory 的 `dispose()`：`cancel({kind:'disposed'})` → `await whenIdle()` → `scope.dispose()` → 关闭 tracker 里该 id 的写句柄（`handle.close()` 自身幂等）→ `agents.detachEntered(entry)` → `sessions.detachEntered(entry)`（两者都幂等，factory 之后真正的 teardown 因此是安全 no-op）。
 - **卸载必须发生在所有只读校验之后**：`preflight()` 先只做 `planSessionQuiescence()`（零副作用），只有在归档集合、唯一 snapshot、后代、artifact/witness 全部通过后才调用 `quiesceSession()`；执行前**重新**断言一次空闲，防止校验期间落进来的 prompt 被误杀。失败一律停留在 preflight 阶段，不写 journal、不进入 quarantine。
-- 依赖字段名（`store`/`detachEntered`/`phase`/`status`/`inbox`/`cancel`/`whenIdle`/`scope`）是私有契约，`0.1.7-alpha.1` 已重新核对（形状未变）；禁止在结构不匹配时猜测执行。
+- 依赖字段名（`store`/`detachEntered`/`phase`/`status`/`inbox`/`cancel`/`whenIdle`/`scope`）是私有契约，`0.2.0-rc.2` 已重新核对（形状未变，factory 的 dispose 序列逐行相同）；禁止在结构不匹配时猜测执行。
 - factory 自己的 `dispose()` 闭包**不可达**（只在 `agents.resume()` 的 handle 上，而 `dsh-api-session-controller` 取走 `.agent` 后丢弃它），所以这里复刻它的步骤而不调用它。该闭包仍留在 `FactoryOwnership.liveAgents` 中，将来在进程/插件卸载时执行一次：`cancel`/`whenIdle`/`scope.dispose`/`handle.close`/两个 `detachEntered` 全部幂等，因此那次执行是安全 no-op（代价是每次卸载在 ownership 里残留一个已 teardown 的闭包，仅存活到进程退出）。**禁止**改成自己调用 `handle.close()` 之外的任何“补一次清理”逻辑，那会破坏这个幂等前提。
 
 删除与恢复必须共用一个 mutation coordinator，整个 registry operation 串行，不能只各自单飞。Persistence tombstone wrapper 必须覆盖 `create/open/stat/list` 入口（两代签名与返回键集相同）、记录每个 ID 与全局 listing 已准入的 in-flight Promise，并在 tombstone 后 drain 再 rename；新调用必须 fail closed。恢复 exact own descriptor，原方法来自 prototype 时清理 instance wrapper，且只在当前成员仍归本插件所有时恢复。disposer 先关闭新请求、等待 operation tail，再撤 patch；它不根据 journal 做文件恢复。
@@ -120,37 +160,42 @@ npm publish --dry-run
 ./install.sh
 ```
 
-**隔离进程的无头端到端验证**（不用碰用户的 3080，也不需要真实 GUI；`0.1.7-alpha.1` 与 `0.1.7-rc.2` 上都跑通过，rc.2 是 2026-09-28）：
+**隔离进程的无头端到端验证**（不用碰用户的 3080，也不需要真实 GUI；`0.1.7-alpha.1`、`0.1.7-rc.2` 与 `0.2.0-rc.2` 上都跑通过，最近一次是 2026-10-01 的 `0.2.0-rc.2`）：
 
 ```bash
-ISO=/tmp/dsh-iso-archive                      # 独立 DSH_HOME，绝不动 ~/.dsh
+ISO=/tmp/dsh-cam-020                          # 独立 DSH_HOME，绝不动 ~/.dsh
 mkdir -p "$ISO/profiles" && cp -a ~/.dsh/profiles/web "$ISO/profiles/web"
 cp -p ~/.dsh/.credentials.yaml ~/.dsh/.env "$ISO/"     # 浏览器认证 secret
-# 复制过去的 profile 里，插件那个相对 symlink 会失效，改成绝对路径（profile 里其它 link: 插件同理）：
-ln -sfn "$PWD" "$ISO/profiles/web/node_modules/dsh-chat-archive-manager"
-# 会话数据也是只读复制：把要测的会话目录复制进 $ISO/sessions/<cwd 编码目录>/，
-# 再把它们的 id 写进 $ISO/storages/workspace.json 的 global.archivedSessionIds（只有隔离副本可以改写）。
-DSH_HOME="$ISO" dsh --profile web --port 0 --no-open    # 记下打印的 URL（含 token）
-# 用 token 换 cookie（curl -c jar "http://127.0.0.1:<port>/?token=<token>"），然后：
+# 复制过去的 profile 里，link: 插件的相对 symlink 会解析失败（启动日志里一串
+# "skipping profile bundle … cannot resolve"），要逐个改写成绝对路径：
+for l in "$ISO"/profiles/web/node_modules/dsh-*; do
+  [ -L "$l" ] && { t=$(readlink "$l"); case "$t" in /*) ;; *) ln -sfn "/Users/zhaoliang/Documents/dsh-plugins/$(basename "$l")" "$l" ;; esac; }
+done
+# 会话数据：合法 header 的 artifact + 把 id 写进 global.archivedSessionIds（只改隔离副本）。
+# 两条硬约束见上面「两个跨轮有效的新事实」：压缩方式必须与 profile 配置一致，
+# 历史 generation 必须能解码，否则会在 list() 阶段被静默跳过、得到 404 而不是 501。
+DSH_HOME="$ISO" dsh --profile web --port 5942 --no-open  # 记下打印的 URL（含 token）
+# 用 token 换 cookie（curl -c jar "http://127.0.0.1:5942/?token=<token>"），然后：
 #   GET  /dsh-chat-archive-manager/status   → {"ok":true,"deletionSupported":true,"sessionQuiescenceSupported":true,
-#                                              "restorationSupported":true,"dshVersion":"0.1.7-rc.2",…}
+#                                              "restorationSupported":true,"dshVersion":"0.2.0-rc.2",…}
 #   POST /delete （带 x-dsh-chat-archive-manager-client: 1 + Origin）→ 200，会话目录消失、trash 清空、journal 归 null
-# 结束后只 kill 这个端口上的 PID（`lsof -ti :<port>`），再删掉 $ISO。
+# 结束后只 kill 这个端口上的 PID（`lsof -nP -iTCP:5942 -sTCP:LISTEN -t`，先核对它命令行含
+# `--port 5942` 再杀），再删掉 $ISO。
 ```
 
 该隔离实例还会广告插件的 client bundle（`__DSH_BOOT__` 里能看到 combo URL 与 `inject`），所以"宿主路由 + boot graph"两段都能在无头环境里验证；剩下的视觉部分（设置页导航行与页面渲染）仍需真实 GUI。**取 bundle 时必须走 combo 前缀** `/plugins/??<包名>/client.js&rev=<rev>`（单包也不能省 `??`），直接取 `/plugins/<包名>/client.js` 是 404；服务端返回的是源码 + 尾部追加的 `sourceMappingURL`。
 
-在真实进程上已逐条跑过的用例（两次都是隔离 HOME、只读复制会话、跑完即删）：
+在真实进程上已逐条跑过的用例（最近一次是 2026-10-01 的 `0.2.0-rc.2`；全是隔离 HOME、只读复制或自造会话、跑完即删）：
 
-| 场景 | 期望 | `0.1.7-alpha.1`（2026-09-22） | `0.1.7-rc.2`（2026-09-28） |
-|---|---|---|---|
-| `GET /status` | 三个能力布尔 + 版本字段 | 三布尔全 true，`dshVersion: 0.1.7-alpha.1` | 三布尔全 true，`dshVersion: "0.1.7-rc.2"`、`dshVersionVerified: true` |
-| `POST /restore`（v4 会话） | 200，归档集合收缩 | 200，与 `storages/workspace.json` 同步更新 | 200，同步更新 |
-| 重复 `POST /restore` | 409 `session-not-archived` | 409 | 409 |
-| `POST /delete`（v4 / v3+v4 并存） | 200，整目录搬移后 trash 清空、journal 归 `null` | 200，两条都通过 | 200，两条都通过（并存目录连 `session.lock` 一起消失） |
-| `POST /delete`（仅 v3 未迁移） | 501 `unsupported-artifact`，文案含派生出的 generation，**不写 journal、不动文件、不 quarantine** | 501，原文「仍是旧格式（v3），DSH 尚未把它迁移为 v4…」 | 同左；v0 legacy（无 `vN` 的 `session.jsonl.zstd`）同样 501 |
-| `POST /delete`（未归档 / 存储缺失 / 缺 header / 跨源） | 409 / 404 / 403 / 403 | （未逐条记录） | 409 / 404 / 403 / 403 |
-| 非空 journal（witness 属于**上一代** generation）冷启动 | 只进 quarantine，零自动处理 | 由单测覆盖 | 503 `deletion-recovery-required`；目录 inode、trash、journal 全部原样，`delete` 与 `restore` 都 503 |
+| 场景 | 期望 | `0.1.7-alpha.1`（2026-09-22） | `0.1.7-rc.2`（2026-09-28） | `0.2.0-rc.2`（2026-10-01） |
+|---|---|---|---|---|
+| `GET /status` | 三个能力布尔 + 版本字段 | 三布尔全 true，`dshVersion: 0.1.7-alpha.1` | 三布尔全 true，`dshVersion: "0.1.7-rc.2"`、`dshVersionVerified: true` | 未认证 401；认证 200，三布尔全 true，`dshVersion: "0.2.0-rc.2"`、`dshVersionVerified: true` |
+| `POST /restore`（v4 会话） | 200，归档集合收缩 | 200，与 `storages/workspace.json` 同步更新 | 200，同步更新 | 200，6→5，保留 W2 席位、存储未动 |
+| 重复 `POST /restore` | 409 `session-not-archived` | 409 | 409 | 409 |
+| `POST /delete`（v4 / v3+v4 并存） | 200，整目录搬移后 trash 清空、journal 归 `null` | 200，两条都通过 | 200，两条都通过（并存目录连 `session.lock` 一起消失） | 200，两条都通过（v4 用自造 zstd artifact） |
+| `POST /delete`（仅 v3 未迁移 / v0 legacy） | 501 `unsupported-artifact`，文案含派生出的 generation，**不写 journal、不动文件、不 quarantine** | 501，原文「仍是旧格式（v3），DSH 尚未把它迁移为 v4…」 | 同左；v0 legacy（无 `vN` 的 `session.jsonl.zstd`）同样 501 | 同左；两次拒绝后 **journal 文件根本不存在**，status 仍三布尔 true |
+| `POST /delete`（未归档 / 存储缺失 / 缺 header / 跨源） | 409 / 404 / 403 / 403 | （未逐条记录） | 409 / 404 / 403 / 403 | 同左，另加 415（非 JSON）、400（坏 JSON / 缺 id）、405（GET）、401（未认证） |
+| 非空 journal（witness 属于**上一代** generation）冷启动 | 只进 quarantine，零自动处理 | 由单测覆盖 | 503 `deletion-recovery-required`；目录 inode、trash、journal 全部原样，`delete` 与 `restore` 都 503 | 同左，且**运行期注入**的中断也走同一条路：500 → 重启后 503 → 人工清事务后恢复 200 |
 
 客户端测试职责：`test/client.test.js`（25 例，含 `resolves official icons across both DSH naming schemes and degrades without them`）覆盖 slot 注册、渲染结构、核心 service 未被改写，以及所有纯函数（分组、排序、cutoff 边界（含「所有时间」的无界 cutoff，以及仍然 fail closed 的无效日期/未知预设）、两种候选筛选、`currentSessionId()` 的 alpha.1/alpha.2 两代解析、三个批处理执行器）；`test/client-batch-flow.test.js`（11 例）用自建迷你 hook 运行时真实驱动“条件→预览→执行→撤销”、“所有时间”把滚动预设够不到的较新聊天纳入归档与永久删除两批候选、“当前会话默认排除、勾选后纳入并归档”的端到端流程、50 条确认闸门、“批量删除→逐条确认→执行→结果无撤销”，覆盖 React 接线、冻结清单和 store 刷新；`test/client-interoperability.test.js` 用同一套 stub 校验 bundle 与核心契约的互操作。新增流程分支时必须补到流程测试，不要用结构断言替代流程断言。另有 `test/interoperability.test.js`、`test/install.test.js` 覆盖 Host 侧互操作与安装脚本。
 

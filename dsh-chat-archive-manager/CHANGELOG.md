@@ -2,6 +2,19 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.2.0] - 2026-10-01
+
+### 变更
+
+- **跨到 `0.2.0` 发布线**：兼容线从 `>=0.1.7-alpha.1 <0.1.8` 整体换成 `>=0.2.0-rc.2 <0.2.1`，逐版本核对 `0.2.0-rc.2`。**这条线不再支持 0.1.7 及更早的 DSH**——还在 0.1.7 上请留在 0.1.7 版本；范围外插件保持 inert（不注册路由、不碰 registry、不做 legacy 迁移），不会带病运行。
+- 版本门改为从发布线与下界常量派生（`DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS`，`install.sh` 有等价的 shell 版）：下界是 prerelease 时按档位优先级比较，`0.2.0-rc.1`、`0.2.0-beta.*`、`0.2.0-alpha.*` 都判为不支持，`0.2.0` 正式版判为支持。跨线只改常量与清单，判定逻辑不动。
+- 本轮 DSH 真正改动的是 `dsh-session` 与 `dsh-agent-loop`，主题是**失败步骤的工具结果恢复**（新增 `ToolCallRecovery`，合成结果的所有权从 scheduler 交给 owning step）。逐行核对后确认这两处都在崩溃恢复 / fork seed 的合成事件路径上：`SESSION_FORMAT_VERSION` 仍是 4，文件布局、`persistence.locate()/stat()/list()` 的签名与返回键集、snapshot 的 `header`/`revision` 全未动，插件本身也不接触 session 事件追加语义。**删除事务、恢复与其余业务代码一字未改。**
+- 删除事务在隔离宿主上重新端到端跑通（含此前没有的**运行期中断注入**）：让 trash 根不可写 → `POST /delete` 回 500 并进入 quarantine，journal 停在 `prepared`、现场完整；冷启动后目录 inode、日志 inode/size 与 journal 逐项未变、仍 quarantine；人工清事务后重启即恢复，重试删除 200。归档→恢复往返、fail-closed 拒绝（未归档 / 存储缺失 / 旧 generation / 请求边界）与 boot graph 一并复测。
+
+### 文档
+
+- `AGENTS.md` 增加 `0.1.7-rc.2 → 0.2.0-rc.2` 的逐项核对结果、隔离宿主两轮实测记录，以及两条造隔离数据时的硬约束（同一 JSONL root 的压缩方式必须一致；历史 generation 的 artifact 必须带能解码的合法 header，否则会被 `list()` 静默跳过、得到 404 而不是 501）；`README.md` 的要求一节改成 `0.2.0` 线；`PUBLISHING.md` 的日志 generation 示例同步。
+
 ## [0.1.9] - 2026-09-28
 
 ### 变更
