@@ -64,7 +64,9 @@
 
 ### 4. 发布闸门差异（顺手补齐）
 
-`dsh-local-plugin-manager` 是 9 个里唯一**没有 `publish:check`** 的：它的 `verify` 只有 `check` + `test`，缺 tarball 白名单校验，`prepublishOnly` 绑的也是 `verify`，`install.sh` 跑的还是 `npm run verify`。本轮补上 `scripts/check-pack.js`（复制既有实现，白名单按它真实的 10 个文件写死）、`pack:check` 与 `publish:check`（= `verify` + `pack:check`），并把 `prepublishOnly` 与 `install.sh` 都改为跑 `publish:check`——现在 9 个插件的发布闸门**同名同覆盖**。
+`dsh-local-plugin-manager` 是 9 个里唯一**没有 `publish:check`** 的：它的 `verify` 只有 `check` + `test`，缺 tarball 白名单校验，`prepublishOnly` 绑的也是 `verify`，`install.sh` 跑的还是 `npm run verify`。本轮补上 `scripts/check-pack.js`（复制既有实现，白名单按它真实的 10 个文件写死）、`pack:check` 与 `publish:check`（= `verify` + `pack:check`），并把 `prepublishOnly` 与 `install.sh` 都改为跑 `publish:check`。
+
+**收口后的逐包回查又抓到两处漏项**（当时「9 个同名同覆盖」这句话是错的，同日补上）：① `dsh-default-overrides` 有 `publish:check` 但不含 `pack:check`——它自己的「待办」里本来就记着"还没有 `scripts/check-pack.js`"；② `dsh-mcp-manager` 的 `install.sh` 跑的是 `npm run verify` 而不是 `publish:check`。补齐后 9 个插件的发布闸门才是真的同名同覆盖：每个都有 `publish:check`（= `check` + `test` + `pack:check`），每个的 `install.sh` 都跑它。
 
 ### 5. 发布状态与包名阻塞（三件事逐包复核）
 
@@ -90,6 +92,11 @@
 - **不跨 `dsh-default-overrides`**：按工作区规则跨线是立项（重读它自己点名的契约 + 隔离宿主 + 真实路由 cookie/CSRF 验证 + 四处同源 + 测试守卫），塞进收口轮会把「一致性核对」变成「半做的跨线」。它的等级、留在旧线的理由与跨线触发条件已写进根 `AGENTS.md`。
 - **只提交、不发版**：形状统一是内部命名调整，运行行为一字未变；本轮改动**不带版本号**，留到下一次真有功能改动的发版一起带上（已发布 artifact 与源码的这一处差异不影响任何用户）。
 - **改名留到用户给名字之后再做**：改名要同步 `package.json#name`、插件文档的改名落点与 `test/manifest.test.js` 守卫，属于独立一轮的工作。
+
+### 7. 同轮的两处口径订正（都是「文档写的是旧事实」）
+
+- **`ci.yml` 的注释与矩阵不符**：注释写「每次 push / PR 校验全部插件」，矩阵实际只列 7 个（`dsh-mcp-manager` 与 `dsh-default-overrides` 不在里面）。按用户选择**只改注释**：写明只校验 7 个已发布插件，未发布的两个由本机 `./install.sh` 与各自的 `publish:check` 承担。**矩阵没动**——这是有意的，两个插件都还没有可发布的包名。
+- **`dsh-mobile-compat/README.md` 的升级示例是旧线版本**：写着 `add dsh-mobile-compat@0.4.0`（那是 0.1.7 线的版本），改成当前线的 `@0.5.0`，避免用户照抄装到旧线。
 
 ---
 

@@ -47,9 +47,10 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/overrides.js && node --check client.js",
+    "check": "node --check lib/index.js && node --check lib/overrides.js && node --check client.js && node --check scripts/check-pack.js",
     "test": "node --test test/*.test.js",
-    "publish:check": "npm run check && npm test",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run check && npm test && npm run pack:check",
     "prepublishOnly": "npm run publish:check"
   },
   "engines": {

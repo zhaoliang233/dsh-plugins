@@ -27,7 +27,7 @@
 
 ```bash
 dsh plugin --profile web add dsh-mobile-compat        # 安装
-dsh plugin --profile web add dsh-mobile-compat@0.4.0  # 升级到指定版本
+dsh plugin --profile web add dsh-mobile-compat@0.5.0  # 升级到指定版本
 dsh plugin --profile web remove dsh-mobile-compat     # 卸载
 ```
 

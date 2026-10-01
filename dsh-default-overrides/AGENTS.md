@@ -112,6 +112,7 @@
 已验证（隔离 `DSH_HOME` + 独立端口 + 本会话专属无头 Chrome，2026-09-28）：
 
 - `npm run check` + `npm test`（42 个用例：白名单、候选配置计算、可用性、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状、版本门与四处同源）。
+- 发布闸门 `npm run publish:check`（= `check` + `test` + `pack:check`）：`scripts/check-pack.js` 断言发布物恰好 8 个文件（`CHANGELOG.md` / `LICENSE` / `README.md` / `client.js` / `cordis.patch.yml` / `lib/index.js` / `lib/overrides.js` / `package.json`），`prepublishOnly` 与 `install.sh` 都跑它。**它不随发布物出去**（`files` 白名单里没有 `scripts/`）。
 - 宿主端到端（curl 走真实路由，带 cookie 认证 + CSRF）：status 读取、apply 写 8192、reset 还原——reset 后补丁文件与原始配置**逐字节一致**。
 - 错误路径：非法值（400 `invalid-value`）、白名单外字段（400）、缺 CSRF（403）、无覆盖时恢复默认、重算未知会话（404 `session-not-live`）。
 - 浏览器端到端（CDP 驱动无头 Chrome，缓存已禁用）：设置面板打开 →「默认设置覆盖」分区渲染出 8 个输入框 → 点「应用」写入 32768（提示「已写入 session-title-llm.maxInputBytes = 32768。」、实际生效同步、「已覆盖」1 个 +「随整块写入」4 个）→ 高级模式展开列出 10 个带覆盖条目 → 会话标题重算卡片列出活跃会话、点「重新生成」得到「已请求重算标题（原：无）。」→ 点「恢复默认」回到 4096、标记清零。
@@ -137,6 +138,6 @@
 
 ## 待办
 
-- **发版前必须先改名**：`dsh-default-overrides` 这个包名在 npm registry 上**已被第三方占用**（2026-10-01 实测：registry 上是 0.3.6、维护者 `chenwei116057`、描述是 "Configurable Bash and PowerShell overrides for the DSH standard preset"，与本插件无关）。在改名（并同步 `package.json#name`、`cordis.patch.yml` 的行 id/name、`dsh.client` 与两处常量）之前，本插件**发不了版**——直接 bump 版本打 tag 会在 release workflow 里以无权限失败并留下一个空 release。本插件也还没有 `scripts/check-pack.js`，发布前要补。
+- **发版前必须先改名**：`dsh-default-overrides` 这个包名在 npm registry 上**已被第三方占用**（2026-10-01 实测：registry 上是 0.3.6、维护者 `chenwei116057`、描述是 "Configurable Bash and PowerShell overrides for the DSH standard preset"，与本插件无关）。在改名（并同步 `package.json#name`、`cordis.patch.yml` 的行 id/name、`dsh.client` 与两处常量）之前，本插件**发不了版**——直接 bump 版本打 tag 会在 release workflow 里以无权限失败并留下一个空 release。
 - 白名单扩展（压缩阈值、subagent 并发、Web 搜索等），按同一张表加。
 - 高级模式目前只支持"清除整块覆盖"；若以后要支持任意字段编辑，需要先解决"非白名单字段写坏组合"的风险（二次确认 + 组合校验 + 一键回滚）。

@@ -65,7 +65,7 @@ echo "== dsh-mcp-manager 本地安装 =="
 echo "  插件目录: $PLUGIN_DIR"
 echo "  profile:  $DSH_PROFILE"
 
-npm run verify --prefix "$PLUGIN_DIR"
+npm run publish:check --prefix "$PLUGIN_DIR"
 dsh plugin --profile "$DSH_PROFILE" add "link:$PLUGIN_DIR" --config.minimumReleaseAge=0
 
 echo "本地链接安装完成。profile 组成发生变化，请在 Warp 中重启 dsh web --no-open，然后刷新页面。"

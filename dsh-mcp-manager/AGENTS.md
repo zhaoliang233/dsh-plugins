@@ -253,7 +253,7 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   #
 
 ### 其余
 
-- 用户路线：`dsh plugin --profile web add <包名>`（升级必须显式写 `@<版本>`）；`./install.sh` 只服务源码 `link:` 开发路线，它会先跑 `npm run verify` 再调用官方 `dsh plugin add`。
+- 用户路线：`dsh plugin --profile web add <包名>`（升级必须显式写 `@<版本>`）；`./install.sh` 只服务源码 `link:` 开发路线，它会先跑 `npm run publish:check` 再调用官方 `dsh plugin add`。
 - 本包**没有运行时依赖**（`dependencies` 为空），因此 release 工作流不需要为它装依赖。
 - 发布：`npm run publish:check` 是唯一闸门（语法 + 测试 + 打包白名单），`prepublishOnly` 已绑定；改名之后由根仓库 `.github/workflows/release.yml` 收到 `<新包名>-v<版本>` tag 后经 npm trusted publishing（OIDC）完成（tag 名要跟着新包名走）。
 - 兼容线四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 的版本门、本文件与 `lib/dsh.js` 的 `DSH_COMPATIBILITY_RANGE`。
