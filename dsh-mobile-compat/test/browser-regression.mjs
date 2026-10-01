@@ -155,6 +155,80 @@ const STRIP_DRAG = `(() => {
   return { supported: true, before, during, max: strip.scrollWidth - strip.clientWidth, gestureClickDelivered: clicked }
 })()`
 
+// A real touch drag over the strip, driven through CDP Input. The synthetic PointerEvent probe
+// above proves the handler runs, but it cannot reproduce pointer capture or the browser's own
+// click synthesis after a touch gesture — and the click-swallow branch only exists for real
+// gestures. This pads the strip with a spacer so it actually overflows (an isolated profile's
+// header is too sparse to fill it), drags for real, and reports both the scroll result and every
+// click that reached the document. The spacer is removed before returning.
+const TOUCH_DRAG_SETUP = `(() => {
+  const strip = document.querySelector('[data-dsh-mobile-title-strip]')
+  if (!strip) return { supported: false, reason: 'no strip' }
+  const spacer = document.createElement('div')
+  spacer.setAttribute('data-dmc-probe-spacer', '')
+  spacer.style.cssText = 'flex:0 0 auto;width:800px;height:1px'
+  strip.appendChild(spacer)
+  strip.scrollLeft = 0
+  window.__dmcProbeClicks = []
+  window.__dmcProbeClickSink = (event) => {
+    window.__dmcProbeClicks.push({ tag: event.target?.tagName, inStrip: Boolean(event.target?.closest?.('[data-dsh-mobile-title-strip]')) })
+  }
+  document.addEventListener('click', window.__dmcProbeClickSink, true)
+  const box = strip.getBoundingClientRect()
+  return { supported: true, left: box.left, top: box.top, height: box.height, max: strip.scrollWidth - strip.clientWidth }
+})()`
+
+async function touchDragStrip(label) {
+  const setup = await evaluate(TOUCH_DRAG_SETUP)
+  if (!setup?.supported) return setup || { supported: false, reason: 'no setup' }
+  const y = Math.round(setup.top + setup.height / 2)
+  const startX = Math.round(setup.left + 8)
+  const point = (x) => [{ x, y, radiusX: 2, radiusY: 2, force: 1, id: 1 }]
+  try {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(startX) })
+    for (const step of [12, 24, 40, 56, 72]) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(startX - step) })
+      await delay(25)
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    // The strip carries touch-action: pan-x, so Chrome may add its own native pan on top of the
+    // handler's scrollLeft write; the two settle together. Sample until the value stops moving
+    // instead of asserting against one arbitrary instant.
+    await delay(250)
+    let previous = null
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const current = await evaluate(`document.querySelector('[data-dsh-mobile-title-strip]')?.scrollLeft ?? -1`)
+      if (current === previous) break
+      previous = current
+      await delay(100)
+    }
+    const result = await evaluate(`(() => {
+      const strip = document.querySelector('[data-dsh-mobile-title-strip]')
+      const out = {
+        supported: true,
+        max: strip.scrollWidth - strip.clientWidth,
+        scrollLeft: strip.scrollLeft,
+        clicks: window.__dmcProbeClicks || []
+      }
+      document.removeEventListener('click', window.__dmcProbeClickSink, true)
+      delete window.__dmcProbeClicks
+      delete window.__dmcProbeClickSink
+      document.querySelector('[data-dmc-probe-spacer]')?.remove()
+      return out
+    })()`)
+    result.dragged = 72
+    result.label = label
+    return result
+  } catch (error) {
+    await evaluate(`(() => {
+      document.removeEventListener('click', window.__dmcProbeClickSink, true)
+      document.querySelector('[data-dmc-probe-spacer]')?.remove()
+      return true
+    })()`)
+    throw error
+  }
+}
+
 // Mount one attachment so the rail (and its 18px remove control) can be measured. The rail only
 // renders while a pending attachment exists.
 async function pasteAttachment() {
@@ -693,6 +767,27 @@ try {
     } else {
       assert(drag.during === drag.before, `${label} a non-scrollable title strip moved during a drag`, drag)
     }
+    // A real touch drag over a forced-overflow strip: the scroll must follow it, and the gesture
+    // must not also deliver a click to the header control it ended on.
+    const touchDrag = await touchDragStrip(label)
+    report.titleStripDrag[`${label}:touch`] = touchDrag
+    assert(touchDrag.supported, `${label} touch drag cannot be probed: ${touchDrag.reason}`, touchDrag)
+    assert(touchDrag.max > 0, `${label} padded title strip still cannot scroll`, touchDrag)
+    assert(touchDrag.scrollLeft > 0, `${label} a real touch drag does not scroll the title strip`, touchDrag)
+    // The strip carries touch-action: pan-x, so Chrome's own pan can stack on top of the handler's
+    // scrollLeft write depending on gesture timing; the exact total is therefore not an invariant.
+    // What must hold is that a 72px leftward drag moves the strip leftward by a sane amount and
+    // never runs away (a double-applying scroll or a runaway fling would blow past these bounds).
+    assert(
+      touchDrag.scrollLeft >= touchDrag.dragged / 3 && touchDrag.scrollLeft <= touchDrag.dragged * 2.5,
+      `${label} the title strip did not follow the real touch drag`,
+      touchDrag
+    )
+    assert(
+      touchDrag.clicks.filter((entry) => entry.inStrip).length === 0,
+      `${label} the drag gesture also delivered a click to the header control under the finger`,
+      touchDrag.clicks
+    )
 
     // DSH's attachment rail keeps its own sizing on touch; only the composer's action row gets the
     // 44px floor. An 18px remove control blown up to 44px is exactly what this guards against.

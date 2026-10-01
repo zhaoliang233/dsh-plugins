@@ -2,6 +2,28 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.5.0] - 2026-10-01
+
+### 兼容性（跨发布线）
+
+- **本版本服务 `>=0.2.0-rc.2 <0.2.1`；`0.4.0` 继续服务 `>=0.1.7-alpha.1 <0.1.8`，`0.3.7` 继续服务 `>=0.1.6-alpha.1 <0.1.7`**——一个插件版本只服务一条发布线。
+- **兼容发布线从 `>=0.1.7-alpha.1 <0.1.8` 换到 `>=0.2.0-rc.2 <0.2.1`**：本机运行的 DSH 已是 `0.2.0-rc.2`，插件原先停在 0.1.7 线，在它上面整体 inert。按插件的「升级验证」七步重走，**上一线的结论一条都没有继承**——每一项都在 0.2.0-rc.2 的实际产物里重新读过源码，再在隔离宿主上重量几何。
+- `0.2.0-rc.2` 成为唯一 source-verified 版本；同线内**高于或等于下界**的 rc 与正式版（如 `0.2.0-rc.3`、`0.2.0`）允许带警告运行，继续由运行时能力与精确结构探测 fail closed。范围外（整个 `0.1.7` 线与 `0.1.6` 线）保持 inert，旧线用户留在旧版本：`0.1.7` 线用 `0.4.0`，`0.1.6` 线用 `0.3.7`。
+- 逐项复核覆盖 `connection.generation`、`layout.toggleSidebar()`、AppFrame 三列与四个 seat、SidebarRoot、侧栏三类导航行、WorkspaceBrowser header、Settings（仍 portal 到 `document.body`）、Conversation 外层与 Composer textbox、会话标题栏、右栏 dockkit 与层级、viewpoint 与图标集。**插件业务代码一字未改**——0.2.0-rc.2 满足全部既有契约。
+
+### 修复
+
+- **版本门下界从 alpha 变成 rc 时的静默放行**：`classifyDshVersion()` 原先写的是 `channel !== 'alpha' || seq >= N`，这表达的是「下界是 alpha」；下界搬到 `rc.2` 后，`0.2.0-alpha.9` 会被判成兼容。现在按 channel 优先级排序（`DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`），`scripts/check-compat.js` 与 `install.sh` 各有一份等价实现（shell 版含 `prerelease_rank()`）。
+
+### 测试
+
+- `test/compatibility.test.js` 新增下界四档回归（`0.2.0-alpha.9` / `beta.4` / `rc.1` / `alpha.1` 必须全部 fail closed）；`test/manifest.test.js` 把 range 反推回发布线与下界，并逐字核对 `install.sh` 的四个常量同源。
+- 浏览器回归在 `0.2.0-rc.2` 上跑通完整尺寸矩阵（320x568、390x844、457x707、568x320、844x390、900/901、1023/1024 与桌面），覆盖抽屉、全屏设置页、plugin manager 非会话页、右栏 dockkit strip、附件条与开关靶区、会话行点击收起。
+
+### 未覆盖
+
+- 真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题与 Locale 仍需在真机上补测；Chromium 模拟不能替代这部分证据。
+
 ## [0.4.0] - 2026-09-29
 
 ### 兼容性（跨发布线）

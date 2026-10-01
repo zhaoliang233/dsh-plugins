@@ -147,7 +147,7 @@ function createShell(valid = true, mainPage = false) {
   return { frame, sidebar, center, mainSeat, conversationRoot, rightbar, overlay, workspaceSeat }
 }
 
-function makeHarness({ version = '0.1.7-rc.2', validStructure = true, mainPage = false, connectionCapability = true, icons = 'current' } = {}) {
+function makeHarness({ version = '0.2.0-rc.2', validStructure = true, mainPage = false, connectionCapability = true, icons = 'current' } = {}) {
   let definition
   let runtimeVersion = version
   let currentStyle = null
@@ -256,7 +256,7 @@ function makeHarness({ version = '0.1.7-rc.2', validStructure = true, mainPage =
   /**
    * primitives 桩：按**命名法**给出图标，一次只给一套。
    *
-   * bundle 按能力解析图标（`iconOf('…OutlineMedium', '…OutlineRegular', '…Outline16')`）：0.1.7 用
+   * bundle 按能力解析图标（`iconOf('…OutlineMedium', '…OutlineRegular', '…Outline16')`）：0.1.7/0.2.0 用
    * 档位词命名，数字档位是上一发布线留下的兜底候选。两套名字同时塞进一个桩就测不出优先顺序写错，
    * 所以用 `icons` 选项切换，`legacy` 专门验证候选链末端的兜底仍然生效。
    */
@@ -451,7 +451,7 @@ test('supported runtime installs and cleans static compatibility effects', async
 })
 
 test('resolves the drawer icons by capability, so both icon namings draw', async () => {
-  // 回归护栏（图标改名的历史：0.1.6 的 `…Outline16` → 0.1.7 的档位词）：两套命名各挂载一遍，
+  // 回归护栏（图标改名的历史：0.1.6 的 `…Outline16` → 0.1.7/0.2.0 的档位词）：两套命名各挂载一遍，
   // 确认候选链在两个方向都能解析。解析失败时 `iconOf` 给出空组件，下面的类型断言立刻对不上
   // （当年直接解构旧名字就是 undefined，抽屉入口静默变成空白按钮）。
   for (const icons of ['current', 'legacy']) {
@@ -556,8 +556,8 @@ test('a non-conversation page in the main seat keeps the shell-level adaptation'
   for (const dispose of applied.fiberDisposers.reverse()) dispose()
 })
 
-test('later same-line versions activate only after runtime capability checks', async () => {  // rc.2 is the source-verified version; rc.1 stands in for "same line, not individually verified".
-  const harness = makeHarness({ version: '0.1.7-rc.1' })
+test('later same-line versions activate only after runtime capability checks', async () => {  // rc.2 is the source-verified version; rc.3 stands in for "same line, not individually verified".
+  const harness = makeHarness({ version: '0.2.0-rc.3' })
   const applied = applyPlugin(harness)
   await flushCompatibility()
 
@@ -569,7 +569,7 @@ test('later same-line versions activate only after runtime capability checks', a
 })
 
 test('the source-verified version activates without a warning', async () => {
-  const harness = makeHarness({ version: '0.1.7-rc.2' })
+  const harness = makeHarness({ version: '0.2.0-rc.2' })
   const applied = applyPlugin(harness)
   await flushCompatibility()
 
@@ -593,7 +593,7 @@ test('missing connection generation capability stays inert', async () => {
 })
 
 test('runtime version and structure gates fail closed and can recover', async () => {
-  const harness = makeHarness({ version: '0.1.7-alpha.0' })
+  const harness = makeHarness({ version: '0.2.0-alpha.0' })
   const applied = applyPlugin(harness)
   await flushCompatibility()
 
@@ -602,7 +602,7 @@ test('runtime version and structure gates fail closed and can recover', async ()
   assert.equal(harness.shell.frame.hasAttribute('data-dsh-mobile-shell-compatible'), false)
   assert.match(harness.warnings[0], /outside the compatible release line/)
 
-  harness.connection.publish('0.1.7-rc.2')
+  harness.connection.publish('0.2.0-rc.2')
   await flushCompatibility()
   assert.notEqual(harness.getStyle(), null)
   assert.notEqual(applied.slot(), null)
@@ -612,7 +612,7 @@ test('runtime version and structure gates fail closed and can recover', async ()
   assert.notEqual(harness.getStyle(), null, 'transient reconnect should not flash back to native layout')
 
   const decoy = harness.shell.frame.insertBefore(new FakeElement(), harness.shell.sidebar)
-  harness.connection.publish('0.1.7-rc.2')
+  harness.connection.publish('0.2.0-rc.2')
   await flushCompatibility()
   assert.equal(harness.getStyle(), null)
   assert.equal(applied.slot(), null)
@@ -620,7 +620,7 @@ test('runtime version and structure gates fail closed and can recover', async ()
   assert.equal(harness.warnings.some((warning) => /shell structure does not match/.test(warning)), true)
 
   harness.shell.frame.removeChild(decoy)
-  harness.connection.publish('0.1.7-rc.2')
+  harness.connection.publish('0.2.0-rc.2')
   await flushCompatibility()
   assert.notEqual(harness.getStyle(), null)
   assert.notEqual(applied.slot(), null)

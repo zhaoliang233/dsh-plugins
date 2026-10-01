@@ -29,47 +29,53 @@ test('manifest declares the formal dual-half Web plugin', () => {
   assert.match(installScript, /\[\[ "\$DSH_PROFILE" != "web" \]\]/)
 })
 
-test('compatibility matrix declares the verified 0.1.7 release line', () => {
+test('compatibility matrix declares the verified 0.2.0 release line', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.1.7-alpha.1 <0.1.8',
-    verifiedVersions: ['0.1.7-rc.2'],
+    range: '>=0.2.0-rc.2 <0.2.1',
+    verifiedVersions: ['0.2.0-rc.2'],
     matrix: './compatibility.json',
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(matrix.schemaVersion, 2)
   assert.equal(matrix.policy, 'compatible-release-line')
-  assert.equal(matrix.range, '>=0.1.7-alpha.1 <0.1.8')
+  assert.equal(matrix.range, '>=0.2.0-rc.2 <0.2.1')
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
-  assert.deepEqual(matrix.verifiedVersions, ['0.1.7-rc.2'])
+  assert.deepEqual(matrix.verifiedVersions, ['0.2.0-rc.2'])
   assert.equal(matrix.futureVersionsRequireCapabilityChecks, true)
-  assert.deepEqual(matrix.versions.map((entry) => entry.version), ['0.1.7-rc.2'])
+  assert.deepEqual(matrix.versions.map((entry) => entry.version), ['0.2.0-rc.2'])
   assert.equal(matrix.versions.every((entry) => entry.status === 'source-verified'), true)
+  // Every contract must carry the whole verified list — that is what stops a cross-line bump
+  // from leaving stale evidence behind ("the previous line's conclusions are inherited nowhere").
+  for (const contract of [...matrix.contracts.public, ...matrix.contracts.structural]) {
+    assert.deepEqual(contract.versions, ['0.2.0-rc.2'], contract.id)
+  }
   for (const id of ['app-frame-columns', 'workspace-header-controls', 'right-panel-chrome', 'right-panel-overlay-stacking', 'composer-dock-inline-cards', 'modal-and-popover-viewport']) {
     assert.equal(matrix.contracts.structural.some((entry) => entry.id === id), true, id)
   }
 
-  assert.match(readme, />=0\.1\.7-alpha\.1 <0\.1\.8/)
-  assert.match(readme, /0\.1\.7-rc\.2/)
+  assert.match(readme, />=0\.2\.0-rc\.2 <0\.2\.1/)
+  assert.match(readme, /0\.2\.0-rc\.2/)
   assert.match(agents, /兼容发布线/)
   assert.match(publishing, /兼容发布线/)
 })
 
 test('client source declares release-line, connection, and structure gates', () => {
-  assert.match(client, /DSH_COMPATIBILITY_RANGE = '>=0\.1\.7-alpha\.1 <0\.1\.8'/)
-  assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.1\.7-rc\.2'\]\)/)
-  // classifyDshVersion() derives the gate from DSH_RELEASE_LINE / DSH_MINIMUM_ALPHA, so those two
-  // constants must still produce the declared range: a release-line bump that only edits the
-  // range (or only the client constants) would otherwise pass every other gate.
+  assert.match(client, /DSH_COMPATIBILITY_RANGE = '>=0\.2\.0-rc\.2 <0\.2\.1'/)
+  assert.match(client, /VERIFIED_DSH_VERSIONS = new Set\(\['0\.2\.0-rc\.2'\]\)/)
+  // classifyDshVersion() derives the gate from DSH_RELEASE_LINE + DSH_RELEASE_FLOOR, so the range
+  // is reverse-engineered from those constants here: a release-line bump that only edits the range
+  // (or only the client constants) would otherwise pass every other gate. The floor is an rc, so
+  // the guard is a channel rank, not "alpha.N".
   const releaseLine = /DSH_RELEASE_LINE = '([^']+)'/.exec(client)?.[1]
-  const minimumAlpha = /DSH_MINIMUM_ALPHA = (\d+)/.exec(client)?.[1]
-  assert.equal(releaseLine !== undefined && minimumAlpha !== undefined, true, 'client.js must declare DSH_RELEASE_LINE and DSH_MINIMUM_ALPHA')
+  const floor = /DSH_RELEASE_FLOOR = \{ channel: '([^']+)', sequence: (\d+) \}/.exec(client)
+  assert.equal(releaseLine !== undefined && floor !== null, true, 'client.js must declare DSH_RELEASE_LINE and DSH_RELEASE_FLOOR')
   const [lowerBound, upperBound] = manifest.dshCompatibility.range.split(' ')
-  assert.equal(lowerBound, `>=${releaseLine}-alpha.${minimumAlpha}`)
+  assert.equal(lowerBound, `>=${releaseLine}-${floor[1]}.${floor[2]}`)
   const [major, minor, patch] = releaseLine.split('.')
   assert.equal(upperBound, `<${major}.${minor}.${Number(patch) + 1}`)
-  assert.equal(Number(minimumAlpha) >= 1, true, 'the verified line must start at alpha.1 or later')
+  assert.equal(client.includes('PRERELEASE_CHANNELS = ['), true, 'client.js must rank prerelease channels so a lower channel is below the floor')
   assert.match(host, /readDshPackage/)
   assert.match(host, /\/dsh-mobile-compat\/status/)
   assert.match(client, /connection\?\.generation/)
@@ -85,6 +91,21 @@ test('client source declares release-line, connection, and structure gates', () 
   assert.doesNotMatch(client, /data-composer-input/)
 })
 
+test('install.sh keeps its shell version gate sourced from the client constants', () => {
+  // The script half is the only place a supported version can be accepted while the browser half
+  // rejects it (or the reverse), so every constant it consumes is compared literally.
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.0-rc.2"'), true)
+  const releaseLine = /DSH_RELEASE_LINE = '([^']+)'/.exec(client)?.[1]
+  const floor = /DSH_RELEASE_FLOOR = \{ channel: '([^']+)', sequence: (\d+) \}/.exec(client)
+  assert.equal(installScript.includes(`DSH_RELEASE_LINE="${releaseLine}"`), true, 'install.sh release line must match client.js')
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${floor[1]}"`), true, 'install.sh floor channel must match client.js')
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${floor[2]}`), true, 'install.sh floor sequence must match client.js')
+  // A literal range is fine, but the old "the floor is an alpha.1" shape must not come back.
+  assert.equal(installScript.includes('prerelease_rank()'), true, 'install.sh must rank prerelease channels')
+  assert.doesNotMatch(installScript, /DSH_MINIMUM_ALPHA/)
+})
+
 test('the 44px touch floor stays off fixed-shape controls', () => {
   // Two controls are fixed shapes rather than glyph buttons: the attachment rail (a thumbnail row)
   // and a switch (a 36x20 capsule with a 16px thumb). Squaring either one off is a visible defect,
@@ -93,7 +114,7 @@ test('the 44px touch floor stays off fixed-shape controls', () => {
   assert.match(client, /\[role='switch'\]::after/)
 })
 
-test('client probes the 0.1.7 sidebar/main/rightbar seats, not the retired conversation/details seats', () => {
+test('client probes the sidebar/main/rightbar seats, not the retired conversation/details seats', () => {
   assert.match(client, /directSlot\(center, 'main'\)/)
   assert.match(client, /directSlot\(rightbar, 'rightbar'\)/)
   assert.doesNotMatch(client, /directSlot\(conversation, 'conversation'\)/)

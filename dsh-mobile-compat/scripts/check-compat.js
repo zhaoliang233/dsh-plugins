@@ -5,10 +5,14 @@ const packageRoot = new URL('../', import.meta.url)
 const manifest = JSON.parse(await readFile(new URL('package.json', packageRoot), 'utf8'))
 const declaration = manifest.dshCompatibility
 const matrix = JSON.parse(await readFile(new URL('compatibility.json', packageRoot), 'utf8'))
-const expectedRange = '>=0.1.7-alpha.1 <0.1.8'
-const expectedVerifiedVersions = ['0.1.7-rc.2']
-const releaseLine = '0.1.7'
-const minimumAlpha = 1
+const expectedRange = '>=0.2.0-rc.2 <0.2.1'
+const expectedVerifiedVersions = ['0.2.0-rc.2']
+const releaseLine = '0.2.0'
+// Floor是 0.2.0-rc.2：同线内 alpha / beta / 更低的 rc 都在下界之下。
+// 旧的 `channel !== 'alpha' || seq >= N` 表达的是「下界是 alpha」，换线后会静默放行
+// 0.2.0-alpha.9，所以这里按 channel 优先级比较（与 lib/index.js、client.js 同源）。
+const prereleaseChannels = ['alpha', 'beta', 'rc']
+const releaseFloor = { channel: 'rc', sequence: 2 }
 
 function fail(message) {
   console.error(`compatibility error: ${message}`)
@@ -30,7 +34,10 @@ function classifyDshVersion(version) {
 
   const prerelease = new RegExp(`^${releaseLine.replace(/\./g, '\\.')}-(alpha|beta|rc)\\.(0|[1-9]\\d*)$`, 'u').exec(normalized)
   if (prerelease === null) return { supported: false, verified: false, normalized }
-  const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= minimumAlpha
+  const rank = prereleaseChannels.indexOf(prerelease[1])
+  const floorRank = prereleaseChannels.indexOf(releaseFloor.channel)
+  const supported = rank > floorRank
+    || (rank === floorRank && Number(prerelease[2]) >= releaseFloor.sequence)
   return { supported, verified: supported && verified, normalized }
 }
 

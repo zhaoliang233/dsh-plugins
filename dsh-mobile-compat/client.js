@@ -10,8 +10,9 @@ window.__ModuleLoader__.load({
     const primitives = require('@deepseek-ai/dsh-client-ui-primitives')
     /**
      * Take an official icon by **capability**, never by DSH version: the icon set was renamed
-     * and redrawn between release lines (0.1.6 used the numeric tiers `IconPanelLeftOutline16`,
-     * 0.1.7 uses the tier words `IconPanelLeftOutlineMedium` — same icon identity, new naming),
+     * and redrawn between release lines (the 0.1.6 line used the numeric tiers
+     * `IconPanelLeftOutline16`; the 0.1.7 and 0.2.0 lines use the tier words
+     * `IconPanelLeftOutlineMedium` / `…Regular` — same icon identity, new naming),
      * so pick the first export that actually exists. Within one base name `…Medium` and
      * `…Regular` share the same paths and differ only in stroke weight; the workspace takes
      * `…Medium`. When every name is gone, degrade to a component that renders nothing instead
@@ -48,10 +49,14 @@ window.__ModuleLoader__.load({
     const TITLE_STRIP_ATTRIBUTE = 'data-dsh-mobile-title-strip'
     const SIDEBAR_ID = 'dsh-mobile-sidebar'
     const STATUS_PATH = '/dsh-mobile-compat/status'
-    const DSH_COMPATIBILITY_RANGE = '>=0.1.7-alpha.1 <0.1.8'
-    const VERIFIED_DSH_VERSIONS = new Set(['0.1.7-rc.2'])
-    const DSH_RELEASE_LINE = '0.1.7'
-    const DSH_MINIMUM_ALPHA = 1
+    const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
+    const VERIFIED_DSH_VERSIONS = new Set(['0.2.0-rc.2'])
+    const DSH_RELEASE_LINE = '0.2.0'
+    /* The floor is 0.2.0-rc.2, so an alpha/beta/earlier-rc release inside the same line is BELOW
+       it. The old shape (channel !== 'alpha' || seq >= N) encodes "the floor is an alpha" and
+       would silently accept 0.2.0-alpha.9 — rank the channels instead (same as the Host half). */
+    const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
+    const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
     const MOBILE_QUERY = '(max-width: 720px), (pointer: coarse) and (max-width: 900px)'
     const DSH_NARROW_BREAKPOINT = 1024
 
@@ -1465,7 +1470,10 @@ body[${BODY_ATTRIBUTE}] {
 
       const prerelease = new RegExp(`^${DSH_RELEASE_LINE.replace(/\./g, '\\.')}-(alpha|beta|rc)\\.(0|[1-9]\\d*)$`).exec(normalized)
       if (prerelease === null) return { supported: false, verified: false, normalized }
-      const supported = prerelease[1] !== 'alpha' || Number(prerelease[2]) >= DSH_MINIMUM_ALPHA
+      const rank = PRERELEASE_CHANNELS.indexOf(prerelease[1])
+      const floorRank = PRERELEASE_CHANNELS.indexOf(DSH_RELEASE_FLOOR.channel)
+      const supported = rank > floorRank
+        || (rank === floorRank && Number(prerelease[2]) >= DSH_RELEASE_FLOOR.sequence)
       return { supported, verified: supported && verified, normalized }
     }
 
