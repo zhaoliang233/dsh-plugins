@@ -2,6 +2,14 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.2.0] - 2026-10-01
+
+### 变更
+
+- **兼容发布线从 `>=0.1.7-alpha.1 <0.1.8` 跨到 `>=0.2.0-rc.2 <0.2.1`**：上表 10 行契约逐个在 `0.2.0-rc.2` 的实际安装包里重读确认（会话分页 `loadOlder`/`loadThrough`、`SessionSnapshot` 四字段、会话作用域 slot 与它的 `sessionId` props、`settings.general.item`、renderer 的透传与 `locale` 座位、scrollport 与行标记），**业务代码一字未改**——本轮改动只有版本门、清单与文档。隔离宿主（独立 `DSH_HOME` 与端口）+ 无头 Chrome 上跑完半离线回归：补齐到 `hasMore === false`、锚点零漂移、defer 让位、会话与视图切换，本插件全程零报错。跨到 `0.2.1` 之前必须重新读取 DSH 源码与实时契约。
+- 版本门改为**从常量派生**（照抄已跨线的 `dsh-extra-context`）：`lib/index.js` 读 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`，`install.sh` 有等价的 shell 版（含 `prerelease_rank()`）。下界是 rc，所以同线内的 `alpha`/`beta`/更小的 `rc` 一律在门外，`0.2.0` 正式版在门内。
+- `test/manifest.test.js` 新增一条守卫：把 `range` 反推回发布线与下界常量，并核对 `install.sh` 的五个常量与宿主清单逐字一致（改一处漏一处会变红）。
+
 ## [0.1.6] - 2026-09-28
 
 ### 变更
