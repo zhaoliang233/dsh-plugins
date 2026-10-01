@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
+import {
+  DSH_COMPATIBILITY_RANGE,
+  DSH_RELEASE_FLOOR,
+  DSH_RELEASE_LINE,
+  VERIFIED_DSH_VERSIONS
+} from '../lib/index.js'
+
 const manifest = JSON.parse(
   await readFile(new URL('../package.json', import.meta.url), 'utf8')
 )
@@ -35,12 +42,12 @@ test('declares a publishable Web client bundle', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.1.7-alpha.1 <0.1.8',
-    verifiedVersions: ['0.1.7-alpha.1', '0.1.7-rc.2'],
+    range: '>=0.2.0-rc.2 <0.2.1',
+    verifiedVersions: ['0.2.0-rc.2'],
     futureVersionsRequireCapabilityChecks: true
   })
-  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.1.7-alpha.1 <0.1.8"'), true)
-  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.1.7-alpha.1 0.1.7-rc.2"'), true)
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.0-rc.2"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
   assert.equal(installScript.includes('(alpha|beta|rc)'), true)
   assert.equal(installScript.includes('--config.minimumReleaseAge=0'), true)
@@ -51,6 +58,26 @@ test('declares a publishable Web client bundle', () => {
   assert.ok(manifest.files.includes('PUBLISHING.md'))
   assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
   assert.notEqual(manifest.private, true)
+})
+
+// 跨线时四处必须同时改：package.json 的 range 与 engines.dsh、install.sh 的五个版本门常量，
+// 以及 lib/index.js 的 DSH_RELEASE_LINE / DSH_RELEASE_FLOOR / VERIFIED_DSH_VERSIONS。
+// 这条守卫拦住"只换了 range 忘改下界"这类半改：下界是 rc 时 alpha/beta/更低 rc 必须仍在门外。
+test('the release line, its floor, and the verified list stay in sync across all four places', () => {
+  assert.equal(DSH_COMPATIBILITY_RANGE, manifest.dshCompatibility.range)
+  assert.equal(DSH_COMPATIBILITY_RANGE, manifest.engines.dsh, 'engines.dsh must stay in sync with the declared range')
+  assert.deepEqual(VERIFIED_DSH_VERSIONS, manifest.dshCompatibility.verifiedVersions)
+  // 上界由发布线自身派生：0.2.0 线只服务 <0.2.1。
+  const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
+  assert.equal(
+    DSH_COMPATIBILITY_RANGE,
+    `>=${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence} <${nextPatch}`
+  )
+  assert.equal(installScript.includes(`DSH_COMPATIBILITY_RANGE="${DSH_COMPATIBILITY_RANGE}"`), true)
+  assert.equal(installScript.includes(`DSH_VERIFIED_VERSIONS="${VERIFIED_DSH_VERSIONS.join(' ')}"`), true)
+  assert.equal(installScript.includes(`DSH_RELEASE_LINE="${DSH_RELEASE_LINE}"`), true)
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${DSH_RELEASE_FLOOR.channel}"`), true)
+  assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${DSH_RELEASE_FLOOR.sequence}`), true)
 })
 
 // 0.1.7 删除了 `historyIncomplete`/`compactTranscript` 门禁：折叠改由 `derivePresentationPolicy()`

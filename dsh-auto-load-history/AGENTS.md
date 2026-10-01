@@ -26,22 +26,22 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 **文案纪律**：既然折叠不再是理由，用户可见的四处文案——`package.json#description`（npm 元数据 + 设置 → 插件的卡片）、`README.md`、`PUBLISHING.md`、`client.js` 的 zh 字典——都不得再把「让紧凑排版折叠每个回合的思考过程」写成插件目的。它不只是过时：0.1.7 已不存在该因果，写回去等于错误承诺，`test/manifest.test.js` 的守卫会变红。0.1.5 发布时漏改了 `description` 与 `PUBLISHING.md`（该版本 registry 元数据里仍是旧句，只有下一次发版能刷新）。
 
-清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }`：**至少 50 条消息且至少 2 个 turn 起点，最多 500 条**，`dsh-api-session-controller/lib/types/client/sessions/session.js:20`）和回合导航未加载圆点的 `loadThrough(seq)`（同选项上限 500、下限改为 200，循环到覆盖目标 seq，同文件 `:23`、`:338`）。两者在 rc.2 前是**固定 50 / 200**，现在是 turn 对齐的区间——插件只依赖「一次调用推进多少 seq」，不依赖页大小本身。服务端 `paginate` 仍用 `cut > 0` 决定 `hasMore`（`lib/types/history.js:445`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。顶部按钮的渲染条件是 `hasMore && …`（`dsh-client-ui-chat/lib/client.js:5179`），因此**按钮消失就是 `hasMore === false` 的可观测等价物**。
+清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }`：**至少 50 条消息且至少 2 个 turn 起点，最多 500 条**，`dsh-api-session-controller/lib/types/client/sessions/session.js:19`/`:20`）和回合导航未加载圆点的 `loadThrough(seq)`（同选项上限 500、下限改为 200，循环到覆盖目标 seq，同文件 `:22`/`:25`/`:338`）。两者在 rc.2 前是**固定 50 / 200**，现在是 turn 对齐的区间——插件只依赖「一次调用推进多少 seq」，不依赖页大小本身。服务端 `paginate` 仍用 `cut > 0` 决定 `hasMore`（`lib/types/history.js:425`，0.1.7-rc.2 时是 `:445`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。顶部按钮的渲染条件是 `hasMore && …`（`dsh-client-ui-chat/lib/client.js:5271`，0.1.7 时是 `:5179`），因此**按钮消失就是 `hasMore === false` 的可观测等价物**。
 
-## 依赖的契约（0.1.7-alpha.1 与 0.1.7-rc.2 已核对）
+## 依赖的契约（0.1.7-alpha.1、0.1.7-rc.2 与 0.2.0-rc.2 已核对，下表行号取自 0.2.0-rc.2）
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
-| `ISession.loadOlder(): Promise<void>` | `dsh-api-session-controller/lib/types/client/contract/session.d.ts` | 逐页回退（回退路径）：`openState !== 'open'`、`!hasMore`、`loadingOlder` 三种情况下自 noexcept 跳过 |
-| `ISession.loadThrough(seq): Promise<void>` | 同文件（`Jump loader: page backwards until the window covers seq`） | **主路径**：Controller 内部按 JUMP 页（rc.2 起 `{ maxMessages: 500, turnWindow: { minMessages: 200, minTurns: 2 } }`，即每页至少 200 条且至少 2 个 turn、最多 500 条）prepend 到覆盖 `seq`；插件传 `head - BATCH_EVENTS` 实现分批（详见「运行模型」）。调用不可中断，失败会跳出循环并 resolve；rc.2 起若普通 `loadOlder` 正在飞则直接 resolve（插件本就等待，无影响） |
-| `SessionSnapshot.openState/removed/hasMore/loadingOlder` | 同包 `lib/types/client/contract/snapshot.d.ts` | 驱动状态机 |
-| 会话作用域 list slot `conversation.session.header.actions` | `dsh-client-ui-conversation/lib/client.js:18191` 声明、`:16425` 渲染 | **唯一的身份来源**：slot props 注入 `sessionId`（`SessionStandardProps`，经 `dsh-client-ui-session` 的 `props: { sessionId: binding.sessionId }` 座位落到 occupant）；list slot 直接渲染 occupant，渲染 `null` 无 DOM |
-| `ctx.sessions.binding(id).session` / `.eventSource` | 同包 `lib/types/client/sessions/service.d.ts`（`sessionId`/`session`/`eventSource`） | 会话面 + 事件窗口（只读窗口头 seq 作为进度信号）；id 由 slot 给出 |
+| `ISession.loadOlder(): Promise<void>` | `dsh-api-session-controller/lib/types/client/contract/session.d.ts:127`（实现 `lib/types/client/sessions/session.js:313`） | 逐页回退（回退路径）：`openState !== 'open'`、`!hasMore`、`loadingOlder` 三种情况下自 noexcept 跳过 |
+| `ISession.loadThrough(seq): Promise<void>` | 同文件 `:140`（实现 `session.js:338`，结算 `prependWindow` 在 `:392`） | **主路径**：Controller 内部按 JUMP 页（`{ maxMessages: 500, turnWindow: { minMessages: 200, minTurns: 2 } }`，即每页至少 200 条且至少 2 个 turn、最多 500 条）prepend 到覆盖 `seq`；插件传 `head - BATCH_EVENTS` 实现分批（详见「运行模型」）。调用不可中断，失败会跳出循环并 resolve；普通 `loadOlder` 正在飞时直接 resolve（插件本就等待，无影响） |
+| `SessionSnapshot.openState/removed/hasMore/loadingOlder` | 同包 `lib/types/client/contract/snapshot.d.ts:68-72` | 驱动状态机 |
+| 会话作用域 list slot `conversation.session.header.actions` | `dsh-client-ui-conversation/lib/client.js:18268` 声明、`:16502` 渲染（0.1.7 时是 `:18191`/`:16425`） | **唯一的身份来源**：slot props 注入 `sessionId`（`SessionStandardProps`，经 `dsh-client-ui-session` 的 `props: { sessionId: binding.sessionId }` 座位落到 occupant，`session/client.js:128`）；list slot 直接渲染 occupant，渲染 `null` 无 DOM |
+| `ctx.sessions.binding(id).session` / `.eventSource` | 同包 `lib/types/client/sessions/service.d.ts:76-83`（`sessionId`/`session`/`eventSource`） | 会话面 + 事件窗口（只读窗口头 seq 作为进度信号）；id 由 slot 给出 |
 | `ctx.slots.inject(name, register)` 等待声明 | `dsh-client-ui-slots` 的声明表 | 注册两类落点；`dsh.client.inject` 因此必列 conversation 与 settings-general 两个包 |
-| `settings.general.item`（list / root，需 `id`） | `dsh-client-ui-settings-general` 的 `settings.section` entry 声明 | 偏好行落点 |
+| `settings.general.item`（list / root，需 `id`） | `dsh-client-ui-settings-general` 的 `settings.section` entry 声明（`client.js:1177`，`{ kind: 'list', scope: 'root' }`） | 偏好行落点 |
 | Slot `inject` face 非 `hooks`/`keyedHooks` 键原样透传 | `dsh-client-ui-renderer/lib/client.js:424` `bindInjectSources` | 直接传 `getEnabled/subscribeEnabled/setEnabled` 与 `attach/detach`，不引入 `dsh-client-store` |
 | `locale: '<ns>'` 提供 `t` | 同文件 `:724` | 行文案 zh/en |
-| `[data-conversation-scroll]` | 会话 shell 的 scrollport（`dsh-client-ui-conversation/lib/client.js:16261`，容器样式 `overflow-y: auto`） | 只用于“读者是否在底部”的判断（取不到时的 fail open 行为见「已知限制」） |
+| `[data-conversation-scroll]` | 会话 shell 的 scrollport（`dsh-client-ui-conversation/lib/client.js:16338`，0.1.7 时是 `:16261`；容器样式 `overflow-y: auto`） | 只用于“读者是否在底部”的判断（取不到时的 fail open 行为见「已知限制」） |
 
 **已核对为移除/不采用**：`ctx.sessions.list.getSnapshot().current`、`sessions.open()/clear()`（0.1.6-alpha.2 已删）、`uiWorkspace.selection`（私有字段）、`sessions.retainInfo()` 的 `mainView` 计数（私有记账）。
 
@@ -70,7 +70,9 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 的同一套声明复刻（`.dshalh_row/rowText/title/desc`），只用 `--dsw-alias-*` token；`<style data-plugin-css="dsh-auto-load-history/AutoLoadHistoryRow.css">` 挂在 head，卸载时移除。控件是 `@deepseek-ai/dsh-client-ui-primitives` 的官方 `Switch`（`{ checked, onChange, label }`，36×20、`aria-checked` 驱动配色），插件**不写任何控件样式**、也不自绘按钮或菜单——与 `dsh-extra-context` 的两个开关同款；`package.json#dsh.client.inject` 因此不必单列 primitives——它是浏览器**平台静态 seed** 的词之一，`require` 直接命中 seed，不依赖 boot graph 里有没有别的包带它。
 
-行顺序 `order: 110`（插件设置入口一律 ≥ 100，排在 DSH 自带项之后；内置行最大是 `composer-enter: 20`）。**别再按“紧挨它服务的那个选项”去取 order**（0.1.4 用的是 13，插在 transcript-view 12 与 composer-enter 20 中间，被用户要求改到内置项之后），约定见根 `AGENTS.md` 的 Slot 章节。
+行顺序 `order: 110`（插件设置入口一律 ≥ 100，排在 DSH 自带项之后）。**别再按“紧挨它服务的那个选项”去取 order**（0.1.4 用的是 13，插在 transcript-view 12 与 composer-enter 20 中间，被用户要求改到内置项之后），约定见根 `AGENTS.md` 的 Slot 章节。
+
+0.2.0-rc.2 的 `settings.general.item` 内置 order（实测读出，本轮复核）：permission −20 / appearance 10 / font-size 11 / transcript-view 12 / developer-tools 15 / shortcuts 16 / link-opening 17 / composer-enter 20 / performance-usage 30 / **settings-session-log 90** / **current-version 100**。**内置项已经越过 100**（0.1.7 时最大是 20），所以「内置行最大是 composer-enter 20」这句话已作废；插件行 `order: 110` 仍排在全部内置项之后，两者不冲突。升级 DSH 后要重新读一遍内置项上限，别让插件行插进内置行之间。
 
 ## 切回会话为何会重新分页（0.1.6-alpha.2 的 DSH 行为，非本插件所致）
 
@@ -96,7 +98,9 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 ## 发布线
 
-`>=0.1.7-alpha.1 <0.1.8`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫（改一处漏一处会变红）。
+`>=0.2.0-rc.2 <0.2.1`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫（改一处漏一处会变红）。
+
+**版本门从常量派生**（2026-10-01 跨线时照抄已跨线的 `dsh-extra-context`）：判定逻辑不再内联 `0.1.7` 与 `alpha` 字面量，而是读 `DSH_RELEASE_LINE`（`0.2.0`）+ `DSH_RELEASE_FLOOR`（`{ channel: 'rc', sequence: 2 }`）+ `PRERELEASE_CHANNELS`；`install.sh` 里有一份等价的 shell 版（含 `prerelease_rank()`）。旧写法 `channel !== 'alpha' || seq >= 1` 只能表达「下界是 alpha」，下界换成 rc 后必须改成 channel 优先级比较，否则 `0.2.0-alpha.9` 会被误判成兼容。跨线时只改常量与清单，判定逻辑不动。
 
 **逐版本核对记录**
 
@@ -106,6 +110,14 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
   2. **`hasMore` 结算口径未变**：服务端 `paginate` 仍 `cut > 0`（`lib/types/history.js:445`），`SessionSnapshot` 仍带 `openState/removed/hasMore/loadingOlder`（`contract/snapshot.d.ts`）。
   3. **事件窗口头 seq 仍是有效进度信号**：`eventSource` 仍是 `MutableSessionEventSource`，`getSnapshot().entries` 元素仍是 `{ …, event }`，`installWindow` 仍以 `entries[0].event.seq` 设 `baseSeq`（`contract/events.js`、`session.js:586`）。
   4. **行标记与 scrollport 未变**：`data-chat-anchor-key`、`data-turn-tail` 在未改动的 `dsh-client-ui-chat`；`[data-conversation-scroll]` 仍是 conversation shell 的 scrollport（`conversation/lib/client.js:16261`，`overflow-y: auto`）。会话作用域 list slot `conversation.session.header.actions` 仍是 `{ kind: 'list', scope: 'session' }`（`:18191`），渲染点 `:16425`，`sessionId` 仍经 `dsh-client-ui-session` 的 `props: { sessionId: binding.sessionId }` 座位注入 occupant。
+
+- `0.2.0-rc.2`（2026-10-01，从 `>=0.1.7-alpha.1 <0.1.8` 跨到 `>=0.2.0-rc.2 <0.2.1`）：逐包 diff 见 `docs/compat-log.md` 的「A1–A3」一节——本插件的契约包 `dsh-api-session-controller` 确实变了，但改动都在「失败步骤的工具结果恢复」等与分页无关的地方，`loadThrough`/`loadOlder`/`SessionSnapshot` 在改动处的上下文逐字相同。**上表 10 行契约逐个在 0.2.0-rc.2 的实际安装包里重读确认，全部成立，业务代码一字未改**（本轮改动只有版本门与清单）：
+  1. `ISession.loadOlder()`/`loadThrough(seq)` 的签名、JUMP 页选项与早退条件（`openState !== 'open' || !hasMore || loadingOlder`）逐字同 rc.2，只是文件内行号移动（`session.js` 的 `loadOlder` 在 `:313`、`loadThrough` 在 `:338`、结算 `prependWindow` 在 `:392`）。
+  2. `SessionSnapshot` 仍带 `openState/removed/hasMore/loadingOlder`（`snapshot.d.ts:68-72`）；服务端 `paginate` 仍 `cut > 0`（`history.js:425`，rc.2 时是 `:445`）；客户端 `binding(id)` 仍返回 `{ sessionId, session, eventSource, ctx }`（`service.d.ts:76-83`）。
+  3. 会话作用域 list slot `conversation.session.header.actions` 仍是 `{ kind: 'list', scope: 'session' }`（`conversation/lib/client.js:18268`，rc.2 时是 `:18191`），渲染点 `:16502`；`sessionId` 仍经 `dsh-client-ui-session` 的 `props: { sessionId: binding.sessionId }` 座位注入（`session/client.js:128`）。
+  4. `[data-conversation-scroll]` 仍是 conversation shell 的 scrollport（`conversation/lib/client.js:16338`，rc.2 时是 `:16261`）；`data-chat-anchor-key`/`data-turn-tail` 仍在未改动的 `dsh-client-ui-chat`（按钮渲染条件仍是 `hasMore && …`，`:5271`）；renderer 的 `bindInjectSources`（`:424`）与 `locale` 座位（`:724`）、`settings.general.item` 的 `{ kind: 'list', scope: 'root' }`（`settings-general/client.js:1177`）逐字未变。
+  5. **新事实（文档已订正）**：`settings.general.item` 的内置 order 上限已经不是 20——`settings-session-log` 是 90、`current-version` 是 100；本插件的 `order: 110` 仍排在全部内置项之后，无并列冲突（详见「样式与设置行」）。
+  6. **实机回归**（隔离 `DSH_HOME=/tmp/dsh-020-home` + 独立端口 5911 + headless Chrome 153/CDP，全程未触碰用户的 3080；脚本在 `/tmp/dsh-alh-020/`，非发布物）：补齐、锚点、defer、会话/视图切换四项判据全过，本插件零 error/warning/exception——数据见下方「真实浏览器验证（`0.2.0-rc.2`）」。
 
 ## 发布与安装路线
 
@@ -119,7 +131,7 @@ npm run publish:check     # check + test + pack:check
 ./install.sh
 ```
 
-单元测试覆盖（36 个）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
+单元测试覆盖（37 个；跨线时新增一条四处同源守卫）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
 
 真实浏览器验证（`0.1.6-alpha.2`，`--port 0` 隔离服务器 + headless CDP，2026-09-18）：
 
@@ -147,6 +159,21 @@ npm run publish:check     # check + test + pack:check
 | Chat ↔ Trajectory 切换 | `[data-slot="conversation.session.header.actions"]` 不重挂，切回后 4350 行 / `hasMore=false` 保持 |
 | 加载期帧间隔（longtask + rAF 逐帧） | 最差 **831ms**、P95 18ms、12 个 longtask（alpha.1 基线 703ms，本次会话更大，同一量级） |
 | 全程 console | 0 个 error / warning / exception |
+
+真实浏览器验证（`0.2.0-rc.2`，隔离宿主 `DSH_HOME=/tmp/dsh-020-home` + 独立端口 5911 + headless Chrome 153/CDP，2026-10-01，全程未触碰用户自己的 3080；脚本在 `/tmp/dsh-alh-020/`，非发布物）：
+
+| 场景 | 结果 |
+|---|---|
+| 大会话 `f8e6ec6b` 自动恢复后补齐 | 5 批（+4514 / +6035 / +19446 / +28264 / +13334 px）→ 71704px / 4350 行，「加载更早」消失 = `hasMore === false`（rc.2 基线 73162px，差值来自批数与排版） |
+| 同一会话把偏好置 `false` 后刷新（反向对照） | 停在 200 行 / 5307px，「加载更早」常驻 27.6 秒——证明上面那条是插件所致 |
+| 锚点补偿（读者在中部，只钉一次视口、无输入） | 5 批共 ~66400px 的 prepend 前后，同一 `data-chat-anchor-key` 行停留 2524 帧、top 恒 −226，**跨度 0 / 相邻帧位移 0** |
+| defer 让位阅读（每帧钉在中部 + 4 秒 `wheel` 突发，19 次） | 突发窗口内 **0 批**；停手后 **1470ms** 恢复，并补齐到 4350 行（不会停死） |
+| 会话切换 A→B→A（`f8e6ec6b` ↔ `920768ca`） | B 为 250 行；切回 A 重新分页到 4350 行 / `hasMore=false`，两次切换各自独立补齐 |
+| Chat ↔ Trajectory 切换 | `[data-slot="conversation.session.header.actions"]` 全程 4167 帧不重挂，切回后 4350 行保持 |
+| 全程 console | 本插件 **0** 个 error / warning / exception（仅 2 条来自其他插件：archive-manager 的 `/dsh-chat-archive-manager/status` 404 与 mobile-compat 的版本门告警） |
+| 分页页大小 | 断言全部基于「按钮消失 / 行数 / 锚点 top」，**不写死页大小**（页大小是 turn 对齐区间） |
+
+**一条测量方式上的差别**：上面的锚点数据来自「只钉一次视口」（读者不干预）。若把视口**每帧**强推回同一比例（对抗 DSH 的 follow-scroll，defer 场景必须这样做），锚点行的 top 会在 −482…−465 之间摆动（跨度 17px）——那是「插件补偿」与「外部每帧重新定位」的合成结果，不是补偿漂移。两种测法都在 `/tmp/dsh-alh-020/probe.mjs`（`MODE=anchor` / `MODE=defer`）。
 
 **半离线验证的边界**：以上全部来自隔离宿主 + 无头浏览器，覆盖了「补齐到 `hasMore === false`、锚点稳定、defer、偏好开关、会话/视图切换、无报错」这些可脚本化的判据；**未经目视确认**的是主观流畅度与真实输入手感（滚轮/触控板连续滚动、真机触控），需要用户在 3080 上按「GUI 验证清单」看一眼。
 
