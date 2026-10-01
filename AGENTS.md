@@ -1,14 +1,26 @@
 # dsh-plugins 工作区 — 说明文档（AGENTS.md）
 
-> 供**新会话的 agent** 快速了解工作区。本文件只保留对**所有插件**通用的知识；单个插件的细节在各自目录的 `AGENTS.md`，用户文档在各插件的 `README.md`。
+> 供**新会话的 agent** 快速了解工作区。本文件只保留对**所有插件**通用、且**每轮都用得上**的知识；单个插件的细节在各自目录的 `AGENTS.md`，用户文档在各插件的 `README.md`。
+
+**配套文档（按需读，不要塞回本文件）**：
+
+| 文档 | 什么时候读 |
+|---|---|
+| [`docs/compat-log.md`](docs/compat-log.md) | 回顾某一轮兼容性检查的结论、逐包 diff 证据、踩坑与可复用技巧时 |
+| [`docs/new-plugin-guide.md`](docs/new-plugin-guide.md) | 新建插件、或跨发布线重做契约时 |
+| 各插件 `<插件>/AGENTS.md` | 只做那个插件时（含它自己的契约表与逐版本核对记录） |
+
+> 本文件每轮都被整份载入上下文，**历史越长越稀释注意力**：结论、证据、过程一律写进 `docs/`，这里只沉淀跨轮有效的规则。
+
 
 ## 这是什么
 
 开发 **DeepSeek Harness（DSH）插件** 的工作区：用户提需求，agent 负责调研 DSH 内部机制、实现插件、编写挂载/卸载脚本并验证。
 
-7 个插件都**已发布到公共 npm registry**，用户安装走官方命令；本地 `./install.sh`（`link:` 源码）只用于开发。分发与发布流程见「发布与分发（npm / OIDC）」一节。
+共 **9 个插件**：其中 **7 个已发布到公共 npm registry**，用户安装走官方命令；发布流程见「发布与分发（npm / OIDC）」一节。另外两个**尚未发布**，只走 `./install.sh` 的 `link:` 源码路线开发（发布需用户明确授权后再改版本、打 tag）：
 
-`dsh-mcp-manager` 是本工作区第 8 个插件，**尚未发布**（走 `./install.sh` 的 `link:` 路线开发中，发布需用户明确授权后再改版本、打 tag）。
+- `dsh-mcp-manager`
+- `dsh-default-overrides`
 
 ## 插件索引
 
@@ -60,7 +72,8 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- 当前运行 `@deepseek-ai/dsh 0.1.7-rc.2`；逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 的契约差异后，工作区兼容线统一收敛为 `>=0.1.7-alpha.1 <0.1.8`。逐版本验证清单由各插件自己维护（多数只列 `0.1.7-alpha.1`；`dsh-extra-context`、`dsh-default-workspace`、`dsh-auto-load-history`、`dsh-local-plugin-manager`、`dsh-sticky-user-bubble` 已核对到 `0.1.7-rc.2`）。同线内其他 prerelease 允许带警告运行；跨到 `0.1.8` 前必须重新读取源码和实时契约再扩大范围。
+- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 目前工作区同时跨两条线：`dsh-extra-context`、`dsh-default-workspace` 在 `>=0.2.0-rc.2 <0.2.1`，其余 6 个在 `>=0.1.7-alpha.1 <0.1.8`。**当前运行的是 `0.2.0-rc.2`，所以那 6 个按版本门保持 inert（零副作用）**——要么整体退回 `0.1.7-rc.2` 使用，要么按下面的「插件兼容性检查」逐个重走跨线立项流程。
+- 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-overrides` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
 - 声明必须四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门（`DSH_COMPATIBILITY_RANGE` + `DSH_VERIFIED_VERSIONS`）、插件内文档。
@@ -83,17 +96,21 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 **用法**：L1 插件可以**一个会话处理 2–3 个**，全流程在当前会话做完；L3 插件**一个会话只做一个**；L2 是临时判定——先做第 2 步的逐包 diff，**命中它依赖的包就升成 L3、没命中就按 L1 批量做**。
 
-### 当前归属（2026-09-28 定级；成员或契约面变化时更新本表）
+### 当前归属
 
-- **L1**：`dsh-default-workspace`、`dsh-extra-context`
-  - 前者契约面是公开 `workspaceRegistry` + 一个 slot，唯一私有触碰是客户端 `workspaces` Controller 的 `rename/delete/insertBefore` 补丁（fail closed + 可摘除 dispatcher）；后者契约面是条目 config + `settings.section`/`settings.action`，唯一 DOM 触碰是导航图标补丁，全程静默降级。
-- **L2**：`dsh-auto-load-history`、`dsh-local-plugin-manager`
-  - 前者的契约面是会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何）；后者跨 `dsh-app-boot`（profile 装配）、`dsh-plugin-manager`、`dsh-atomic-write`（profile 写锁）三个包。
-- **L3**：`dsh-chat-archive-manager`、`dsh-mcp-manager`、`dsh-sticky-user-bubble`、`dsh-mobile-compat`
-  - `dsh-chat-archive-manager`：3056 行源码 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，且带**永久删除事务**（journal/trash/fsync 语义）。
-  - `dsh-mcp-manager`：4108 行、8 个模块，动态挂载 + 凭据 + 对账引擎，完成标准包含 52 条真机 GUI 验收（`npm run gui:check`）。
-  - `dsh-sticky-user-bubble`：气泡克隆 + 裁剪边界 + padding 等几何假设，结论必须靠隔离宿主量 `getBoundingClientRect()`。
-  - `dsh-mobile-compat`：壳层 DOM + 几何 + 客户端包哈希矩阵；且它**停在 `>=0.1.6-alpha.1 <0.1.7` 发布线**，跨线是独立项目，不是一次检查。
+定级变了就更新本表（判据见上一节，别在这里论证）：
+
+| 等级 | 插件 | 为什么是这个等级 |
+|---|---|---|
+| L1 | `dsh-default-workspace` | 公开 `workspaceRegistry` + 一个 slot；唯一私有触碰是客户端 `workspaces` 的 `rename/delete/insertBefore` 补丁（fail closed、可摘除） |
+| L1 | `dsh-extra-context` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
+| L2 | `dsh-auto-load-history` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
+| L2 | `dsh-local-plugin-manager` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
+| L2 | `dsh-default-overrides` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到 |
+| L3 | `dsh-chat-archive-manager` | 3056 行 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
+| L3 | `dsh-mcp-manager` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收 |
+| L3 | `dsh-sticky-user-bubble` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
+| L3 | `dsh-mobile-compat` | 壳层 DOM + 几何 + 客户端包哈希矩阵；跨线必须重跑整张浏览器尺寸矩阵，**上一线结论一条都不能继承** |
 
 ### 固定动作
 
@@ -124,18 +141,11 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 3. 本会话已修的内容：文件清单 + 跑过的闸门结果。
 4. **建议单独开对话的清单**，每条写清「先读什么、跑什么命令、完成标准是什么」，让用户能直接粘给下一个会话。
 
-### 已发生的一轮：`0.1.7-alpha.2 → 0.1.7-rc.2`（2026-09-28）
+### 已发生的一轮：记录在 `docs/compat-log.md`
 
-- rc.2 是**全仓版本提升**（72 个组件改版本号，新增 `@deepseek-ai/dsh-experimental-auto-review`）。插件真正依赖的面里，`dsh-settings`、`dsh-config-editor`、`dsh-system-prompt`、`dsh-llm`、`dsh-compaction-basic`、`dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store`、`dsh-host-webserver`、`dsh-client-connection`、`dsh-mcp-client`、`dsh-credentials`、`dsh-session-persistence`、`dsh-storage-domain`、`dsh-session-format*` 逐字相同。
-- **rc.2 带来两个新机制**，以后判断时要记得：
-  - `dsh-app-boot` 自带**插件兼容预检**：读 bundle 的 `peerDependencies`（`@deepseek-ai/dsh` / `@deepseek-ai/dsh-*`），不满足就**在 profile 装配时抛错**，除非 profile 目录下的 `compatibility.json` 里有精确版本豁免（`dsh plugin allow-version`）。本工作区插件**都没声明 `peerDependencies`**，所以不受它门禁；将来要接入先读 `dsh-app-boot/lib/types/plugin-compatibility.d.ts` 与 `profile-compatibility.d.ts`。
-  - `dsh-base/cordis.patch.yml` 把 `llm-deepseek` 换成 `llm-deepseek-api-key` 并新增 `llm-deepseek-account` 行（部署组成变化，与插件无关）。
-- 图标集**无删名**（188 个，Medium/Regular 各 94），4 个带导航图标补丁的插件六项几何检查全过。
-- 本轮的修复：`tools/dsh-icons` 两个缺陷（见该工具 README）；L1 两个插件把 `0.1.7-rc.2` 加入验证清单（`publish:check` 全过）。
-- 本轮**仍未实机验证**（交接给 L2/L3 会话）：`dsh-default-workspace` 的受管 Workspace 行为、`dsh-chat-archive-manager` 的删除事务、`dsh-mcp-manager` 的 GUI 验收。
-- `dsh-auto-load-history` 已于同日单独开一轮做完：`0.1.7-rc.2` 上隔离宿主 + 无头 Chromium 半离线回归全过（补齐到 `hasMore === false`、锚点零漂移、defer 生效、会话/视图切换无报错），代码无需适配，仅把 `0.1.7-rc.2` 加入四处验证清单并订正文档里的页大小描述（rc.2 已把 `loadOlder`/`loadThrough` 的固定 50/200 改成 turn 对齐区间）。
-- `dsh-local-plugin-manager` 也已于同日单独开一轮做完：rc.2 的 `dsh-atomic-write`/`dsh-plugin-manager`/`dsh-app-boot` 改动逐项核对后**无需适配**（写锁路径/mode/waitMs 未变、`writePluginEnabled` 四条语义全在、`include:<rowId>` 仍成立、`settings.section` 内置 order 上限仍是 20），隔离宿主上 `npm run verify`（44）与 `npm run gui:check`（21）全过，并额外跑通了「与官方插件管理并存」的真 GUI 双向往返（两边轮流启停同一条，覆盖项始终只有一条）。两点结论值得记住：**热重载的真源是 `dsh-hmr` 的 profile 配置监听，不是 profile 里的 `patchReload` 字段**（rc.2 全树无消费者，写入后约 3 秒生效）；**官方插件页列表上的「启用 <包名>」开关是 bundle 选择（`setBundleEnabled`），行级启停要点进「查看 <包名>」详情页用「启用组件 <包名>」**。
-- `dsh-sticky-user-bubble` 也已于同日单独开一轮做完：rc.2 的 chat/conversation/layout/primitives 改动逐项核对后**无需适配**——行标记齐全（user 行三键同值、`groupPart` 只在 assistant-step 拆分行上）、`[data-conversation-scroll]` 仍是 scrollport 且内层 padding 仍 16px、`[data-composer-seat]` 仍是直接子元素且 sticky、overlay 层与 `retainedBy.mainView` 未变；唯一新事实是 `.EvIC1a_root` 多了 `overflow:visible clip`（实测不改变绘制边界）。隔离宿主 + 无头 Chrome 量到：出现阈值正好 = scrollport clip 边 76（不是阅读线 92）、让位清距恒 16px 且 `clip-path = inset(push − 16)`、三行折叠 = 3×22 + 20 = 86px、展开上限随下一张卡收到 `incomingTop − 16`、展开不越过 composer seat（685）。已把 `0.1.7-rc.2` 加进四处验证清单并补一条 `overflow-y: clip` 回归用例；**实机观感（滚动流畅度、真实 hover、非 1 缩放/自定义字号、含 `@` 引用 chip 的消息）仍待用户目视确认**。
+每一轮的**结论、逐包 diff 证据、实测数据、踩坑与可复用技巧**都写在 [`docs/compat-log.md`](docs/compat-log.md)，按时间倒序。执行一次例行检查**不需要**读它。
+
+往本文件里只沉淀**跨轮有效的规则**（当前归属表、固定动作、判据）；单轮的过程与证据留在那份档案里，别堆回这里——根 `AGENTS.md` 每轮都被整份载入，历史越长越稀释注意力。
 
 ## 发布与分发（npm / OIDC）
 
@@ -214,13 +224,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 ### 调研路径（新插件立项流程）
 
-1. 先解析 `dsh` 可执行文件的真实路径，再读该安装下 `@deepseek-ai/*` 的 `lib/*.js` 与 README 确认机制；必要时用动态 Cordis 插件原型快速验证（可选）。
-2. 落成正式包：入口固定为 `<插件名>/lib/index.js`（宿主半体）+ `client.js`（客户端半体，单文件产物），外加 `install.sh`/`uninstall.sh` + `package.json` + `README.md` + 插件内 `AGENTS.md`。
-   - 入口路径是**契约**，不是代码组织上限：宿主其余代码按模块拆到 `lib/<模块>.js`（现例：`dsh-chat-archive-manager/lib/archive-deletion.js`、`dsh-local-plugin-manager/lib/profile-manager.js`）。`lib/index.js` 只留 Cordis 入口/服务注册/HTTP 路由；单文件超过约 400 行，或出现独立事务边界（文件事务、profile 管理、凭据读写）时**按边界拆，不按行数硬拆**——多个能力共享同一套状态时，硬拆只会制造跨文件隐式状态。
-   - `client.js` 是**单文件产物**，不是单文件源码：浏览器只按 `dsh-client-modules` 广告的 combo URL 取 bundle（见上文「双面插件」），factory 的 `require` 也只解析 seed 词与 boot graph 包名，相对路径必然抛错。要拆源码必须加构建步骤产出 `client.js`（官方 `dsh-client-ui-*` 即 tsdown 构建）；不引入构建时，在 factory 内用分区与普通函数做逻辑分层。
-   - 新增 `lib/*.js` 时必须同步 `package.json#scripts.check` 的 `node --check` 列表，以及（若该插件有）`scripts/check-pack.js` 的期望文件清单。
-   - 完整的包还会带 `CHANGELOG.md`（发布时写条目）与 `scripts/check-pack.js` 的精确打包白名单，必要时 `PUBLISHING.md`、机器可读契约文件；`package.json` 必须有 `repository`（provenance 校验要求）、`publishConfig.access: "public"`、`license`、`engines.node`，并绑好 `prepublishOnly → publish:check` 门禁。
-3. `./install.sh` 挂载（或直接 `dsh plugin --profile web add dsh-<插件>` 装 registry 版本）→ 需要时请用户重启 → 验证 → 收尾（文档、清理）→ 交付给用户时按「发布与分发」升版本、打 tag、发布并核对。
+新建插件、或跨发布线重做契约时才需要：见 [新插件立项流程](docs/new-plugin-guide.md)。
 
 ## 常用操作
 
