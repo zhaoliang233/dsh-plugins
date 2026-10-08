@@ -17,10 +17,10 @@
 
 开发 **DeepSeek Harness（DSH）插件** 的工作区：用户提需求，agent 负责调研 DSH 内部机制、实现插件、编写挂载/卸载脚本并验证。
 
-共 **9 个插件**：其中 **7 个已发布到公共 npm registry**，用户安装走官方命令；发布流程见「发布与分发（npm / OIDC）」一节。另外两个**尚未发布**，只走 `./install.sh` 的 `link:` 源码路线开发（发布需用户明确授权后再改版本、打 tag）：
+共 **9 个插件**：其中 **7 个已发布到公共 npm registry**，用户安装走官方命令；发布流程见「发布与分发（npm / OIDC）」一节。另外两个**尚未发布**（2026-10-08 已改名，新名实测未被占用，发布只剩「用户授权 + 配 trusted publisher」两步），目前走 `./install.sh` 的 `link:` 源码路线：
 
-- `dsh-mcp-manager`
-- `dsh-default-overrides`
+- `dsh-mcp-console`（原名 `dsh-mcp-manager`）
+- `dsh-default-tuner`（原名 `dsh-default-overrides`）
 
 ## 插件索引
 
@@ -33,8 +33,8 @@
 | `dsh-mobile-compat/` | 为精确声明的 DSH 版本提供移动抽屉、Settings、Composer、触控与安全区兼容层 |
 | `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，顶部「加载更早」不再常驻（设置→通用末尾的总开关可关闭） |
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |
-| `dsh-mcp-manager/` | 设置页管理 MCP 服务器：增删改、启停、连接与工具状态、凭据走 credentials，不改 profile 配置、不重启即生效（**未发布**） |
-| `dsh-default-overrides/` | 设置页独立分区「默认设置覆盖」：把官方插件写死在 bundle 里的默认值（会话标题长度、标题模型输入上限等）变成可覆盖项，写入当前 profile 补丁并即时生效（**未发布**） |
+| `dsh-mcp-console/` | 设置页管理 MCP 服务器：增删改、启停、连接与工具状态、凭据走 credentials，不改 profile 配置、不重启即生效（**未发布**；2026-10-08 由 `dsh-mcp-manager` 改名） |
+| `dsh-default-tuner/` | 设置页独立分区「默认设置覆盖」：把官方插件写死在 bundle 里的默认值（会话标题长度、标题模型输入上限等）变成可覆盖项，写入当前 profile 补丁并即时生效（**未发布**；2026-10-08 由 `dsh-default-overrides` 改名） |
 
 用户安装（包名 = 目录名）：
 
@@ -72,8 +72,8 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-01 起 **9 个插件全部在 `>=0.2.0-rc.2 <0.2.1`**（最后跨线的是 `dsh-default-overrides`，见 `docs/compat-log.md` 的 D1）：当前运行的 `0.2.0-rc.2` 在全部插件的门内，没有插件再按版本门 inert。
-- 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-overrides` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
+- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-01 起 **9 个插件全部在 `>=0.2.0-rc.2 <0.2.1`**（最后跨线的是 `dsh-default-tuner`，见 `docs/compat-log.md` 的 D1）：当前运行的 `0.2.0-rc.2` 在全部插件的门内，没有插件再按版本门 inert。
+- 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-tuner` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。**但版本门只作用于 Host 半体**：纯客户端插件的 client bundle 由 `dsh-client-modules` 按 `package.json#dsh.client` 直接进启动图（不看你 `apply()` 注册了什么），范围外照样在浏览器里跑——这类插件范围外的兜底只有客户端自己的能力检查（fail closed）与让用户先从 profile 移除；改版本门时别以为它顺手把 UI 也关掉了。`dsh-mobile-compat` 就是这类：宿主半体只有状态路由，门在 client bundle + `install.sh`。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
 - 声明必须四处同源：`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门（`DSH_COMPATIBILITY_RANGE` + `DSH_VERIFIED_VERSIONS`）、插件内文档。
@@ -110,9 +110,9 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 | L1 | `dsh-extra-context` | `0.2.0` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
 | L2 | `dsh-auto-load-history` | `0.2.0` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
 | L2 | `dsh-local-plugin-manager` | `0.2.0` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
-| L2 | `dsh-default-overrides` | `0.2.0` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到 |
+| L2 | `dsh-default-tuner` | `0.2.0` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到（原名 `dsh-default-overrides`） |
 | L3 | `dsh-chat-archive-manager` | `0.2.0` | 3056 行 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
-| L3 | `dsh-mcp-manager` | `0.2.0` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收 |
+| L3 | `dsh-mcp-console` | `0.2.0` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收（原名 `dsh-mcp-manager`） |
 | L3 | `dsh-sticky-user-bubble` | `0.2.0` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
 | L3 | `dsh-mobile-compat` | `0.2.0` | 壳层 DOM + 几何 + 客户端包哈希矩阵；跨线必须重跑整张浏览器尺寸矩阵，**上一线结论一条都不能继承** |
 
@@ -155,7 +155,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 7 个包已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token。**这 7 个都已发布 0.2.0 线的版本**（`extra-context` / `default-workspace` / `auto-load-history` / `chat-archive-manager` = `0.2.0`，`local-plugin-manager` = `0.3.0`，`sticky-user-bubble` = `0.2.0`，`mobile-compat` = `0.5.0`），三个发布后判据逐包核对通过：registry 可读到该版本、`dist.attestations` 有 SLSA provenance、GitHub Release 已创建。**打包形态的 `install.sh` 不在发布物里**（`files` 白名单不含它），所以改它不需要发版；改 `lib/`、`client.js`、`package.json` 或文档则要发新版本才生效。
 
-**发版前先确认包名归我们所有**（`npm view <包名> maintainers`）：`dsh-mcp-manager` 与 `dsh-default-overrides` 都还没有发过，而且**两个包名都已被第三方占用**——`dsh-mcp-manager` 在 registry 上是 0.6.0、维护者 `nichts`，描述恰好也是「从 Web 设置页管理 DSH 的 MCP 服务器」（与我们的插件**同名同题**，是最坏的一种撞名）；`dsh-default-overrides` 是 0.3.6、维护者 `chenwei116057`、描述是 Bash/PowerShell overrides。**在改名之前这两个都发不了版**——不要直接 bump 版本打 tag，那会在 workflow 里以无权限失败并留下一个空 release。两个现在**都已跨到 0.2.0 线**，但**都还是本地 `link:` 路线、发不出去**（`dsh-mcp-manager` 跨线更早，`dsh-default-overrides` 2026-10-01 才跨）。改名要同步的落点：`dsh-mcp-manager` 见它自己的 `AGENTS.md`（`test/manifest.test.js` 有守卫），`dsh-default-overrides` 见它自己的 `AGENTS.md`。
+**发版前先确认包名归我们所有**（`npm view <包名> maintainers`）：2026-10-08 把这条从"阻塞"落成了"规则"——两个未发布插件的旧名当时都被别人占着（`dsh-mcp-manager` = 0.6.0、维护者 `nichts`，描述恰好也是「从 Web 设置页管理 DSH 的 MCP 服务器」，是最坏的一种撞名；`dsh-default-overrides` = 0.5.3、维护者 `chenwei116057`、Bash/PowerShell overrides），于是整体改名为 `dsh-mcp-console` 与 `dsh-default-tuner`，**新名同日实测未被占用**。所以：① 立项和发版前都先查名（撞名时 `add <包名>` 会装到别人的包上）；② 撞名就改名，落点清单见两个插件各自的 `AGENTS.md`，**不要**在撞名的包上 bump 版本打 tag——那会在 workflow 里以无权限失败并留下一个空 release；③ 改完还要到 npmjs.com 给新包名配一次 trusted publisher。两个插件**都已跨到 0.2.0 线**，当前走本地 `link:` 路线。
 
 - 发布流程：改 `package.json#version` → 写 `CHANGELOG.md` 条目 → 跑该插件的 `npm run publish:check` → `git tag dsh-<插件>-v<版本>` → `git push origin HEAD && git push origin dsh-<插件>-v<版本>`。tag 必须与 `package.json#version` 完全一致；工作流还会拒绝 `private: true` 的包，并在发布后回查 registry。
 - 发版必须由用户明确授权：`commit`/`tag`/`push` 都属「提交规范」里的受限操作（只读检查不受限）。

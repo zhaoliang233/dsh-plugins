@@ -15,7 +15,7 @@
 - **`client.js` 是单文件产物，不是单文件源码**：浏览器只按 `dsh-client-modules` 广告的 combo URL 取 bundle（见根 `AGENTS.md`「双面插件」），factory 的 `require` 也只解析 seed 词与 boot graph 包名，相对路径必然抛错。要拆源码必须加构建步骤产出 `client.js`（官方 `dsh-client-ui-*` 即 tsdown 构建）；不引入构建时，在 factory 内用分区与普通函数做逻辑分层。
 - 新增 `lib/*.js` 时必须同步 `package.json#scripts.check` 的 `node --check` 列表，以及（若该插件有）`scripts/check-pack.js` 的期望文件清单。
 - 完整的包还会带 `CHANGELOG.md`（发布时写条目）与 `scripts/check-pack.js` 的精确打包白名单，必要时 `PUBLISHING.md`、机器可读契约文件；`package.json` 必须有 `repository`（provenance 校验要求）、`publishConfig.access: "public"`、`license`、`engines.node`，并绑好 `prepublishOnly → publish:check` 门禁。
-- **兼容门要一开始就写全**：`dshCompatibility.range` / `engines.dsh` / 运行时 `classifyDshVersion` / `install.sh` 四处同源，并提供 `test/manifest.test.js` 的守卫。漏掉运行时门的后果见 `../dsh-default-overrides/AGENTS.md`（声明齐全却照常在不支持的版本上跑）。
+- **兼容门要一开始就写全**：`dshCompatibility.range` / `engines.dsh` / 运行时 `classifyDshVersion` / `install.sh` 四处同源，并提供 `test/manifest.test.js` 的守卫。漏掉运行时门的后果见 `../dsh-default-tuner/AGENTS.md`（声明齐全却照常在不支持的版本上跑）。
 
 ## 3. 挂载、验证、收尾
 

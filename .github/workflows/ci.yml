@@ -1,5 +1,5 @@
 # 每次 push / PR 校验 7 个已发布插件，不发布任何东西。
-# 未发布的 dsh-mcp-manager 与 dsh-default-overrides 不在矩阵里（包名被第三方占用、
+# 未发布的 dsh-mcp-console 与 dsh-default-tuner 不在矩阵里（包名被第三方占用、
 # 发不出去），它们的同名闸门由本机 ./install.sh 与各插件自己的 publish:check 承担。
 # 复用各插件自己的发布门禁：check（语法与 shell）→ test（node --test）→ pack:check（打包白名单）。
 name: CI

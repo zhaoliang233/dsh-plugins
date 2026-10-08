@@ -8,12 +8,13 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
-| D1（2026-10-01） | `0.2.0-rc.2` | L2 插件 `dsh-default-overrides` 跨线完成（工作区最后一个停在旧线的插件）：契约面逐项有证据、门常量照基准形状改成从常量派生、13 档矩阵 + 四处同源全过；隔离宿主实测「范围外零注册（两种形态）」与「门内可写 profile 补丁」；顺带证伪了一条假守卫（文档腿 `includes` 判据）与一条错误取证方式（靠 cordis 日志） |
-| C1（2026-10-01，收口） | `0.2.0-rc.2` | 全仓一致性收口：9 个插件的四处声明逐字核对完毕、门常量形状统一、离线网全绿、7 个已发布包的 registry/provenance/GitHub Release 三件事复核通过；`dsh-default-overrides` 明确留在 0.1.7 线（跨线另立一轮），两个被占用的包名写清阻塞 |
+| E1（2026-10-08，改名） | `0.2.0-rc.2` | 两个未发布插件在 npm 上撞名，整体改名：`dsh-mcp-manager` → `dsh-mcp-console`、`dsh-default-overrides` → `dsh-default-tuner`（新名同日实测未被占用）；包名/条目 id/bundle 注册名/设置条目 id/路由与头名/内部前缀/文档同步，**功能与版本号未动**，两包 `publish:check` 全绿；本机 web profile 已切到新名 |
+| D1（2026-10-01） | `0.2.0-rc.2` | L2 插件 `dsh-default-tuner` 跨线完成（工作区最后一个停在旧线的插件）：契约面逐项有证据、门常量照基准形状改成从常量派生、13 档矩阵 + 四处同源全过；隔离宿主实测「范围外零注册（两种形态）」与「门内可写 profile 补丁」；顺带证伪了一条假守卫（文档腿 `includes` 判据）与一条错误取证方式（靠 cordis 日志） |
+| C1（2026-10-01，收口） | `0.2.0-rc.2` | 全仓一致性收口：9 个插件的四处声明逐字核对完毕、门常量形状统一、离线网全绿、7 个已发布包的 registry/provenance/GitHub Release 三件事复核通过；`dsh-default-tuner` 明确留在 0.1.7 线（跨线另立一轮），两个被占用的包名写清阻塞 |
 | B6（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-mobile-compat` 跨线完成：业务代码一字未改，全尺寸矩阵（9 档视口）在隔离宿主上全绿；顺带实测出「合成 PointerEvent 测不出真实触摸语义」与「下界从 alpha 换成 rc 时旧判定会静默放行」 |
 | B5（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-chat-archive-manager` 跨线完成：本轮真正改动的两个包逐行核对为「不在删除事务路径上」，隔离宿主 61+39 项全过（含中途中断与可恢复性闭环） |
 | B4（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-sticky-user-bubble` 跨线完成：六个几何常量在隔离宿主上重新量出且与 0.1.7 全线一致；顺带实测出「版本门盖不住纯客户端插件的浏览器半体」 |
-| B3（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-mcp-manager` 跨线完成：业务代码一字未改，GUI 52/52 两轮 + 凭据/对账链路实测 |
+| B3（2026-10-01） | `0.2.0-rc.2` | L3 插件 `dsh-mcp-console` 跨线完成：业务代码一字未改，GUI 52/52 两轮 + 凭据/对账链路实测 |
 | B2（2026-10-01） | `0.2.0-rc.2` | L2 两个插件跨线完成：契约逐行有证据、隔离宿主端到端跑通 |
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
@@ -21,7 +22,35 @@
 
 ---
 
-## D1：L2 跨线 `dsh-default-overrides`（2026-10-01）
+## E1：两个未发布插件改名（2026-10-08）
+
+两个**还没有发布过**的插件在 npm 上撞名（旧名都被第三方占着）。撞名的后果不是"难找"，而是**发布一定失败、`dsh plugin add <包名>` 还会装到别人的包上**。本轮只做改名与文案同步：**不改功能、不改版本号、不发布、不提交**。
+
+| 插件 | 旧名 → 新名 | 旧名被占用的情况（2026-10-08 实测） |
+|---|---|---|
+| MCP 服务器管理 | `dsh-mcp-manager` → `dsh-mcp-console` | 0.6.0、维护者 `nichts`，描述与我们**同名同题** |
+| 默认设置覆盖 | `dsh-default-overrides` → `dsh-default-tuner` | 0.5.3（当天还在更新）、维护者 `chenwei116057`、Bash/PowerShell overrides |
+
+**新名可用性**：`npm view <名> --json` 返回 404（registry 上没有该包）。同时把候选池探过一遍，顺手排除了别人已占的同类名（`dsh-mcp-panel` / `servers` / `hub` / `studio` / `center` / `setting` 全被占）。
+
+**改名的落点**（两个插件同形，`dsh-mcp-console/AGENTS.md` 有一张逐项表）：包名 → `cordis.patch.yml` 的条目 id/name → 浏览器 bundle 注册名（`client.js` 的 `ModuleLoader.load({ id })`）→ 宿主/客户端常量（`PLUGIN_NAME`/`SETTINGS_ENTRY`/`SECTION_ID`）→ 两条 HTTP 路由与两个固定头名 → **内部短前缀**（`dmm`→`dmc`、`ddo`→`ddt`，含 CSS 类名与导航补丁的 dataset/CSS 变量）→ 目录名 → install/uninstall 脚本与四份文档。
+
+**为什么内部前缀也一起改**：前缀是包名的缩写，留着就是过期命名（新读者对不上包名）；改名铺得广但全部有既有断言兜住，反倒"只改包名不改前缀"没有任何检查会发现不一致。
+
+**闸门**：两包 `npm run publish:check` 各自全绿（`dsh-mcp-console` 104 项单测 + 打包 12 文件；`dsh-default-tuner` 44 项 + 打包 8 文件），全仓 9 个插件 **456 项单测全过**；`tools/dsh-icons/build.js` 重新生成快照后 `check.js` 无漂移（188 个图标、Medium/Regular 各 94），`verify-nav-icon.js --plugin dsh-mcp-console --measure` **六项全过**（label 偏移 36/9 与壳层原生行一致、原 svg 被隐藏、mask 生效、`::before` 恰好 16×16、壳层行未被动过）。
+
+**profile 侧的两处坑**（都实际踩到了）：
+
+1. **改名会同时打断 profile 的三处引用**：依赖键（`link:` 指向旧目录）、`dsh.profile.bundles` 列表、`cordis.patch.yml` 里的 `- id: <旧名>`。三处不改，重启后插件要么加载失败、要么 patch 只打印 `entry "…" not found`。
+2. **顺序决定成败**：**必须在改目录名之前先 `dsh plugin remove <旧名>`**。先改目录再 remove 时，profile 的 `node_modules/<旧名>` 已悬空，`remove` 以 `ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS` 失败；更麻烦的是它**可能已先把依赖删掉、只把旧名留在 bundle 列表里**（本轮就是这个中间态），收尾只能手工删 bundles 里的旧项 + 删悬空符号链接。`pnpm install` 不会清理这类悬空链接（它只对账清单，输出 `Already up to date`）。
+
+**仪器问题（未修，留给后续）**：`verify-nav-icon.js` 等无头 Chrome 公布调试地址的窗口是 **8 秒**（80 × 100ms），而这台 Intel Mac 上冷启动实测要约 **10.3 秒**——`--measure` 会以 `Chrome 没有公布调试地址` 失败。本轮用一份把窗口放宽到 40 秒的**临时副本**跑通六项（仓库里的工具没动）。要修就是那一处常量（`attempt < 80` → 更大），与插件无关。
+
+**可复用结论**：改名不是"改一个字符串"——包名/条目 id/bundle 注册名/设置条目 id 四处必须同时改，否则症状分别是「设置页没有分区」或「插件进了 profile 但页面毫无反应」（两个插件都有守卫测试钉住）；而 profile 侧的迁移要**先卸后改名**。
+
+---
+
+## D1：L2 跨线 `dsh-default-tuner`（2026-10-01）
 
 工作区里**最后一个**停在旧线的插件（`>=0.1.7-alpha.1 <0.1.8`）跨到 **`>=0.2.0-rc.2 <0.2.1`**，运行版本 `0.2.0-rc.2`。**本轮不改 `package.json#version`、不提交、不打 tag、不改名、不发版**（包名仍被第三方占用，见 C1 第 5 节）。
 
@@ -91,7 +120,7 @@
 
 - **8 个已跨线插件：五处逐字一致**，全部 `>=0.2.0-rc.2 <0.2.1` / 清单 `0.2.0-rc.2` / 发布线 `0.2.0` / 下界 `rc.2`。**没有发现「改了 `package.json` 忘了 `install.sh`」这类半跨线**——这是本轮最想证伪的东西，结果是零命中。
 - `dsh-mobile-compat` 的 `compatibility.json`（`range` / `verifiedVersions` / `versions[0]` / 16 条 `contracts.versions`）与 `package.json` 同源，`scripts/check-compat.js` 每次 `npm run check` 都会强制核对（`--manifest` 离线、`--installed` 读 `dsh --version`）。
-- 第 9 个 `dsh-default-overrides` **四处自洽地停在 `>=0.1.7-alpha.1 <0.1.8`**（`0.1.7-rc.2` 已核对），所以在 `0.2.0-rc.2` 上 inert。它是唯一缺 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 与 `install.sh` 三个派生常量的插件。
+- 第 9 个 `dsh-default-tuner` **四处自洽地停在 `>=0.1.7-alpha.1 <0.1.8`**（`0.1.7-rc.2` 已核对），所以在 `0.2.0-rc.2` 上 inert。它是唯一缺 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 与 `install.sh` 三个派生常量的插件。
 - `dsh-mobile-compat` 的宿主半体（`lib/index.js`，101 行）**不带版本门**，门在 client bundle + `install.sh`——与 B4 记下的「版本门盖不住纯客户端插件的浏览器半体」一致，是既定设计而非缺陷。
 
 ### 2. 门常量形状统一（本轮的实质改动）
@@ -100,11 +129,11 @@
 
 | 插件 | 清单常量 | 下界常量 | channel 数组 |
 |---|---|---|---|
-| `dsh-extra-context` / `dsh-default-workspace` / `dsh-auto-load-history` / `dsh-sticky-user-bubble` / `dsh-mcp-manager` | `VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']` | `{ channel: 'rc', sequence: 2 }` | ✅ |
+| `dsh-extra-context` / `dsh-default-workspace` / `dsh-auto-load-history` / `dsh-sticky-user-bubble` / `dsh-mcp-console` | `VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']` | `{ channel: 'rc', sequence: 2 }` | ✅ |
 | `dsh-chat-archive-manager` | **`DSH_VERIFIED_VERSIONS` = `Object.freeze([...])`** | **`Object.freeze({...})`** | ✅ |
 | `dsh-local-plugin-manager` | `Object.freeze([...])` | **`Object.freeze({...})`** | ✅ |
 | `dsh-mobile-compat`（`client.js`） | **`new Set([...])`** | `{ channel: 'rc', sequence: 2 }` | ✅ |
-| `dsh-default-overrides` | `VERIFIED_DSH_VERSIONS = ['0.1.7-rc.2']` | 无 | 无 |
+| `dsh-default-tuner` | `VERIFIED_DSH_VERSIONS = ['0.1.7-rc.2']` | 无 | 无 |
 
 四处等价差异（名称前缀、`Object.freeze`、`Set`、`install.sh` 里多行 vs 单行 `if`）**行为完全相同**，但形状不同会让下一次跨线无法照一个模板机械地改 9 个包。本轮按用户选择把前三处收敛到早期插件（`dsh-extra-context`）的基准形状，`install.sh` 的排版差异只记录不改：
 
@@ -112,7 +141,7 @@
 - `dsh-local-plugin-manager`：清单与下界去掉 `Object.freeze`（`lib/profile-manager.js`）。
 - `dsh-mobile-compat`：`client.js` 的 `new Set(['0.2.0-rc.2'])` → `['0.2.0-rc.2']`，判定从 `.has()` 改 `.includes()`（`test/manifest.test.js` 的断言同步）。
 - **等价性是独立验证过的**，不是靠「测试还是绿的」推断：对三个改过的插件 + `dsh-extra-context` 跑同一张 13 档矩阵（`0.2.0-rc.2`、`+build.1`、`0.2.0`、`rc.3`、`0.2.1`、`0.1.7-rc.2`、`alpha.1`、`alpha.9`、`beta.4`、`rc.1`、`0.1.8-alpha.1`、`undefined`、空串），四列**逐行一致**（`rc.2`/`+build.1` 接受且 verified、`0.2.0`/`rc.3` 接受带警告、其余全部 reject）。
-- `install.sh` 侧仍是两种排版（`dsh-default-workspace` / `dsh-chat-archive-manager` / `dsh-mcp-manager` 用多行 `if ... then return 0 fi`，其余用单行），语义等价，**刻意不动**：`install.sh` 不在 npm 发布物里（`files` 白名单不含它），改它只为排版收益太低。
+- `install.sh` 侧仍是两种排版（`dsh-default-workspace` / `dsh-chat-archive-manager` / `dsh-mcp-console` 用多行 `if ... then return 0 fi`，其余用单行），语义等价，**刻意不动**：`install.sh` 不在 npm 发布物里（`files` 白名单不含它），改它只为排版收益太低。
 
 ### 3. 离线网（收口后重跑，全绿）
 
@@ -120,14 +149,14 @@
 |---|---|
 | 9 个插件 `npm test` | **454 项全过**（37 + 78 + 42 + 19 + 75 + 45 + 104 + 26 + 28），0 失败 |
 | `node tools/dsh-icons/build.js` + `check.js` | 无漂移（188 个图标，Medium/Regular 各 94）；build **幂等**，跑完 `git status` 干净 |
-| `verify-nav-icon.js --measure`（4 个有导航图标补丁的插件） | `dsh-extra-context` / `dsh-chat-archive-manager` / `dsh-local-plugin-manager` / `dsh-mcp-manager` 各 **六项全过**，`shellRow` 与 `patched` 的 `labelOffsetLeft/Top` 都是 36/9 |
+| `verify-nav-icon.js --measure`（4 个有导航图标补丁的插件） | `dsh-extra-context` / `dsh-chat-archive-manager` / `dsh-local-plugin-manager` / `dsh-mcp-console` 各 **六项全过**，`shellRow` 与 `patched` 的 `labelOffsetLeft/Top` 都是 36/9 |
 | `npm run publish:check`（改动过的三个包） | `dsh-chat-archive-manager` 78 项 + tarball 9 文件；`dsh-local-plugin-manager` 45 项 + tarball 10 文件；`dsh-mobile-compat` 26 项 + tarball 9 文件 |
 
 ### 4. 发布闸门差异（顺手补齐）
 
 `dsh-local-plugin-manager` 是 9 个里唯一**没有 `publish:check`** 的：它的 `verify` 只有 `check` + `test`，缺 tarball 白名单校验，`prepublishOnly` 绑的也是 `verify`，`install.sh` 跑的还是 `npm run verify`。本轮补上 `scripts/check-pack.js`（复制既有实现，白名单按它真实的 10 个文件写死）、`pack:check` 与 `publish:check`（= `verify` + `pack:check`），并把 `prepublishOnly` 与 `install.sh` 都改为跑 `publish:check`。
 
-**收口后的逐包回查又抓到两处漏项**（当时「9 个同名同覆盖」这句话是错的，同日补上）：① `dsh-default-overrides` 有 `publish:check` 但不含 `pack:check`——它自己的「待办」里本来就记着"还没有 `scripts/check-pack.js`"；② `dsh-mcp-manager` 的 `install.sh` 跑的是 `npm run verify` 而不是 `publish:check`。补齐后 9 个插件的发布闸门才是真的同名同覆盖：每个都有 `publish:check`（= `check` + `test` + `pack:check`），每个的 `install.sh` 都跑它。
+**收口后的逐包回查又抓到两处漏项**（当时「9 个同名同覆盖」这句话是错的，同日补上）：① `dsh-default-tuner` 有 `publish:check` 但不含 `pack:check`——它自己的「待办」里本来就记着"还没有 `scripts/check-pack.js`"；② `dsh-mcp-console` 的 `install.sh` 跑的是 `npm run verify` 而不是 `publish:check`。补齐后 9 个插件的发布闸门才是真的同名同覆盖：每个都有 `publish:check`（= `check` + `test` + `pack:check`），每个的 `install.sh` 都跑它。
 
 ### 5. 发布状态与包名阻塞（三件事逐包复核）
 
@@ -145,18 +174,18 @@
 
 `git tag` 与 `package.json#version` 一一对应、无未推送提交。**两个包名仍被第三方占用**（这一条本轮只做记录，不改名）：
 
-- `dsh-mcp-manager`：已跨到 0.2.0 线，但 registry 上的 `dsh-mcp-manager@0.6.0` 维护者是 `nichts`，描述与我们**同名同题**。它是唯一「跨线完成却发不出去」的包；用户本轮决定**不改名**，所以它继续留在本地 `link:` 路线。
-- `dsh-default-overrides`：registry 上是 `0.3.6`、维护者 `chenwei116057`（Bash/PowerShell overrides）。本轮决定**不跨线**，所以它两项都欠：既在 0.1.7 线、名字也不可用。
+- `dsh-mcp-console`：已跨到 0.2.0 线，但 registry 上的 `dsh-mcp-console@0.6.0` 维护者是 `nichts`，描述与我们**同名同题**。它是唯一「跨线完成却发不出去」的包；用户本轮决定**不改名**，所以它继续留在本地 `link:` 路线。
+- `dsh-default-tuner`：registry 上是 `0.3.6`、维护者 `chenwei116057`（Bash/PowerShell overrides）。本轮决定**不跨线**，所以它两项都欠：既在 0.1.7 线、名字也不可用。
 
 ### 6. 本轮的决定与「为什么」
 
-- **不跨 `dsh-default-overrides`**：按工作区规则跨线是立项（重读它自己点名的契约 + 隔离宿主 + 真实路由 cookie/CSRF 验证 + 四处同源 + 测试守卫），塞进收口轮会把「一致性核对」变成「半做的跨线」。它的等级、留在旧线的理由与跨线触发条件已写进根 `AGENTS.md`。
+- **不跨 `dsh-default-tuner`**：按工作区规则跨线是立项（重读它自己点名的契约 + 隔离宿主 + 真实路由 cookie/CSRF 验证 + 四处同源 + 测试守卫），塞进收口轮会把「一致性核对」变成「半做的跨线」。它的等级、留在旧线的理由与跨线触发条件已写进根 `AGENTS.md`。
 - **只提交、不发版**：形状统一是内部命名调整，运行行为一字未变；本轮改动**不带版本号**，留到下一次真有功能改动的发版一起带上（已发布 artifact 与源码的这一处差异不影响任何用户）。
 - **改名留到用户给名字之后再做**：改名要同步 `package.json#name`、插件文档的改名落点与 `test/manifest.test.js` 守卫，属于独立一轮的工作。
 
 ### 7. 同轮的两处口径订正（都是「文档写的是旧事实」）
 
-- **`ci.yml` 的注释与矩阵不符**：注释写「每次 push / PR 校验全部插件」，矩阵实际只列 7 个（`dsh-mcp-manager` 与 `dsh-default-overrides` 不在里面）。按用户选择**只改注释**：写明只校验 7 个已发布插件，未发布的两个由本机 `./install.sh` 与各自的 `publish:check` 承担。**矩阵没动**——这是有意的，两个插件都还没有可发布的包名。
+- **`ci.yml` 的注释与矩阵不符**：注释写「每次 push / PR 校验全部插件」，矩阵实际只列 7 个（`dsh-mcp-console` 与 `dsh-default-tuner` 不在里面）。按用户选择**只改注释**：写明只校验 7 个已发布插件，未发布的两个由本机 `./install.sh` 与各自的 `publish:check` 承担。**矩阵没动**——这是有意的，两个插件都还没有可发布的包名。
 - **`dsh-mobile-compat/README.md` 的升级示例是旧线版本**：写着 `add dsh-mobile-compat@0.4.0`（那是 0.1.7 线的版本），改成当前线的 `@0.5.0`，避免用户照抄装到旧线。
 
 ---
@@ -355,9 +384,9 @@ chat CSS 从 `margin-top:var(--dsh-chat-flow-gap,16px)` 变成 `…,6px)`（`--d
 
 ---
 
-## B3：L3 跨线 `dsh-mcp-manager`（2026-10-01）
+## B3：L3 跨线 `dsh-mcp-console`（2026-10-01）
 
-`dsh-mcp-manager` 从 `>=0.1.7-alpha.1 <0.1.8` 跨到 **`>=0.2.0-rc.2 <0.2.1`**，运行版本 `0.2.0-rc.2`。它是工作区里最大的插件（4108 行 / 8 模块 / 52 条真机 GUI 验收），按 L3 单独一轮做。**本轮不改 `package.json#version`、不提交、不打 tag、不发版**——包名 `dsh-mcp-manager` 在 npm 上被第三方占用，改名之前发不出去。
+`dsh-mcp-console` 从 `>=0.1.7-alpha.1 <0.1.8` 跨到 **`>=0.2.0-rc.2 <0.2.1`**，运行版本 `0.2.0-rc.2`。它是工作区里最大的插件（4108 行 / 8 模块 / 52 条真机 GUI 验收），按 L3 单独一轮做。**本轮不改 `package.json#version`、不提交、不打 tag、不发版**——包名 `dsh-mcp-console` 在 npm 上被第三方占用，改名之前发不出去。
 
 **为什么不需要比 L3 更保守**：A1–A3 已经做过逐包 diff，本轮把它点名的契约面在**实际安装包**里逐项重读（不靠 CHANGELOG），结论全部成立，所以**业务代码一字未改**——改动只有版本门、`package.json` 的 range/engines/清单、测试守卫与四份文档。
 
@@ -488,7 +517,7 @@ lib 侧 `DSH_RELEASE_LINE='0.2.0'` + `DSH_RELEASE_FLOOR={channel:'rc',sequence:2
 
 用户升级 DSH 到 `0.2.0-rc.2` 后说「检查插件的兼容性」。固定动作走完第 1–4 步，第 5 步**故意停住**：`0.2.0` 已跨出全部 9 个插件的声明范围，第 1 条明写「范围外不要动」，所以本轮**没有扩大任何范围**。
 
-**版本关系**：运行 `0.2.0-rc.2` / 上一验证版本 `0.1.7-rc.2` / 工作区线当时是 `>=0.1.7-alpha.1 <0.1.8`。**8 个插件按版本门保持 inert**（用各自导出的 `classifyDshVersion('0.2.0-rc.2')` 逐个实调 + 运行中 Host 的状态路由旁证）；第 9 个 `dsh-default-overrides` 当时**根本没有运行时门**，是唯一在未核对地基上照常运行的插件——该缺陷已同日补上（见其 `AGENTS.md`）。
+**版本关系**：运行 `0.2.0-rc.2` / 上一验证版本 `0.1.7-rc.2` / 工作区线当时是 `>=0.1.7-alpha.1 <0.1.8`。**8 个插件按版本门保持 inert**（用各自导出的 `classifyDshVersion('0.2.0-rc.2')` 逐个实调 + 运行中 Host 的状态路由旁证）；第 9 个 `dsh-default-tuner` 当时**根本没有运行时门**，是唯一在未核对地基上照常运行的插件——该缺陷已同日补上（见其 `AGENTS.md`）。
 
 **逐包 diff**（`npm install @deepseek-ai/dsh@0.1.7-rc.2` 到临时目录，与运行安装全树逐文件 sha256 比对）：共同包 283 个，0.2.0 新增 5 个（`dsh-otel`、`dsh-host-product-telemetry-otel`、`dsh-client-product-analytics`、`dsh-experimental-schedule-bundle`、`dsh-client-ui-settings-session-log`）；文件级逐字相同 4638 / 变化 681 / 新增 35 / 移除 88；**72 个包有运行时 JS 变化**。
 
@@ -498,7 +527,7 @@ lib 侧 `DSH_RELEASE_LINE='0.2.0'` + `DSH_RELEASE_FLOOR={channel:'rc',sequence:2
 
 | 包 | 改动 | 对插件的影响 |
 |---|---|---|
-| `dsh-config-editor/lib/index.js` | `configuration()` 由「每条目重新全量合成」改成「一次合成 + 记忆化」，并加了 `overridden` 分支 | **已证伪为等价重构**（见下）。`dsh-extra-context`/`dsh-default-overrides`/`dsh-local-plugin-manager` 不受影响 |
+| `dsh-config-editor/lib/index.js` | `configuration()` 由「每条目重新全量合成」改成「一次合成 + 记忆化」，并加了 `overridden` 分支 | **已证伪为等价重构**（见下）。`dsh-extra-context`/`dsh-default-tuner`/`dsh-local-plugin-manager` 不受影响 |
 | `dsh-app-boot/lib/index.js` | 只给 `OPTIONAL_BUNDLES` 追加 `@deepseek-ai/dsh-experimental-schedule-bundle` | 插件兼容预检逻辑**一行未改**，`dsh-local-plugin-manager` 不受影响 |
 | `dsh-session` + `dsh-agent-loop` | 失败步骤的工具结果恢复重写（新增 `ToolCallRecovery`，所有权从 scheduler 交给 owning step） | `renderPrompt`、`assertSystemHeadRewrite`、`applySurfacePlan`、全部 `system/message` 处理点上下文逐字相同 |
 | 各 `dsh-client-ui-*` 打包产物 | 随版本重建 | 逐个标记探针：所有插件关注的 DOM 标记在**全部出现位置**上上下文逐字相同；dockkit 那组在 `dsh-web-frontend` 里因压缩改名上下文不同，但出现次数完全一致 |
@@ -530,4 +559,4 @@ rc.2 是**全仓版本提升**（72 个组件改版本号，新增 `@deepseek-ai
 - `dsh-auto-load-history`：`0.1.7-rc.2` 上隔离宿主 + 无头 Chromium 半离线回归全过（补齐到 `hasMore === false`、锚点零漂移、defer 生效、会话/视图切换无报错），代码无需适配，仅把版本加入四处清单并订正文档里的页大小描述（rc.2 已把 `loadOlder`/`loadThrough` 的固定 50/200 改成 turn 对齐区间）。
 - `dsh-local-plugin-manager`：rc.2 的 `dsh-atomic-write`/`dsh-plugin-manager`/`dsh-app-boot` 改动逐项核对后**无需适配**（写锁路径/mode/waitMs 未变、`writePluginEnabled` 四条语义全在、`include:<rowId>` 仍成立、`settings.section` 内置 order 上限仍是 20）；隔离宿主上 `npm run verify`（44）与 `npm run gui:check`（21）全过，并额外跑通「与官方插件管理并存」的真 GUI 双向往返。**两条跨轮有效的结论**：热重载的真源是 `dsh-hmr` 的 profile 配置监听，**不是** profile 里的 `patchReload` 字段（写入后约 3 秒生效）；官方插件页列表上的「启用 <包名>」开关是 bundle 选择（`setBundleEnabled`），行级启停要点进「查看 <包名>」详情页用「启用组件 <包名>」。
 - `dsh-sticky-user-bubble`：chat/conversation/layout/primitives 改动逐项核对后**无需适配**——行标记齐全（user 行三键同值、`groupPart` 只在 assistant-step 拆分行上）、`[data-conversation-scroll]` 仍是 scrollport 且内层 padding 仍 16px、`[data-composer-seat]` 仍是直接子元素且 sticky、overlay 层与 `retainedBy.mainView` 未变；唯一新事实是 `.EvIC1a_root` 多了 `overflow:visible clip`（实测不改变绘制边界）。隔离宿主 + 无头 Chrome 量到：出现阈值 = scrollport clip 边 76（不是阅读线 92）、让位清距恒 16px 且 `clip-path = inset(push − 16)`、三行折叠 = 3×22 + 20 = 86px、展开上限随下一张卡收到 `incomingTop − 16`、展开不越过 composer seat（685）。
-- **本轮仍未实机验证**（交接给后续 L2/L3 会话）：`dsh-default-workspace` 的受管 Workspace 行为（B1 已补）、`dsh-chat-archive-manager` 的删除事务、`dsh-mcp-manager` 的 GUI 验收。
+- **本轮仍未实机验证**（交接给后续 L2/L3 会话）：`dsh-default-workspace` 的受管 Workspace 行为（B1 已补）、`dsh-chat-archive-manager` 的删除事务、`dsh-mcp-console` 的 GUI 验收。

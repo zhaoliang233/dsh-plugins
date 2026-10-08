@@ -1,0 +1,72 @@
+{
+  "name": "dsh-default-tuner",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-default-tuner"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-default-tuner#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
+  "description": "在 DSH Web 设置里新增「默认设置覆盖」分区，把官方插件写死在 bundle 里的默认值变成可配置项：会话标题长度、标题模型输入上限等。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "dshCompatibility": {
+    "policy": "compatible-release-line",
+    "package": "@deepseek-ai/dsh",
+    "range": ">=0.2.0-rc.2 <0.2.1",
+    "verifiedVersions": [
+      "0.2.0-rc.2"
+    ],
+    "futureVersionsRequireCapabilityChecks": true
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/overrides.js && node --check client.js && node --check scripts/check-pack.js",
+    "test": "node --test test/*.test.js",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run check && npm test && npm run pack:check",
+    "prepublishOnly": "npm run publish:check"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0-rc.2 <0.2.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "settings",
+    "session-title"
+  ]
+}
