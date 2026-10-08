@@ -17,9 +17,10 @@ const installScript = await readFile(new URL('../install.sh', import.meta.url), 
 const uninstallScript = await readFile(new URL('../uninstall.sh', import.meta.url), 'utf8')
 const clientBundle = await readFile(new URL('../client.js', import.meta.url), 'utf8')
 
-// 这一条是**改名守卫**，不是形式检查：`dsh-mcp-console` 这个包名在 npm 上已被第三方占用，
-// 发版前必须整体改名，而改名要同步四处（package.json#name、cordis.patch.yml 的 id/name、
-// client bundle 的 module id、lib/store.js 的 PLUGIN_NAME 与 SETTINGS_ENTRY）。
+// 这一条是**命名守卫**，不是形式检查：包名、条目 id、bundle 注册名与两处常量必须四处同源
+// （package.json#name、cordis.patch.yml 的 id/name、client bundle 的 module id、
+// lib/store.js 的 PLUGIN_NAME 与 SETTINGS_ENTRY）。2026-10-08 就是靠它把改名
+// `dsh-mcp-manager` → `dsh-mcp-console` 的四处一次改齐（旧名在 npm 上被第三方占用）。
 // 只要这四处不同源，插件会在「设置条目找不到 schema」或「client bundle 不进 boot graph」
 // 上静默失效，所以先用测试把它们钉在一起。
 test('包名、条目 id 与客户端 bundle id 必须四处同源（改名时一起改）', () => {
