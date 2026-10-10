@@ -2,6 +2,14 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.3.0] - 2026-10-10
+
+### 变更
+
+- **兼容发布线从 `>=0.2.0-rc.2 <0.2.1` 跨到 `>=0.2.1-alpha.2 <0.2.2`**（换线不是放宽上界：0.2.0 线整段出局）。用 `npm pack` 拉下两版的逐个契约包比对（28 个包 × 2 版、逐文件 sha256；new 侧与运行安装全树逐字一致）后，AGENTS 契约表 10 行逐个在 `0.2.1-alpha.2` 的实际安装包里重读确认：`loadOlder`/`loadThrough` 的签名、实现与 JUMP 页选项逐字相同（`session.js` 整文件 sha256 一致），`SessionSnapshot` 四字段、会话作用域 slot 的声明与渲染点、`sessionId` 座位、`[data-conversation-scroll]`、两个锚点标记（`data-chat-anchor-key`/`data-turn-tail`）与「加载更早」按钮的渲染块**全部逐字相同**。**业务代码一字未改**，本轮改动只有版本门、清单与文档。
+- 版本门四个常量整体换线（`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}`、清单 `['0.2.1-alpha.2']`）。下界换成 alpha 后判定方向随之改变：同线的 `0.2.1-beta.1`/`0.2.1-rc.1` 必须放行、`0.2.1-alpha.1` 必须挡住；`test/host.test.js` 的判定矩阵按这条重设。
+- 跨线的两个固定动作一并重读：`settings.general.item` 与 `settings.section` 的内置 order 上限仍是 100 / 20（插件行 `order: 110` 依旧排在全部内置项之后）；`dsh-client-ui-primitives` 的导出表只新增两个无关名字，本插件用的官方 `Switch` 仍在。
+
 ## [0.2.0] - 2026-10-01
 
 ### 变更

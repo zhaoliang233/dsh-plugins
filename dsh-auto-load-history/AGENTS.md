@@ -28,7 +28,7 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }`：**至少 50 条消息且至少 2 个 turn 起点，最多 500 条**，`dsh-api-session-controller/lib/types/client/sessions/session.js:19`/`:20`）和回合导航未加载圆点的 `loadThrough(seq)`（同选项上限 500、下限改为 200，循环到覆盖目标 seq，同文件 `:22`/`:25`/`:338`）。两者在 rc.2 前是**固定 50 / 200**，现在是 turn 对齐的区间——插件只依赖「一次调用推进多少 seq」，不依赖页大小本身。服务端 `paginate` 仍用 `cut > 0` 决定 `hasMore`（`lib/types/history.js:425`，0.1.7-rc.2 时是 `:445`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。顶部按钮的渲染条件是 `hasMore && …`（`dsh-client-ui-chat/lib/client.js:5271`，0.1.7 时是 `:5179`），因此**按钮消失就是 `hasMore === false` 的可观测等价物**。
 
-## 依赖的契约（0.1.7-alpha.1、0.1.7-rc.2 与 0.2.0-rc.2 已核对，下表行号取自 0.2.0-rc.2）
+## 依赖的契约（0.1.7-alpha.1、0.1.7-rc.2、0.2.0-rc.2 与 0.2.1-alpha.2 已核对，下表行号取自 0.2.0-rc.2）
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
@@ -98,11 +98,24 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 ## 发布线
 
-`>=0.2.0-rc.2 <0.2.1`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫（改一处漏一处会变红）。
+`>=0.2.1-alpha.2 <0.2.2`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫（改一处漏一处会变红）。
 
-**版本门从常量派生**（2026-10-01 跨线时照抄已跨线的 `dsh-extra-context`）：判定逻辑不再内联 `0.1.7` 与 `alpha` 字面量，而是读 `DSH_RELEASE_LINE`（`0.2.0`）+ `DSH_RELEASE_FLOOR`（`{ channel: 'rc', sequence: 2 }`）+ `PRERELEASE_CHANNELS`；`install.sh` 里有一份等价的 shell 版（含 `prerelease_rank()`）。旧写法 `channel !== 'alpha' || seq >= 1` 只能表达「下界是 alpha」，下界换成 rc 后必须改成 channel 优先级比较，否则 `0.2.0-alpha.9` 会被误判成兼容。跨线时只改常量与清单，判定逻辑不动。
+**版本门从常量派生**（2026-10-01 跨线时照抄已跨线的 `dsh-extra-context`）：判定逻辑不再内联 `0.1.7` 与 `alpha` 字面量，而是读 `DSH_RELEASE_LINE`（`0.2.1`）+ `DSH_RELEASE_FLOOR`（`{ channel: 'alpha', sequence: 2 }`）+ `PRERELEASE_CHANNELS`；`install.sh` 里有一份等价的 shell 版（含 `prerelease_rank()`）。旧写法 `channel !== 'alpha' || seq >= 1` 只能表达「下界是 alpha」，下界换成 rc 后必须改成 channel 优先级比较，否则 `0.2.0-alpha.9` 会被误判成兼容。跨线时只改常量与清单，判定逻辑不动。
 
 **逐版本核对记录**
+
+- `0.2.1-alpha.2`（2026-10-10，从 `>=0.2.0-rc.2 <0.2.1` 整体跨到 `>=0.2.1-alpha.2 <0.2.2`；换线不是放宽上界，0.2.0 线整段出局）：用 `npm pack` 拉下两版的逐个契约包（28 个包 × 2 版，逐文件 sha256），**new 侧 28 个包与运行安装 `diff -rq` 全树逐字一致**（自证取到同一份代码）。**上表 10 行契约逐个在 0.2.1-alpha.2 的实际安装包里重读确认，全部成立，业务代码一字未改**：
+
+  1. **四个文件逐字相同**：`dsh-api-session-controller` 的 `lib/types/client/contract/session.d.ts`（`loadOlder` `:126`、`loadThrough` `:139`）、`lib/types/client/sessions/session.js`（实现 `:313`/`:338`、结算 `prependWindow` `:392`）、`lib/types/client/contract/snapshot.d.ts`（四字段 `:68-72`）、`lib/types/history.js`（服务端 `paginate` 仍 `cut > 0`）——sha256 两版一致。
+  2. **浏览器 bundle 的会话 API 零触及**：本插件跑的是 `dsh-api-session-controller` 的 `./client` → `lib/client.js`。该文件里 `loadThrough`/`loadOlder`/`prependWindow`/`binding` 的出现次数两版相同（3/2/3/14），**没有任何一个改动行命中这些符号**；`SessionSnapshot` 四字段同样（`hasMore` 32、`loadingOlder` 8、`openState` 12、`removed` 15，零改动行命中）。
+  3. `service.d.ts` 两版有 6 个 hunk（`SessionSummary` 新增 `formatStatus`、几处 JSDoc 改写、`fork` 选项新增 `allowMigration`），但 **`SessionBinding` 接口（`sessionId`/`session`/`eventSource`/`ctx` 四个 readonly 字段）逐字相同**，`binding(id): SessionBinding | undefined` 签名未变（行号 `:76` → `:79`）。
+  4. **slot 声明与渲染逐字相同**：`"conversation.session.header.actions": { kind: "list", scope: "session" }`（`conversation/lib/client.js:23103`，rc.2 时 `:18268`）、`renderSlot("conversation.session.header.actions", {})`（`:21332`，rc.2 时 `:16502`）、`sessionId` 座位 `props: { sessionId: binding.sessionId }`（`session/client.js:762`，rc.2 时 `:128`）。`[data-conversation-scroll]` 仍是 `scrollBody` 上的 `"data-conversation-scroll": ""`（`conversation/lib/client.js:21170`）。
+  5. **行标记是纯位置搬移**：`dsh-client-ui-chat/lib/client.js` 本轮有 11.5k 行 diff，但 `data-chat-anchor-key`（5 处）、`chatAnchorKey`（4 处）、`data-turn-tail`（2 处）的出现次数两版一致，且**含这些串的行排序去空白后逐字相同**——那几段只是被搬到了文件前面（`+4903/-7767` 是同一段代码）。`data-turn-tail` 一个改动行都没命中。
+  6. **「加载更早」按钮渲染块逐字相同**（行号 `:5271` → `:3635`）：条件仍是 `hasMore &&`、`disabled: loadingOlder`、`onClick: scroll.loadEarlier`、文案 `loadingOlder ? t("loading") : t("chat.loadOlder")`。`dsh-client-ui-chat` 里唯一与 turn tail 相关的新改动是 `registerTurnTailConversationNode()` 把 `events.register(turnTailDefinition)` 换成展开 `{ ...turnTailDefinition, match: { "turn/start": match, … } }`（每个事件类型显式列一行，`match` 先 `bind`）——`data-turn-tail` 的渲染与 `match` 的语义都没变。
+  7. **内置 order 上限重读（跨线固定动作）**：0.2.1 上 `settings.general.item` 的上限仍是 **100**（`current-version`）、`settings.section` 的上限仍是 **20**（`agent-presets`）；两处 token 在 `settings-general/lib/client.js` 里两版出现次数一致且零改动行命中，插件行 `order: 110` 依旧排在全部内置项之后。
+  8. renderer 的 `bindInjectSources`（`renderer/lib/client.js:424`）与 `locale` 座位（同文件 `:724`）零改动行命中；`dsh-client-ui-slots`、`dsh-client-ui-store`、`dsh-client-ui-settings` 三包 `lib/` 逐字相同。
+  9. `dsh-client-ui-primitives/lib/index.js` 有 749 行 diff，但导出表只新增 `CommandText`/`InlineEditor` 两个名字，本插件用的官方 `Switch` 仍在表内。
+  10. **隔离宿主取证（`DSH_HOME=/tmp/dsh-021-verify/*` + 端口 3099 + 受管后台任务；用户的 3080 全程未触碰，验证后已停掉自建实例）**：本插件**没有任何 Host 路由**（`apply()` 只做版本门，见「边界」一节），所以跨线的路由判别码（`/status` 404 → 401/200）对它**不适用**——`/dsh-auto-load-history/status` 与 `/random-path-xyz` 在换线前后**同为 404**，那不是门的问题。等价证据两条：(a) `dsh-client-modules` 的 boot graph（`/` 的 `globalThis.__DSH_BOOT__`）里 `dsh-auto-load-history` 出现 4 处（id/url/rev/inject），挂载生效；(b) 用**真实运行版本** `0.2.1-alpha.2` 调 `classifyDshVersion` 得 `{supported:true, verified:true}`、调 `applyForVersion` **零告警**，而门外对照 `0.2.0-rc.2` 打出 `dsh-auto-load-history: DSH 0.2.0-rc.2 is outside >=0.2.1-alpha.2 <0.2.2; plugin remains inert`。
 
 - `0.1.7-alpha.1`：`ISession.loadThrough(seq)`/`loadOlder()` 仍在（页大小仍 200/50，语义不变，但 0.1.7 改为在一次调用内累积页面、结算时一次性 `prependWindow`，不再每页各提交一次渲染——`BATCH_EVENTS = 600` 的含义因此变成“一次调用拉多少”，插件侧无需改动）；`SessionSnapshot` 仍带 `openState/removed/hasMore/loadingOlder`；会话作用域 list slot `conversation.session.header.actions`、`ctx.sessions.binding(id).session/.eventSource`、`settings.general.item`、renderer 的 `bindInjectSources` 透传与 `locale` 座位、`[data-conversation-scroll]` 均在。
 - `0.1.7-rc.2`（2026-09-28）：逐包 diff 命中本插件的依赖面——`dsh-api-session-controller`（15 个文件）、`dsh-client-ui-conversation`（13 个）、`dsh-client-ui-workspace`（14 个）、`dsh-client-ui-settings-general`（4 个）、`dsh-client-ui-primitives`（54 个）；`dsh-client-ui-renderer`、`dsh-client-ui-slots`、`dsh-client-ui-store`、`dsh-client-ui-chat`、`dsh-client-ui-session` 逐字相同。**逐项复核结论：四项契约全部仍在，插件无需改代码、无需补适配**：
