@@ -108,6 +108,10 @@ jobs:
             fs.appendFileSync(process.env.GITHUB_OUTPUT, "package=" + pkg.name + "\n")
           '
 
+          # 把校验通过的 tag 也带出去：创建 GitHub Release 必须用它，不能再用
+          # github.ref_name——手动 workflow_dispatch 时 ref_name 是分支名（main），
+          # 会让 Release 挂到 "main" 而不是版本 tag（先例：dsh-default-tuner@0.2.0）。
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "plugin=$PLUGIN" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -153,7 +157,9 @@ jobs:
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          # 用解析步骤校验过的 tag，而不是 github.ref_name：push 触发时两者相同，
+          # 手动触发时 ref_name 是分支名，会把 Release 挂错到分支上。
+          TAG: ${{ steps.target.outputs.tag }}
         run: |
           gh release create "$TAG" \
             --title "${{ steps.target.outputs.package }}@${{ steps.target.outputs.version }}" \
