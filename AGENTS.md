@@ -71,7 +71,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-10 起 `dsh-default-workspace`、`dsh-extra-context`（F1）、`dsh-local-plugin-manager`（G1）、`dsh-auto-load-history`、`dsh-default-tuner`（H1）与 `dsh-mcp-console`（G2）已换到 `>=0.2.1-alpha.2 <0.2.2`，其余 3 个仍在 `>=0.2.0-rc.2 <0.2.1`：当前运行的 `0.2.1-alpha.2` 在这 6 个的门内，**在其余 3 个的门外（那 3 个眼下按版本门 inert）**——跨线必须逐插件单独开一轮，别一次全动。
+- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-10 起 `dsh-default-workspace`、`dsh-extra-context`（F1）、`dsh-local-plugin-manager`（G1）、`dsh-auto-load-history`、`dsh-default-tuner`（H1）、`dsh-mcp-console`（G2）、`dsh-sticky-user-bubble`（B7）与 `dsh-chat-archive-manager`（B8）已换到 `>=0.2.1-alpha.2 <0.2.2`，其余 1 个（`dsh-mobile-compat`）仍在 `>=0.2.0-rc.2 <0.2.1`：当前运行的 `0.2.1-alpha.2` 在这 8 个的门内，**在那 1 个的门外（它眼下按版本门 inert）**——跨线必须逐插件单独开一轮，别一次全动。
 - 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-tuner` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。**但版本门只作用于 Host 半体**：纯客户端插件的 client bundle 由 `dsh-client-modules` 按 `package.json#dsh.client` 直接进启动图（不看你 `apply()` 注册了什么），范围外照样在浏览器里跑——这类插件范围外的兜底只有客户端自己的能力检查（fail closed）与让用户先从 profile 移除；改版本门时别以为它顺手把 UI 也关掉了。`dsh-mobile-compat` 就是这类：宿主半体只有状态路由，门在 client bundle + `install.sh`。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
@@ -112,7 +112,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 | L2 | `dsh-default-tuner` | `0.2.1` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到（原名 `dsh-default-overrides`） |
 | L3 | `dsh-chat-archive-manager` | `0.2.0` | 3056 行 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
 | L3 | `dsh-mcp-console` | `0.2.1` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收（原名 `dsh-mcp-manager`） |
-| L3 | `dsh-sticky-user-bubble` | `0.2.0` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
+| L3 | `dsh-sticky-user-bubble` | `0.2.1` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
 | L3 | `dsh-mobile-compat` | `0.2.0` | 壳层 DOM + 几何 + 客户端包哈希矩阵；跨线必须重跑整张浏览器尺寸矩阵，**上一线结论一条都不能继承** |
 
 ### 固定动作
