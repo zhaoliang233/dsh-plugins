@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| F1（2026-10-10） | `0.2.1-alpha.2` | L1 两个插件 `dsh-default-workspace` + `dsh-extra-context` 整体换到 `>=0.2.1-alpha.2 <0.2.2`（换线不是放宽上界）；逐包 diff 后契约面只有 `uiWorkspace.startSession` 变了（单参数=总是新建空白会话），已按 `{clearPreviousDraft:false}` 保住复用语义；换线前两条 `/status` 404、换线后 200 |
 | E1（2026-10-08，改名） | `0.2.0-rc.2` | 两个未发布插件在 npm 上撞名，整体改名：`dsh-mcp-manager` → `dsh-mcp-console`、`dsh-default-overrides` → `dsh-default-tuner`（新名同日实测未被占用）；包名/条目 id/bundle 注册名/设置条目 id/路由与头名/内部前缀/文档同步，**功能与版本号未动**，两包 `publish:check` 全绿；本机 web profile 已切到新名 |
 | D1（2026-10-01） | `0.2.0-rc.2` | L2 插件 `dsh-default-tuner` 跨线完成（工作区最后一个停在旧线的插件）：契约面逐项有证据、门常量照基准形状改成从常量派生、13 档矩阵 + 四处同源全过；隔离宿主实测「范围外零注册（两种形态）」与「门内可写 profile 补丁」；顺带证伪了一条假守卫（文档腿 `includes` 判据）与一条错误取证方式（靠 cordis 日志） |
 | C1（2026-10-01，收口） | `0.2.0-rc.2` | 全仓一致性收口：9 个插件的四处声明逐字核对完毕、门常量形状统一、离线网全绿、7 个已发布包的 registry/provenance/GitHub Release 三件事复核通过；`dsh-default-tuner` 明确留在 0.1.7 线（跨线另立一轮），两个被占用的包名写清阻塞 |
@@ -20,6 +21,48 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## F1：L1 跨线 `dsh-default-workspace` + `dsh-extra-context`（2026-10-10）
+
+运行版本 `0.2.1-alpha.2`，上一验证线 `>=0.2.0-rc.2 <0.2.1`（registry 上 `latest` 至今仍是 `0.2.0-rc.2`，**没有 0.2.0 正式版**，所以上一验证版本就是 rc.2）。两个 L1 插件按用户要求**整体换线**：`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}`、清单 `['0.2.1-alpha.2']`、range `>=0.2.1-alpha.2 <0.2.2`。**换线不是放宽上界**：0.2.0 线整段出局（`0.2.0-rc.2`/`0.2.0` 都判 unsupported）。本轮**不改版本号、不提交、不发版**。
+
+**逐包 diff**（`npm install @deepseek-ai/dsh@0.2.0-rc.2` 到 `/tmp/dsh-020-src`，与运行安装全树逐文件 sha256）：共同包 290 个全部随线到 `0.2.1-alpha.2`（`schemastery` `3.18.4 → 3.18.5-alpha.1`、`cordis-plugin-loader` `1.0.5 → 1.0.6-alpha.1`）；两个插件的契约包逐项结论见各自 `AGENTS.md` 的新记录，提炼成一句：**只有 `uiWorkspace.startSession` 的语义变了，其余契约面逐字相同**。
+
+| 包 | lib/ 里真正动了什么 |
+|---|---|
+| `dsh-workspace` | `lib/index.js` **逐字相同**（只删了 `lib/invariant.js` 与类型） |
+| `dsh-api-workspace-controller` | lib 逐字相同（只有 README 与 `package.json` 版本号） |
+| `dsh-client-ui-workspace` | `lib/client.js` 大量新增（内联 `partial-json` 等无关区域）；`workspaces` 控制器关键词行、`reuseOrCreateBlank`/`reuseBlank` 逐字相同，**唯一实质变化：`startSession(workspaceId, options)`** —— 类型声明 `lib/types/client/navigation.d.ts`：单参数 = 总是新建空白会话，`{clearPreviousDraft:false}` = 复用已有空白会话 |
+| `dsh-client-ui-sidebar` | `sidebar.footer.action`/`footArea`/`footerActions` 声明逐字相同（改的是 CSS 与版本号字面量） |
+| `dsh-client-connection` | `requestRejection` 多两个入参（绑定地址/协议）；loopback http 的 401/403 判据与语义不变 |
+| `dsh-host-webserver` | `register()`（重复路径抛错 + disposer）逐字相同 |
+| `dsh-system-prompt` | 只改 runtime-context（新增 `refreshContext()`）；section 的 `interpolate:false` 分支与组装/遮蔽逐字相同 |
+| `dsh-agent-loop` | `renderPrompt()` 函数体与调用点逐字相同 |
+| `cordis-plugin-loader` | `_commitVolatile()` 逐字相同；`_init()` 多留一份 `moduleNamespace` 给 HMR |
+| `dsh-settings` / `dsh-config-editor` / `dsh-compaction-basic` / `dsh-client-ui-settings` / `dsh-client-ui-slots` / `dsh-client-store` | lib 逐字相同（`dsh-compaction-basic/lib/index.js` 连 sha256 都一致） |
+| `dsh-client-ui-primitives` | `Switch` 组件块与 `Switch.module.css` 逐字相同；新增 `CommandText`/`InlineEditor` |
+| `dsh-llm` | `llm/stream` waterfall 与 `adapterStream` 读 `resolvedOptions.messages` 的行逐字相同 |
+| `dsh-session` | `assertSystemHeadRewrite` / `applySurfacePlan` 逐字相同 |
+| `dsh-client-ui-settings-general` | `navIcon` 逐字相同（唯一实质改动是版本号字面量与侧边栏 CSS） |
+
+**换线发现的实质修复**：`dsh-default-workspace` 的独立入口「新建通用会话」原先靠 `startSession(workspaceId)` 拿到「已存在空白会话则复用」——0.2.1 起单参数含义变成「总是新建空白会话」，与插件 README/AGENTS.md 写明的行为不符。修法是补上 `{ clearPreviousDraft: false }`（旧线忽略多余参数，两条线同一语义），`client.js` 里留了注释、AGENTS.md 写进关键约束，别退回单参数。
+
+**闸门与实测**：
+
+- 两包 `npm run publish:check` 全绿（`dsh-default-workspace` 19 项 + tarball 7 文件；`dsh-extra-context` 75 项 + 8 文件）；全仓 9 个插件 `npm test` **456 项全过**。
+- `node tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94）；`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` **六项全过**（label 偏移 36/9 与壳层原生行一致、原 svg 被隐藏、mask 生效、`::before` 16×16）。
+- 隔离宿主（`DSH_HOME=/tmp/dsh-line-021-home`、端口 3099、手写 profile = `dsh-base` + `dsh-web-app` + 两个插件；用户的 3080 全程未触碰，验证后已停）：**换线前两条 `/status` 都是 404**（与随机路径同码 → 版本门挡住、零注册），**换线后都是 200**。旁证：default-workspace 无 cookie 401、extra-context 有 cookie 但缺 `x-dsh-extra-context-client` 403、随机路径仍 404；两个 body 分别给出受管 Workspace（`$DSH_HOME/workspaces/default`、标题「通用会话」、`coreDefaultWorkspace:true`）与 `writable:true`（→ 0.2.1 上 `Config` schema 装载成功）；两个 client bundle 都在索引页 boot graph 里（各 5 处——与版本门无关，符合既有结论）。
+
+**踩坑与可复用技巧**：隔离 profile 的 `cordis.patch.yml` 必须是**顶层 YAML 数组**，写注释 + 空文件会以 `must be a top-level YAML array of loader patch entries` 拒绝启动——空覆盖层要写 `[]`。
+
+**仍未覆盖 / 交接**：
+
+- 两个插件的**实机观感与点击**：受管 Workspace 的置顶/改名删除保护、独立入口按钮、设置页分区与导航图标实机外观（离线几何与单测已过）。
+- `dsh-default-workspace` 的 `startSession` 语义修复只在源码 + 单测层面确认，隔离宿主没有开浏览器。
+- **换线后这两个包的源码与 registry 上的 0.2.0 版本不再对应**：要让用户装到新线，需按发布流程 bump 版本、写 CHANGELOG、发版（本轮按用户要求没做）。
+- **其余 7 个插件仍在 `0.2.0` 线，在 `0.2.1-alpha.2` 上按版本门 inert**（用户当前 3080 宿主就是这个状态），要逐插件另开一轮跨线。
 
 ---
 
