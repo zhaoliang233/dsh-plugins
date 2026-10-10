@@ -45,8 +45,8 @@ test('插件身份与发布面', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.2.0-rc.2 <0.2.1',
-    verifiedVersions: ['0.2.0-rc.2'],
+    range: '>=0.2.1-alpha.2 <0.2.2',
+    verifiedVersions: ['0.2.1-alpha.2'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(manifest.scripts.prepublishOnly, 'npm run publish:check')
@@ -100,9 +100,9 @@ test('安装脚本与运行时的"已验证版本清单"必须同源', () => {
 })
 
 test('安装与卸载脚本走官方 profile 管理，且发布线常量与宿主同源', () => {
-  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"'), true)
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.1-alpha.2 <0.2.2"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
-  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.0-rc.2"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.1-alpha.2"'), true)
   // 跨线时发布的发布线/下界是四个常量而不是一个 range 字符串；两边必须逐字同源，
   // 否则宿主会放行一个安装脚本拒绝的版本（或反过来）。
   const libLine = /DSH_RELEASE_LINE = '([^']+)'/u.exec(hostSource)

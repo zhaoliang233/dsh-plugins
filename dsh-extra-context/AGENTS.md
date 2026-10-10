@@ -1,9 +1,24 @@
 # dsh-extra-context — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.0`，兼容线 `>=0.2.0-rc.2 <0.2.1`，逐版本核对的是 `0.2.0-rc.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+> 目标 DSH `0.2.1`，兼容线 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对的是 `0.2.1-alpha.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
 
 ## 逐版本核对记录
+
+**`0.2.1-alpha.2`（2026-10-10，跨发布线：DSH 从 `0.2.0-rc.2` 升到 `0.2.1-alpha.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完（`@deepseek-ai/dsh@0.2.0-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）。契约面逐项有证据：
+
+| 契约面 | 0.2.1-alpha.2 现状 |
+|---|---|
+| `ctx.systemPrompt.section` / `interpolate: false` / `assemble()` / `renderPrompt()` | `dsh-system-prompt/lib/index.js` **改了**，但改的全是 runtime-context（`refreshContext()` 是 0.2.1 新增）：section 侧 `section.interpolate === false ? section.text : …` 与 `sections` 组装/遮蔽逻辑**逐字相同**；`dsh-agent-loop` 的 `renderPrompt(assembly)` 调用点与函数体**逐字相同**（该包本轮只动了运行时上下文准入与 teardown 聚合） |
+| 条目 config 模型（`Config` + `.volatile()` + loader `_commitVolatile`） | `_commitVolatile()` **逐字相同**；`cordis-plugin-loader/lib/index.js` 只改了 `_init()`（多留一份 `moduleNamespace` 给 HMR）+ 一个字段声明，`registry.plugin()` 读 `runtime.Config` 的路径不变；`schemastery` 只有 `package.json` 版本号变（`3.18.4 → 3.18.5-alpha.1`，lib 逐字相同）；`dsh-settings` lib 逐字相同 |
+| `settings.describe()` 的 `{ns,value,user,base,revision,autoGenerate}` | `dsh-settings`、`dsh-config-editor` lib 逐字相同（两个包只有 README 与 `package.json` 版本号变） |
+| `ctx.configForms.get()` / `settings.section` list slot 需 `id` / `Switch` | `dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store` lib 逐字相同；`Switch` 组件块与 `Switch.module.css` **逐字相同**（primitives 只新增 `CommandText` / `InlineEditor` 两个组件） |
+| 设置页导航图标白名单（`navIcon`）与齿轮回落 | `dsh-client-ui-settings-general/lib/client.js` 的 `navIcon` **逐字相同**，该文件唯一实质改动是版本号字面量（`CurrentVersionRow`）与侧边栏 CSS |
+| `llm/stream` waterfall 与压缩摘要（`COMPACTION_INSTRUCTION`） | `dsh-compaction-basic/lib/index.js` **逐字节相同**（sha256 一致）；`dsh-llm` 的 waterfall 与 `adapterStream` 读 `resolvedOptions.messages` 的行**逐字相同** |
+| surface 节点 0 保护（`assertSystemHeadRewrite` / `applySurfacePlan`） | `dsh-session/lib/index.js` 两个函数**逐字相同**（该包本轮改的是 `invariant.js` 移除与类型面） |
+| 状态路由鉴权（`connection.requestRejection` + `x-dsh-extra-context-client`） | `dsh-host-webserver` 的 `register()`（重复路径抛错 + disposer）**逐字相同**；`dsh-client-connection` 的 `requestRejection` 只多了「绑定地址/协议」参数（loopback http 判定不变） |
+
+改动：`DSH_RELEASE_LINE='0.2.1'` / `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` / 清单 `['0.2.1-alpha.2']`，`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源换线。**插件业务代码一字未改**。
 
 **`0.2.0-rc.2`（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，**跨线是立项而不是例行检查**（换 range 上界 = 换发布线，旧线用户留在旧插件版本）。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）后，本插件依赖的面**全部保持**：
 
@@ -140,7 +155,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ## 配置与安装
 
-- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.2.0-rc.2 <0.2.1`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
+- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.2.1-alpha.2 <0.2.2`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
 - `cordis.patch.yml`：一行 `insert`。**新增插件首次安装必须重启 `dsh web`**——bundle 列表只在启动时读取（`patchReload: live` 只热重载 patch 文件，不重读 bundle 列表）。
 - `install.sh` / `uninstall.sh`：兼容性检查（范围外拒绝安装）+ `npm run publish:check` + 官方 `dsh plugin --profile` 管理；卸载保留 profile 配置里的用户数据。
 

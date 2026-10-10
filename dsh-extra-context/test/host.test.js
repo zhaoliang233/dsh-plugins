@@ -96,36 +96,37 @@ const STUB_SCHEMASTERY_SOURCE = [
   ''
 ].join('\n')
 
-test('版本门只放行已核对的 0.2.0 兼容线', () => {
-  assert.deepEqual(classifyDshVersion('0.2.0-rc.2'), { supported: true, verified: true, normalized: '0.2.0-rc.2' })
+test('版本门只放行已核对的 0.2.1 兼容线', () => {
+  assert.deepEqual(classifyDshVersion('0.2.1-alpha.2'), { supported: true, verified: true, normalized: '0.2.1-alpha.2' })
   // 当前部署实际运行的版本：必须落在"已逐版本核对"清单里，
   // 否则每次启动都退化成"同线未验证"告警，等于没核对。
-  assert.equal(classifyDshVersion('0.2.0-rc.3').supported, true, '同线更高 rc 可运行')
-  assert.equal(classifyDshVersion('0.2.0-rc.3').verified, false, '但不得自称已核对')
-  assert.equal(classifyDshVersion('0.2.0-rc.10').supported, true, '序列号按数值比较，不是字典序')
-  assert.equal(classifyDshVersion('0.2.0').supported, true, '正式版与 prerelease 同线')
-  assert.equal(classifyDshVersion('0.2.0').verified, false, '没核对过就不得自称已核对')
-  assert.equal(classifyDshVersion('0.2.0-rc.1').supported, false, '低于下界的 rc 必须挡住')
-  assert.equal(classifyDshVersion('0.2.0-rc.0').supported, false)
-  assert.equal(classifyDshVersion('0.2.0-beta.5').supported, false, 'beta 低于 rc 下界')
-  assert.equal(classifyDshVersion('0.2.0-alpha.9').supported, false)
-  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, '上一发布线必须挡住')
-  assert.equal(classifyDshVersion('0.1.7').supported, false)
-  assert.equal(classifyDshVersion('0.2.1').supported, false, '下一发布线必须挡住')
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').supported, true, '同线更高 alpha 可运行')
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').verified, false, '但不得自称已核对')
+  assert.equal(classifyDshVersion('0.2.1-alpha.10').supported, true, '序列号按数值比较，不是字典序')
+  assert.equal(classifyDshVersion('0.2.1-beta.1').supported, true, 'beta 档位高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true, 'rc 档位高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.1').supported, true, '正式版与 prerelease 同线')
+  assert.equal(classifyDshVersion('0.2.1').verified, false, '没核对过就不得自称已核对')
+  assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false, '低于下界的 alpha 必须挡住')
+  assert.equal(classifyDshVersion('0.2.1-alpha.0').supported, false)
+  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, '上一发布线必须挡住')
+  assert.equal(classifyDshVersion('0.2.0').supported, false)
+  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false)
+  assert.equal(classifyDshVersion('0.2.2').supported, false, '下一发布线必须挡住')
   assert.equal(classifyDshVersion('1.0.0').supported, false)
   assert.equal(classifyDshVersion(undefined).supported, false)
-  assert.equal(classifyDshVersion('0.2.0-rc.2+local').supported, true)
+  assert.equal(classifyDshVersion('0.2.1-alpha.2+local').supported, true)
 })
 test('从 CLI 入口向上定位 DSH 安装目录', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-extra-context-'))
   try {
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }))
     const nested = join(root, 'lib', 'bin')
     await mkdir(nested, { recursive: true })
     const entry = join(nested, 'bin.js')
     await writeFile(entry, '')
     const located = await readDshPackage(entry)
-    assert.equal(located.version, '0.2.0-rc.2')
+    assert.equal(located.version, '0.2.1-alpha.2')
     // 比较 realpath 之后的真实根，而不是 tmpdir() 的原始字符串：
     // Windows 的 tmpdir 可能是 8.3 短路径（C:\Users\ADMINI~1\…），而实现在定位入口时
     // 做了 realpath（展开成长路径），直接 endsWith 会假失败；macOS 的 /private/var 同理。
@@ -495,7 +496,7 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
     // （cosmokit 等）都能解析，测的是真实 schema 方言而不是手写假对象。
     // Windows 下目录符号链接需要开发者模式/管理员（EPERM），junction 不需要任何特权。
     const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir'
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }))
     const entryDirectory = join(root, 'lib', 'bin')
     await mkdir(entryDirectory, { recursive: true })
     const entry = join(entryDirectory, 'bin.js')
@@ -554,7 +555,7 @@ test('真实入口装配：伪 DSH 根 + 真实 schemastery 走完 apply 全链�
 test('装载 DSH 内的包必须经 file URL：绝对路径直接 import 在 Windows 上会失败', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-extra-context-import-'))
   try {
-    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' }))
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }))
     const stubRoot = join(root, 'node_modules', '@deepseek-ai', 'schemastery')
     await mkdir(join(stubRoot, 'lib'), { recursive: true })
     await writeFile(join(stubRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/schemastery', version: '0.0.0-stub', main: 'lib/index.cjs' }))
@@ -762,7 +763,7 @@ test('状态路由的鉴权与状态码语义：405/403/200/?debug=1/500', async
 
 test('版本门 fail closed：不支持的版本必须完全 inert（不注册任何东西）', async () => {
   // 版本门此前只测了纯函数：不支持时"什么都不注册"这条契约没有任何守卫。
-  for (const version of ['0.1.7-rc.2', '1.0.0', '0.2.0-rc.1', '0.2.0-beta.2', undefined, 'nonsense']) {
+  for (const version of ['0.1.7-rc.2', '1.0.0', '0.2.0-rc.2', '0.2.1-alpha.1', undefined, 'nonsense']) {
     const { ctx, state } = createFakeCtx()
     await applyForVersion(ctx, version, {})
     assert.equal(state.section, null, `${String(version)}：不支持时不得注册 section`)
@@ -775,12 +776,12 @@ test('版本门 fail closed：不支持的版本必须完全 inert（不注册�
 
 test('版本门放行时：同线未验证版本继续运行但必须告警', async () => {
   const { ctx, state } = createFakeCtx()
-  await applyForVersion(ctx, '0.2.0-rc.3', {})
+  await applyForVersion(ctx, '0.2.1-alpha.3', {})
   assert.notEqual(state.section, null, '同线未验证版本必须继续运行')
   assert.equal(state.warnings.some((w) => w.includes('not individually verified')), true, '必须留下未验证告警')
 
   const verified = createFakeCtx()
-  await applyForVersion(verified.ctx, '0.2.0-rc.2', {})
+  await applyForVersion(verified.ctx, '0.2.1-alpha.2', {})
   assert.notEqual(verified.state.section, null, '已核对版本必须运行')
   assert.equal(verified.state.warnings.some((w) => w.includes('not individually verified')), false, '已核对版本不得告警')
 })
@@ -795,7 +796,7 @@ test('入口定位失败时必须 inert，而不是带着未知版本继续跑',
 
 test('卸载可逆：注册的清理函数必须可调用且不抛错', async () => {
   const { ctx, state } = createFakeCtx()
-  await applyForVersion(ctx, '0.2.0-rc.2', {})
+  await applyForVersion(ctx, '0.2.1-alpha.2', {})
   assert.equal(state.effects.length > 0, true, '必须有注册在 effect 上的清理函数')
   // 真实部署里这些清理函数由 Cordis 在停用 fiber 时调用；这里逐个调用，
   // 确认它们不会抛错（抛错会让卸载流程中断，留下残影）。
