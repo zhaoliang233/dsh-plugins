@@ -47,7 +47,7 @@ export const ENTRIES = [
         label: '输出上限',
         unit: 'token',
         min: 1,
-        hint: '标题很短，通常不必调大。默认 64。'
+        hint: '标题输出通常很短，这个上限防的是模型跑飞。默认 4096。'
       },
       {
         path: 'timeoutMs',

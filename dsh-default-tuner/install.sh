@@ -3,12 +3,12 @@ set -euo pipefail
 
 PLUGIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 DSH_PROFILE="${DSH_PROFILE:-web}"
-DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"
+DSH_COMPATIBILITY_RANGE=">=0.2.1-alpha.2 <0.2.2"
 # 逐版本验证清单：必须与 package.json 的 dshCompatibility.verifiedVersions 保持一致。
-DSH_VERIFIED_VERSIONS="0.2.0-rc.2"
+DSH_VERIFIED_VERSIONS="0.2.1-alpha.2"
 # 发布线与下界：必须与 lib/index.js 的 DSH_RELEASE_LINE / DSH_RELEASE_FLOOR 同源。
-DSH_RELEASE_LINE="0.2.0"
-DSH_RELEASE_FLOOR_CHANNEL="rc"
+DSH_RELEASE_LINE="0.2.1"
+DSH_RELEASE_FLOOR_CHANNEL="alpha"
 DSH_RELEASE_FLOOR_SEQUENCE=2
 
 echo "== dsh-default-tuner 安装 =="
@@ -47,7 +47,7 @@ is_compatible_dsh_version() {
     sequence="${BASH_REMATCH[2]}"
     rank="$(prerelease_rank "$channel")"
     floor_rank="$(prerelease_rank "$DSH_RELEASE_FLOOR_CHANNEL")"
-    # 下界是 rc 时必须先比 channel 优先级：只比序列号会静默放行 0.2.0-alpha.9。
+    # 先比 channel 优先级再比序列号：下界是 alpha 时，beta/rc 一律算高于下界。
     if [[ "$rank" -gt "$floor_rank" ]]; then return 0; fi
     if [[ "$rank" -eq "$floor_rank" && "$sequence" -ge "$DSH_RELEASE_FLOOR_SEQUENCE" ]]; then return 0; fi
     return 1

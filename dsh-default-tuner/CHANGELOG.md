@@ -1,8 +1,13 @@
 # 变更记录
 
-## 未发布（2026-10-08 改名）
+## [0.2.0] - 2026-10-10
 
-- 包名从 `dsh-default-overrides` 换成 `dsh-default-tuner`（旧名在 npm 上被第三方占用、发不了版；新名同日实测未被占用）。跟着一起改的还有：profile 条目 id 与模块名（`cordis.patch.yml`）、浏览器 bundle 注册名（`client.js`）、`lib/overrides.js` 的 `PLUGIN_NAME` / `SECTION_ID` / 两条 HTTP 路由 / 两个固定头名，以及内部短前缀（CSS 类名 `ddo-*` → `ddt-*`）。**功能一行未改**。
+### 变更
+
+- **首次发布**。此前 0.1.0 一直处于未发布状态；包名 `dsh-default-tuner` 是 2026-10-08 从 `dsh-default-overrides` 改来的（旧名在 npm 上被第三方占用、发不了版；新名同日实测未被占用），改名同步了 profile 条目 id 与模块名（`cordis.patch.yml`）、浏览器 bundle 注册名（`client.js`）、`lib/overrides.js` 的 `PLUGIN_NAME` / `SECTION_ID` / 两条 HTTP 路由 / 两个固定头名，以及内部短前缀（CSS 类名 `ddo-*` → `ddt-*`）。
+- **兼容发布线从 `>=0.2.0-rc.2 <0.2.1` 跨到 `>=0.2.1-alpha.2 <0.2.2`**：逐包 diff（28 个契约包 × 2 版、逐文件 sha256，new 侧与运行安装全树逐字一致）后，契约面逐条在 `0.2.1-alpha.2` 的实际安装包里重读——`configEditor.edit()`/`configuration()` **整个文件逐字相同**（"先校验后落盘、`fiber.state !== 2` 拒绝、`!!js` 重建、reconcile 失败回写原文"这条链一行未动）、`dsh-app-boot` 的 `composeEntries`/`readProfilePatches`/`reconcileProfilePatches`/`readProfileManifest` 函数体逐字相同、目标条目 8 个字段仍全是 required 顶层字段、超限文案与 `titleInput` 投影逐字相同、`sessionTitle.get/refresh` 与 `sessions.get/list` 未变、`register()` 与 `requestRejection()` 未变。**业务逻辑一字未改**。
+- **默认值跟进官方调整**：DSH 0.2.1 把 `session-title-llm.maxOutputTokens` 的官方默认从 `64` 改成 `4096`，字段提示与 README 的默认值表格同步更新。顺带订正一条官方 `configEditor` 的既有边界：被覆盖条目是补丁里唯一内容时，「恢复默认」会连同块外的注释一起删除。
+- 版本门四个常量整体换线，13 档版本矩阵按新下界重设（新增「同线的 `beta`/`rc` 必须放行、`alpha.1` 必须挡住」两条判据）。
 
 ## 0.1.0
 

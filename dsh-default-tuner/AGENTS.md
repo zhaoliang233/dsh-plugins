@@ -13,13 +13,13 @@
 | `client.js` | 设置分区 UI（单文件 bundle，无构建） |
 | `cordis.patch.yml` | bundle patch：把 `dsh-default-tuner` 条目插进组合 |
 
-## 兼容发布线与版本门（2026-10-01 补，同日跨线到 0.2.0）
+## 兼容发布线与版本门（2026-10-01 补，2026-10-10 跨到 0.2.1）
 
-兼容线 `>=0.2.0-rc.2 <0.2.1`，逐版本核对清单 `0.2.0-rc.2`（跨线当轮的逐包证据见下面「逐版本核对记录」）。
+兼容线 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对清单 `0.2.1-alpha.2`（跨线当轮的逐包证据见下面「逐版本核对记录」）。
 
 **声明必须四处同源**：`package.json#dshCompatibility.range`（+ `engines.dsh`）⟷ `lib/index.js` 的 `DSH_COMPATIBILITY_RANGE` / `VERIFIED_DSH_VERSIONS`（发布线与下界从 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 派生）⟷ `install.sh` 的五个常量 `DSH_COMPATIBILITY_RANGE` / `DSH_VERIFIED_VERSIONS` / `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR_CHANNEL` / `DSH_RELEASE_FLOOR_SEQUENCE`（**多版本用空格分隔**，脚本按词分割消费）+ 一份等价的 `prerelease_rank()` ⟷ 本文件与 `README.md` 的兼容段。`test/manifest.test.js` 的「四处同源」用例按行解析这些赋值逐字比对（并且把 range 反推回发布线与下界），加版本时必须四边一起改。
 
-**跨线只改常量，判定逻辑不动**：`classifyDshVersion()` 从发布线 + 下界派生，五个常量都是普通字面量（**不要 `Object.freeze`、不要 `Set`**，形状与 8 个已跨线插件一致）。下界是 rc 时，同线内的 alpha/beta/更低 rc 必须靠 **channel 优先级比较**挡住——旧写法 `channel !== 'alpha' || seq >= N` 只能表达"下界是 alpha"，换成 rc 后会静默放行 `0.2.0-alpha.9`。
+**跨线只改常量，判定逻辑不动**：`classifyDshVersion()` 从发布线 + 下界派生，五个常量都是普通字面量（**不要 `Object.freeze`、不要 `Set`**，形状与 8 个已跨线插件一致）。同线内的 prerelease 必须靠 **channel 优先级比较**挡住——旧写法 `channel !== 'alpha' || seq >= N` 只能表达"下界是 alpha"，换成 rc 后会静默放行 `0.2.0-alpha.9`。2026-10-10 下界从 `rc.2` 换成 `alpha.2` 后这个比较方向反过来，**两条判据都要在矩阵里有档**：`0.2.1-beta.1`/`0.2.1-rc.1` 必须放行、`0.2.1-alpha.1` 必须挡住。
 
 **范围外必须 inert**：`applyForEntry()` 从 DSH CLI 入口 realpath 后向上 ≤4 层定位 `@deepseek-ai/dsh/package.json` 读真实版本，`applyForVersion()` 判定超出范围就只打一条 error 日志并返回——不注册路由、不读 profile、不写任何文件。线内未逐条核对的版本继续运行但打 warn（能力探测仍是权威判定）。
 
@@ -30,6 +30,25 @@
 **客户端在 inert 下的表现**：宿主没注册路由时 `/dsh-default-tuner/status` 是空 body 的 404，`response.json()` 会抛 `SyntaxError`，页面只剩「读取状态失败：Unexpected end of JSON input」。`client.js` 因此显式识别 404 并给出可读文案，并单独捕获非 JSON 响应——这是「探测不到的能力各自降级，不要让整页 404」的落地。
 
 ## 逐版本核对记录
+
+**`0.2.1-alpha.2`（2026-10-10 跨发布线：DSH 从 `0.2.0-rc.2` 升到 `0.2.1-alpha.2`）**：用 `npm pack` 拉下两版的 28 个契约包逐文件 sha256 比对（**new 侧 28 个包与运行安装 `diff -rq` 全树逐字一致**，自证取到同一份代码）。本插件点名的契约面逐条重读：
+
+| 契约项 | 0.2.1-alpha.2 现状（读的是实际安装包，不是 CHANGELOG） |
+|---|---|
+| profile 补丁事务（`configEditor.edit()` / `configuration()`） | **整个 `dsh-config-editor/lib/index.js` 逐字相同**（sha256 一致）——「先校验后落盘、`fiber.state !== 2` 拒绝、`!!js` 重建、reconcile 失败回写原文」这条链一行未动 |
+| 事务的底层依赖 | `dsh-atomic-write/lib/index.js` 与 `@deepseek-ai/cordis/lib/index.js` **逐字相同**（`writeFileAtomic`/`withFileLock` 未动）；`schemastery` 的 `lib/` 逐字相同（只有 `package.json` 的版本变）；`cordis-plugin-loader` 只有 2 处改动——`Entry` 新增字段 `moduleNamespace`、`_init()` 把局部变量改名并保存给它（HMR 用），**`unwrapExports(moduleNamespace)` 与 `registry.plugin(plugin, this.options.config, …)` 的调用一行未变** |
+| `dsh-app-boot`（profile 读取链） | `composeEntries`、`readProfilePatches`、`reconcileProfilePatches`、`readProfileManifest` 四个函数**定义体逐字相同**（按参数括号 + 花括号配对提取的函数体长度 229/700/1787/461 字节两版一致）；`loadProfileDirectory` 的**唯一差异是第一行**——`readProfileManifest(...)` 外面套了新的 `dropRetiredBundles(dir, …)`（把退役 bundle 从 profile 的 bundle 列表剔除，且只在列表里真含退役项时才写回 manifest）。132 行 diff 的其余部分全在导出表（新增 `OFFICIAL_ON_DEMAND_CATALOG`/`ON_DEMAND_BUNDLES`/`ProfileRuntimeResolution`/`resolvePluginResource`）与无关区域 |
+| 目标条目 schema（整块写入的前提） | `dsh-session-title-first-prompt-llm` 本轮被**重写**（`Config` 里 `targetWords`/`targetCjkCharacters` 从共享字段改为本地 `z.number().step(1).min(1).required()`；`apply()` 从 `registerSessionTitleLlmProvider(...)` 换成 `ctx.sessionTitle.register({...})`），但白名单要的 5 个字段**仍是全 required 的顶层字段**：前两个显式 required，`maxInputBytes`/`maxOutputTokens`/`timeoutMs` 来自 `SessionTitleLlmConfigFields`（同样 `.required()`，`timeoutMs` 多一条 `.max(MAX_TIMER_DELAY_MS)`）。`dsh-session-title` 的 `Config`（`fallbackMaxWords`/`fallbackMaxBytes`/`maxTitleBytes`，`:202-205`）**逐字相同** |
+| 标题预检口径 | `frameMessages()` 现在在 `dsh-session-title-first-prompt-llm/lib/index.js:54-56`（0.2.0 时在 `dsh-session-title-llm`），文本与插件 `TITLE_INPUT_PREFIX` **逐字一致**（`Generate the session title from this JSON array of human messages:\n` + `JSON.stringify(messages)`）；超限文案 `session-title-llm: input is N bytes, exceeding maxInputBytes M` 在 `dsh-session-title-llm/lib/index.js:170` **逐字相同**（同一句，行号 `:195` → `:170`），检查仍是 `Buffer.byteLength(prepared.input,'utf8') > config.maxInputBytes`；`titleInput` 投影仍是 `key: "titleInput"` / `stateVersion: 3` / `first: { seq, text }`（`dsh-session-title/lib/index.js:236-250`，字段顺序未变） |
+| 会话与标题服务 | `dsh-session-title` 的 `get(session)`（`:281`）与 `refresh(session, signal)`（`:319`）位置与函数体未变（该文件 3 个 hunk 全在 `:350` 之后：`register()` 允许 closing 期重注册、一处边界条件放宽、`generate()` 新增 `currentTitle` 入参）；`dsh-session` 的 `get(id)` 与 `list()` **逐字未变**（两处 hunk 分别是注释改写与导出表新增 `appendPluginRecord`/`pluginRecordOf`） |
+| 状态路由与能力探测 | `dsh-host-webserver/lib/index.js:298-305` 的 `register(route)` **逐字相同**（`{kind:'exact'|'prefix'}`、重复 (kind,path) 抛错、返回 disposer）；`dsh-client-connection` 的 `requestRejection` **零改动行命中** |
+| 客户端 slot | `dsh-client-ui-settings/lib/client.js` **逐字相同**；`settings.section` 的声明与插件注册 `id:'default-tuner'` / `order:110` 零改动行命中；内置分区 order 上限仍是 **20**（`agent-presets`，全仓重读 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20），110 无并列 |
+| 官方控件与图标 | `dsh-client-ui-primitives` 的导出表只新增 `CommandText`/`InlineEditor` 两个名字；本插件要的 `Button`/`Input`/`Tag`/`IconTriangleRightFill{Medium,Regular}` 全在表内 |
+| `dsh-settings` / `dsh-session-projection` | `dsh-settings` 的 `lib/` 逐字相同；`dsh-session-projection` 只有 `register()` 的返回值写法变了（`const dispose = ctx.effect(...); return () => void dispose()` → 直接 `return ctx.effect(...)`，语义等价），`stateOf` 未动 |
+
+**官方默认值变了（本轮唯一的实质修复）**：`dsh-base/cordis.patch.yml` 把 `session-title-llm` 的 `maxOutputTokens` 从 **64 改成 4096**（新增一段注释说明它是"防跑飞的天花板，不是长度目标；推理模型关不掉的思考也算输出"），其余 7 个字段的默认值未变（`targetWords: 5` / `targetCjkCharacters: 10` / `maxInputBytes: 4096` / `timeoutMs: 60000` / `fallbackMaxWords: 5` / `fallbackMaxBytes: 40` / `maxTitleBytes: 80`）。本插件的提示文案硬编码了"默认 64"（`lib/overrides.js`）与 README 的默认值表格——两处都同步成 4096。**教训：默认值是"官方随时会调"的数据，跨线时必须重读 `dsh-base/cordis.patch.yml`，别信自己上一轮的记录。**
+
+改动：`lib/index.js` 的四个常量（`DSH_RELEASE_LINE='0.2.1'` + `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` + 清单 `['0.2.1-alpha.2']`）、`install.sh` 的五个常量与一处注释、`package.json`/`engines.dsh`/`README.md` 的兼容段、`test/version-gate.test.js` 的 13 档矩阵（下界换 channel 后必须覆盖两条新判据：`beta`/`rc` 放行、`alpha.1` 挡住）与四处同源断言，外加上面那条默认值文案同步。**插件业务逻辑一字未改**。
 
 **`0.2.0-rc.2`（2026-10-01 跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，跨线是立项而不是例行检查。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装）后，本插件点名的契约面**逐条在 0.2.0-rc.2 的实际安装包里重读**（行号取自 0.2.0-rc.2）：
 
@@ -63,7 +82,7 @@
 |---|---|
 | 写入形态 | `edit()` 写入的是**完整 config 块**。目标条目在补丁里已存在 → 就地替换 `config` 节点、位置不变；不存在 → 追加到数组末尾。 |
 | 能否只写一个字段 | **不能，也不该**。补丁是整块替换：手写部分字段会让目标插件因 `required` 校验失败而**加载失败**（`fiber.state = 3`），此时 `edit()` 直接拒绝服务（"Configuration plugin is no longer active"），只能手改文件救回来。 |
-| 注释与 `!!js` | 块**外**的注释、`!!js` 表达式完整保留；`config` 块**内部**的行内注释会随该块被替换而丢失。 |
+| 注释与 `!!js` | 块**外**的注释、`!!js` 表达式完整保留；`config` 块**内部**的行内注释会随该块被替换而丢失。**一个例外（2026-10-10 实测补记）**：注释被删到**数组变空**时会一起消失——`yaml` 把「注释 + 条目」解析成**注释挂在第一个条目上**（不只是空数组时挂在 `contents.commentBefore`），而 `edit()` 每次都重新解析文件，所以当补丁里**只有这一个条目**时，「恢复默认」（或清除整块覆盖）删掉它就会把顶部注释一起删掉、文件只剩 `[]`。补丁里还有别的条目时注释仍在。这是官方 `configEditor.edit()` + `yaml` 的既有行为（`dsh-config-editor` 与 `yaml@2.9.1` 两版逐字相同，与 DSH 版本无关），插件不自己写文件、无法干预。 |
 | 热生效 | 是。`await edit()` 返回时 Loader 已完成 reconcile，`entry.options.config` 同步变成新值。 |
 | 恢复默认 | 候选值等于继承层时，`edit()` 会自动删掉该条目的 `config`（只剩 id/name 时连行一起删）。恢复单个字段时**不能整块退回继承层**，否则会顺手抹掉用户手写的其它字段——必须"只把该字段设回继承值"（`planFieldReset`）。 |
 | 更高层覆盖 | 该条目被 home patch 或命令行 `--patch` 覆盖时抛 `Configuration for "X" is overridden by a home patch or command-line overlay`，文件不被改动。 |
@@ -137,7 +156,7 @@
 
 - `npm run check` + `npm test`（当前 44 个用例：白名单、候选配置计算、可用性、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状、13 档版本矩阵与发布线派生、入口定位失败 inert、四处同源（含文档腿逐行解析））。
 - 发布闸门 `npm run publish:check`（= `check` + `test` + `pack:check`）：`scripts/check-pack.js` 断言发布物恰好 8 个文件（`CHANGELOG.md` / `LICENSE` / `README.md` / `client.js` / `cordis.patch.yml` / `lib/index.js` / `lib/overrides.js` / `package.json`），`prepublishOnly` 与 `install.sh` 都跑它。**它不随发布物出去**（`files` 白名单里没有 `scripts/`）。
-- 宿主端到端（curl 走真实路由，带 cookie 认证 + CSRF）：status 读取、apply 写 8192、reset 还原——reset 后补丁文件与原始配置**逐字节一致**。
+- 宿主端到端（curl 走真实路由，带 cookie 认证 + CSRF）：status 读取、apply 写 8192、reset 还原——reset 后补丁文件与原始配置**逐字节一致**（该次补丁里另有其它条目，顶部注释挂在第一个条目上、不受影响；**补丁里只有这一个条目时，reset 会把顶部注释一起删掉**，见「机制契约」的「注释与 `!!js`」行，2026-10-10 实测补记）。
 - 错误路径：非法值（400 `invalid-value`）、白名单外字段（400）、缺 CSRF（403）、无覆盖时恢复默认、重算未知会话（404 `session-not-live`）。
 - 浏览器端到端（CDP 驱动无头 Chrome，缓存已禁用）：设置面板打开 →「默认设置覆盖」分区渲染出 8 个输入框 → 点「应用」写入 32768（提示「已写入 session-title-llm.maxInputBytes = 32768。」、实际生效同步、「已覆盖」1 个 +「随整块写入」4 个）→ 高级模式展开列出 10 个带覆盖条目 → 会话标题重算卡片列出活跃会话、点「重新生成」得到「已请求重算标题（原：无）。」→ 点「恢复默认」回到 4096、标记清零。
 - 过滤口径（重启实例后复验）：实例里那个无标题的活跃会话**不再出现**在列表里，卡片显示「当前 1 个活跃会话，其中 0 个需要重算」——这正是修掉的"每打开一个对话就多一行"的来源。
@@ -150,6 +169,13 @@
 - **范围外零注册（真有宿主取证，跨线前）**：插件当时声明 `>=0.1.7-alpha.1 <0.1.8`，在 `0.2.0-rc.2` 宿主上——取证探针尝试抢占 `/dsh-default-tuner/status` 与 `/dsh-default-tuner/action` 两个 exact 路由**都抢到了**（`dsh-host-webserver` 对重复路径抛错，抢到即证明没注册）；插件条目 `fiber.state = 2`（模块已加载、`apply()` 已执行完并返回）、`configEditor`/`sessions`/`sessionTitle` 三个服务都在，直接请求两个路由都是 **404**（与随机路径同码，且未认证时门内路由本该是 401）。
 - **范围外零注册（新门的第二形态）**：把一份插件副本的声明改成 `>=0.2.1 <0.2.2`（下界高于宿主）后用同一套探针取证——两个路由同样空闲、`fiber.state` 仍是 2，**profile 补丁文件的 md5 与启动前逐字节一致**（零副作用）。
 - **门内可用（跨线后同一宿主重启）**：两个路由被插件占用（探针抢不到）、未认证请求返回 **401**（与范围外的 404 形成对照）；带 cookie 与 `x-dsh-default-tuner-client: 1` 的 status 返回 **200**，`session-title-llm` / `session-title` 两个条目 `writable:true`，8 个字段读出默认值 4096/64/60000/5/10 与 80/5/40；POST apply 写 `maxInputBytes=8192` → 补丁追加**整块 config**、原有注释未丢 → 用 `dsh --profile web --dump-config` 独立核对也读到 8192；reset 后补丁文件与写入前**逐字节一致**、生效值回到 4096。
+
+**2026-10-10（跨到 `0.2.1-alpha.2` 的换线轮；隔离 `DSH_HOME=/tmp/dsh-021-verify/after-home` + 端口 3099 + 受管后台任务，用户的 3080 全程未触碰，验证后已停掉自建实例）**：
+
+- **路由判别码（换线前 → 换线后的对照）**：换线前副本（`git archive HEAD`，声明 `>=0.2.0-rc.2 <0.2.1`）挂在同一套隔离 profile 上时，`/dsh-default-tuner/status` 与随机路径**同为 404**（版本门挡住、零注册）；换成当前源码后 `/status` 与 `/action` 都变 **401**（路由已注册、未认证），带 cookie 认证 + `x-dsh-default-tuner-client: 1` 的 status 是 **200**，无 CSRF 的 POST 是 **403**。「404 → 401/403 → 200」链路完整。
+- **门内可用（同一隔离宿主）**：status 200 回执 `ok:true` / `available:true` / `totalEntries:187` / `managedEntries:2`，两个条目 `writable:true`、`reason:active`；**8 个字段的实际默认值** `maxInputBytes` 4096 / `maxOutputTokens` **4096** / `timeoutMs` 60000 / `targetWords` 5 / `targetCjkCharacters` 10 与 `maxTitleBytes` 80 / `fallbackMaxWords` 5 / `fallbackMaxBytes` 40——这条同时验证了本轮同步的默认值文案。
+- **写路径端到端**：POST apply `maxInputBytes=8192` → 200、补丁追加整块 config（5 个字段，含 `maxOutputTokens: 4096`）、**块外注释保留**；reset → 200、生效值回到 4096、条目被整条删除。**注意**：这次隔离 profile 的补丁里只有这一个条目，所以 reset 后顶部注释一起消失、文件只剩 `[]`（见「机制契约」的「注释与 `!!js`」行，`configEditor` + `yaml` 的既有行为）。
+- **boot graph**：`/` 的 `globalThis.__DSH_BOOT__` 里 `dsh-default-tuner` 出现 4 处（id/url/rev/inject），挂载生效。
 - **13 档版本矩阵**（`test/version-gate.test.js`，与 8 个已跨线插件同形）：`0.2.0-rc.2` 与 `0.2.0-rc.2+build.1` 接受且 verified；`0.2.0`、`0.2.0-rc.3` 接受带警告；`0.2.1` / `0.1.7-rc.2` / `0.2.0-alpha.1` / `0.2.0-alpha.9` / `0.2.0-beta.4` / `0.2.0-rc.1` / `0.1.8-alpha.1` / `undefined` / 空串全部拒绝。
 - **守卫注入缺陷验证**（在副本上做，七处各自必须变红，本轮实测）：①`classifyDshVersion` 恒真 → 3 个用例红；②lib 的 `VERIFIED_DSH_VERSIONS` 改掉 → 6 个红；③`install.sh` 的 `DSH_VERIFIED_VERSIONS` 改掉 → 2 个红；④`install.sh` 的 `DSH_RELEASE_FLOOR_SEQUENCE` 改掉 → 1 个红；⑤`install.sh` 的 range 上界改掉 → 2 个红；⑥`AGENTS.md` 兼容段改掉（range 或清单，任一处）→ 1 个红；⑦`README.md` 兼容段改掉 → 1 个红。**⑥⑦是本轮加严的**：原先只断言"版本号在全文任意处出现"，而清单版本号（`0.2.0-rc.2`）恰好是 range 下界的子串，改掉兼容段照样全绿（已实测复现），现在改成逐行解析「兼容线」/「逐版本验证」那一行并核对 range + 清单。
 - **shell 侧与 lib 侧逐条一致**：用桩 `dsh`（`--version` 回放被测版本）+ 桩 `pnpm`/`npm` 真跑 `install.sh`，13 档矩阵的「接受且已核对 / 接受带警告 / 拒绝」与 `classifyDshVersion()` **逐行相同**（另加 `0.2.0-rc.0`、`0.3.0` 两档同样一致）。单测只按行解析 `install.sh` 的常量，这条才是那套 shell 判定的行为证据。

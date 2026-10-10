@@ -44,22 +44,22 @@ function createFakeCtx() {
 
 /**
  * 13 档版本矩阵，与 8 个已跨线插件的矩阵同形（收口轮统一过一次）：
- * `rc.2` 与带 build 元数据的同一版本接受且 verified、正式版与更高的同线 rc 接受但带
- * 警告，其余一律拒绝——其中 `0.2.0-alpha.9` 是"下界从 alpha 换成 rc 后旧判定会静默
- * 放行"的那一档。
+ * 下界那一档与带 build 元数据的同一版本接受且 verified，同线更高序号 / 更高 channel /
+ * 正式版接受但带警告，其余一律拒绝——其中「下界是 alpha 时 beta/rc 必须放行」与
+ * 「更小的 alpha 序号必须挡住」是这一轮下界换 channel 后新增的两条判据。
  */
 const VERSION_MATRIX = [
-  { version: '0.2.0-rc.2', supported: true, verified: true },
-  { version: '0.2.0-rc.2+build.1', supported: true, verified: true, normalized: '0.2.0-rc.2' },
-  { version: '0.2.0', supported: true, verified: false },
-  { version: '0.2.0-rc.3', supported: true, verified: false },
-  { version: '0.2.1', supported: false, verified: false },
-  { version: '0.1.7-rc.2', supported: false, verified: false },
-  { version: '0.2.0-alpha.1', supported: false, verified: false },
-  { version: '0.2.0-alpha.9', supported: false, verified: false },
-  { version: '0.2.0-beta.4', supported: false, verified: false },
-  { version: '0.2.0-rc.1', supported: false, verified: false },
-  { version: '0.1.8-alpha.1', supported: false, verified: false },
+  { version: '0.2.1-alpha.2', supported: true, verified: true },
+  { version: '0.2.1-alpha.2+build.1', supported: true, verified: true, normalized: '0.2.1-alpha.2' },
+  { version: '0.2.1-alpha.3', supported: true, verified: false },
+  { version: '0.2.1-beta.1', supported: true, verified: false },
+  { version: '0.2.1-rc.1', supported: true, verified: false },
+  { version: '0.2.1', supported: true, verified: false },
+  { version: '0.2.1-alpha.1', supported: false, verified: false },
+  { version: '0.2.0', supported: false, verified: false },
+  { version: '0.2.0-rc.2', supported: false, verified: false },
+  { version: '0.2.2', supported: false, verified: false },
+  { version: '0.2.2-alpha.1', supported: false, verified: false },
   { version: undefined, supported: false, verified: false },
   { version: '', supported: false, verified: false }
 ]
@@ -83,21 +83,38 @@ test('判定逻辑从发布线 + 下界派生：range 反推回来必须与常�
   assert.equal(matched[1], DSH_RELEASE_LINE, 'range 的下界必须落在 DSH_RELEASE_LINE 这条线上')
   assert.equal(matched[2], DSH_RELEASE_FLOOR.channel, 'range 的下界 channel 必须与 DSH_RELEASE_FLOOR 同源')
   assert.equal(Number(matched[3]), DSH_RELEASE_FLOOR.sequence, 'range 的下界序列号必须与 DSH_RELEASE_FLOOR 同源')
-  // 发布线只覆盖一个 patch 系列：上界必须是下一条线（`0.2.0` → `<0.2.1`）。
+  // 发布线只覆盖一个 patch 系列：上界必须是下一条线（`0.2.1` → `<0.2.2`）。
   const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
   assert.equal(matched[4], nextPatch, 'range 的上界必须是下一条发布线')
-  // 下界必须是 rc：同线内 alpha/beta/更低 rc 都要被 channel 优先级挡住。
-  assert.equal(DSH_RELEASE_FLOOR.channel, 'rc', '下界换成 rc 后必须用 channel 优先级比较，不是只比序列号')
-  assert.deepEqual(classifyDshVersion(`${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence}`), {
+  // 下界所在的 channel 由 DSH_RELEASE_FLOOR 决定：同 channel 的更高序号与更高的
+  // channel 都要放行，同 channel 的更低序号必须挡住（判定靠 channel 优先级比较，
+  // 不是只比序列号）。
+  const floor = `${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence}`
+  assert.equal(
+    classifyDshVersion(`${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence + 1}`).supported,
+    true,
+    '同 channel 的更高序号必须放行'
+  )
+  assert.equal(
+    classifyDshVersion(`${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence - 1}`).supported,
+    false,
+    '同 channel 的更低序号必须挡住'
+  )
+  const channels = ['alpha', 'beta', 'rc']
+  const floorRank = channels.indexOf(DSH_RELEASE_FLOOR.channel)
+  for (const channel of channels.slice(floorRank + 1)) {
+    assert.equal(classifyDshVersion(`${DSH_RELEASE_LINE}-${channel}.1`).supported, true, `${channel} 必须算高于下界`)
+  }
+  assert.deepEqual(classifyDshVersion(floor), {
     supported: true,
     verified: true,
-    normalized: `${DSH_RELEASE_LINE}-${DSH_RELEASE_FLOOR.channel}.${DSH_RELEASE_FLOOR.sequence}`
+    normalized: floor
   })
 })
 
 test('范围外：完全不注册任何东西，并留下 error 日志', async () => {
   const rejected = VERSION_MATRIX.filter((row) => !row.supported).map((row) => row.version)
-  assert.equal(rejected.length, 9, '矩阵里应恰好 9 档被拒绝')
+  assert.equal(rejected.length, 7, '矩阵里应恰好 7 档被拒绝')
   for (const version of rejected) {
     const { ctx, state } = createFakeCtx()
     await applyForVersion(ctx, version)
@@ -125,7 +142,7 @@ test('范围内已核对版本：装配且不告警', async () => {
 })
 
 test('范围内未核对版本：继续运行但必须告警（能力探测仍是权威判定）', async () => {
-  for (const version of ['0.2.0', '0.2.0-rc.3']) {
+  for (const version of ['0.2.1', '0.2.1-alpha.3']) {
     const { ctx, state } = createFakeCtx()
     await applyForVersion(ctx, version)
     assert.deepEqual(state.injected, [['configEditor', 'webServer', 'connection']], `${version}：同线未核对版本必须继续运行`)
@@ -154,11 +171,11 @@ test('readDshPackage：从 CLI 入口向上 4 层内命中包根，找不到就�
   const dir = await mkdtemp(join(tmpdir(), 'dsh-default-tuner-gate-'))
   try {
     await mkdir(join(dir, 'lib'), { recursive: true })
-    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' }))
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }))
     await writeFile(join(dir, 'lib', 'bin.js'), '// fixture\n')
     // 探测链路会 realpath 入口，所以期望值也要取 realpath（macOS 上 /var → /private/var）。
     const resolvedDir = await realpath(dir)
-    assert.deepEqual(await readDshPackage(join(dir, 'lib', 'bin.js')), { version: '0.2.0-rc.2', root: resolvedDir })
+    assert.deepEqual(await readDshPackage(join(dir, 'lib', 'bin.js')), { version: '0.2.1-alpha.2', root: resolvedDir })
 
     // 名字不叫 @deepseek-ai/dsh 的包不得被当成 DSH：继续向上找，找不到就抛
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/something-else', version: '9.9.9' }))
@@ -169,8 +186,8 @@ test('readDshPackage：从 CLI 入口向上 4 层内命中包根，找不到就�
 })
 
 test('DSH_COMPATIBILITY_RANGE / 清单常量与声明的一致（四处同源的第一处）', () => {
-  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.0-rc.2 <0.2.1')
-  assert.equal(DSH_RELEASE_LINE, '0.2.0')
-  assert.deepEqual(DSH_RELEASE_FLOOR, { channel: 'rc', sequence: 2 })
-  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.0-rc.2'])
+  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.1-alpha.2 <0.2.2')
+  assert.equal(DSH_RELEASE_LINE, '0.2.1')
+  assert.deepEqual(DSH_RELEASE_FLOOR, { channel: 'alpha', sequence: 2 })
+  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.1-alpha.2'])
 })

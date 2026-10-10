@@ -466,16 +466,16 @@ function registerRoutes(ctx) {
  * 与 `package.json#dshCompatibility.range` / `engines.dsh` / `install.sh` 的
  * `DSH_COMPATIBILITY_RANGE` **同源**，改一处必须四处一起改。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
 
 /** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
-export const DSH_RELEASE_LINE = '0.2.0'
+export const DSH_RELEASE_LINE = '0.2.1'
 
 /**
- * 兼容线下界（`0.2.0-rc.2`）：同线内更低 channel（alpha/beta）或更小序列号的
- * rc 都低于下界，判为不支持。跨线时改这三个常量即可，判定逻辑不用动。
+ * 兼容线下界（`0.2.1-alpha.2`）：同线内更低 channel 或更小序列号的 prerelease
+ * 都低于下界，判为不支持。跨线时改这三个常量即可，判定逻辑不用动。
  */
-export const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
+export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
 
 /** prerelease channel 的先后顺序；下标即优先级。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
@@ -484,16 +484,16 @@ const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
  * 逐版本核对清单，与 `package.json#dshCompatibility.verifiedVersions` 和
  * `install.sh` 的 `DSH_VERIFIED_VERSIONS` 同源。
  */
-export const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
 
 /**
  * 判定 DSH 版本是否落在兼容线内。
  *
  * 判据只看版本号形状，不猜「看起来差不多」的版本：正式版与
- * `0.2.0-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律
- * `supported: false`。下界是 rc 时，同线内的 alpha/beta/更低 rc 必须靠 channel
- * 优先级比较挡住——旧的 `channel !== 'alpha' || seq >= N` 写法会把
- * `0.2.0-alpha.9` 判成兼容。
+ * `0.2.1-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律
+ * `supported: false`。同线内的 prerelease 必须靠 channel 优先级比较挡住——
+ * 旧的 `channel !== 'alpha' || seq >= N` 写法只能表达「下界是 alpha」，
+ * 下界换成 rc 后会把 `0.2.0-alpha.9` 判成兼容。
  *
  * @param {unknown} version
  * @returns {{supported: boolean, verified: boolean, normalized?: string}}
