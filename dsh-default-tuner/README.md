@@ -19,11 +19,9 @@
 
 ## 安装
 
-> **本插件尚未发布到 npm**：registry 上还没有任何版本，下面的命令暂时装不到东西；源码路线见本节末的 `./install.sh`。
-
 ```bash
 dsh plugin --profile web add dsh-default-tuner        # 安装
-dsh plugin --profile web add dsh-default-tuner@0.1.0  # 指定版本（升级必须显式写版本号）
+dsh plugin --profile web add dsh-default-tuner@0.2.0  # 指定版本（升级必须显式写版本号）
 dsh plugin --profile web remove dsh-default-tuner     # 卸载
 ```
 
