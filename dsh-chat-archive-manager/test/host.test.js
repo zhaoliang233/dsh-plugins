@@ -209,23 +209,24 @@ function invokeRoute(route, method, body, options = {}) {
 }
 
 test('runtime version gate stays inert outside the audited release line', async () => {
-  assert.deepEqual(classifyDshVersion('0.2.0-rc.2+local'), {
-    supported: true, verified: true, normalized: '0.2.0-rc.2'
+  assert.deepEqual(classifyDshVersion('0.2.1-alpha.2+local'), {
+    supported: true, verified: true, normalized: '0.2.1-alpha.2'
   })
-  // 下界是 rc 时，同线内 alpha/beta/更低序列号的 rc 都低于下界：旧的
-  // `channel !== 'alpha' || seq >= 1` 写法会把 `0.2.0-alpha.9` 判成兼容。
-  assert.equal(classifyDshVersion('0.2.0-alpha.9').supported, false, 'alpha is below an rc floor')
-  assert.equal(classifyDshVersion('0.2.0-beta.9').supported, false, 'beta is below an rc floor')
-  assert.equal(classifyDshVersion('0.2.0-rc.1').supported, false, 'a lower rc sequence is below the floor')
+  // 下界是 alpha.2：同线内更低的 alpha 序列号低于下界，更早/更晚的发布线都不在声明范围内。
+  assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false, 'a lower alpha sequence is below the floor')
+  assert.equal(classifyDshVersion('0.2.1-alpha.0').supported, false, 'a lower alpha sequence is below the floor')
   // 线内更高的 prerelease 与正式版在门内，但未列入逐版本清单 → 只带警告运行。
-  assert.equal(classifyDshVersion('0.2.0-rc.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.0-rc.3').verified, false)
-  assert.deepEqual(classifyDshVersion('0.2.0'), {
-    supported: true, verified: false, normalized: '0.2.0'
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').verified, false)
+  assert.equal(classifyDshVersion('0.2.1-beta.1').supported, true, 'beta is above an alpha floor')
+  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true, 'rc is above an alpha floor')
+  assert.deepEqual(classifyDshVersion('0.2.1'), {
+    supported: true, verified: false, normalized: '0.2.1'
   })
-  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, 'previous release line is outside')
-  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, false, 'the next line needs a re-verified release')
-  assert.equal(classifyDshVersion('0.2.0-preview.1').supported, false, 'unknown channel is outside')
+  assert.equal(classifyDshVersion('0.2.0').supported, false, 'previous release line is outside')
+  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, 'previous release line is outside')
+  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, 'the next line needs a re-verified release')
+  assert.equal(classifyDshVersion('0.2.1-preview.1').supported, false, 'unknown channel is outside')
 
   let sideEffects = 0
   const ctx = {

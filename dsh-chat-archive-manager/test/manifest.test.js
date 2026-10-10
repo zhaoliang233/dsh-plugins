@@ -28,8 +28,8 @@ test('declares a publishable dual Host and browser bundle', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.2.0-rc.2 <0.2.1',
-    verifiedVersions: ['0.2.0-rc.2'],
+    range: '>=0.2.1-alpha.2 <0.2.2',
+    verifiedVersions: ['0.2.1-alpha.2'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(manifest.dshCompatibility.range, DSH_COMPATIBILITY_RANGE)
@@ -38,10 +38,10 @@ test('declares a publishable dual Host and browser bundle', () => {
   // 四处同源：manifest / engines / install.sh / 本文档。
   assert.equal(installScript.includes(`DSH_COMPATIBILITY_RANGE="${DSH_COMPATIBILITY_RANGE}"`), true)
   assert.equal(installScript.includes(`DSH_VERIFIED_VERSIONS="${VERIFIED_DSH_VERSIONS.join(' ')}"`), true)
-  // 版本门必须从「发布线 + 下界」派生，不能把下界的 channel 写进正则：下界是 rc 时，
-  // 同线内的 alpha/beta 与更低序列号的 rc 都要挡住，lib 与 install.sh 共用同一套优先级。
-  assert.equal(installScript.includes('DSH_RELEASE_LINE="0.2.0"'), true)
-  assert.equal(installScript.includes('DSH_RELEASE_FLOOR_CHANNEL="rc"'), true)
+  // 版本门必须从「发布线 + 下界」派生，不能把下界的 channel 写进正则：下界是 alpha 时，
+  // 同线内更低的序列号（alpha.0/alpha.1）与更早发布线都要挡住，lib 与 install.sh 共用同一套优先级。
+  assert.equal(installScript.includes('DSH_RELEASE_LINE="0.2.1"'), true)
+  assert.equal(installScript.includes('DSH_RELEASE_FLOOR_CHANNEL="alpha"'), true)
   assert.equal(installScript.includes('DSH_RELEASE_FLOOR_SEQUENCE=2'), true)
   assert.equal(installScript.includes('prerelease_rank()'), true)
   assert.equal(installScript.includes('-(alpha|beta|rc)\\.'), true)
@@ -50,17 +50,19 @@ test('declares a publishable dual Host and browser bundle', () => {
 })
 
 test('keeps the runtime gate inert outside the verified release line', () => {
-  // 新发布线：0.2.0（正式版与下界及以上的 rc）在范围内，0.1.7 一线与 0.2.1 起都在范围外。
-  assert.deepEqual(classifyDshVersion('0.2.0-rc.2+local'), {
-    supported: true, verified: true, normalized: '0.2.0-rc.2'
+  // 新发布线：0.2.1（正式版与下界及以上的 alpha/beta/rc）在范围内，0.2.0 一线与 0.2.2 起都在范围外。
+  assert.deepEqual(classifyDshVersion('0.2.1-alpha.2+local'), {
+    supported: true, verified: true, normalized: '0.2.1-alpha.2'
   })
-  assert.equal(classifyDshVersion('0.2.0-rc.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.0-rc.3').verified, false)
-  assert.equal(classifyDshVersion('0.2.0').supported, true)
-  assert.equal(classifyDshVersion('0.2.0-alpha.9').supported, false, 'alpha is below an rc floor')
-  assert.equal(classifyDshVersion('0.2.0-beta.9').supported, false, 'beta is below an rc floor')
-  assert.equal(classifyDshVersion('0.2.0-rc.1').supported, false, 'a lower rc sequence is below the floor')
-  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, 'previous release line is outside')
-  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, false, 'next line is not claimed yet')
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').verified, false)
+  assert.equal(classifyDshVersion('0.2.1-beta.1').supported, true, 'beta is above an alpha floor')
+  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true, 'rc is above an alpha floor')
+  assert.equal(classifyDshVersion('0.2.1').supported, true)
+  assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false, 'a lower alpha sequence is below the floor')
+  assert.equal(classifyDshVersion('0.2.1-alpha.0').supported, false, 'a lower alpha sequence is below the floor')
+  assert.equal(classifyDshVersion('0.2.0').supported, false, 'previous release line is outside')
+  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, 'previous release line is outside')
+  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, 'next line is not claimed yet')
   assert.equal(classifyDshVersion(undefined).supported, false)
 })

@@ -2,6 +2,25 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.3.0] - 2026-10-10
+
+### 变更
+
+- **跨到 `0.2.1` 发布线**：兼容线从 `>=0.2.0-rc.2 <0.2.1` 整体换成 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对 `0.2.1-alpha.2`。**这条线不再支持 `0.2.0` 及更早的 DSH**——还在旧线的请留在旧版本（`0.2.0`）；范围外插件保持 inert（不注册路由、不碰 registry、不做 legacy 迁移），不会带病运行。
+- 版本门继续从发布线与下界常量派生（`DSH_RELEASE_LINE = '0.2.1'`、`DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }`，`install.sh` 有等价的 shell 版）：**下界是 `alpha.2` 时同样不能把下界写进正则**——`0.2.1-alpha.0`/`alpha.1` 必须被挡住，同线内的 `beta`/`rc`（如 `0.2.1-rc.1`）都高于 alpha 下界、必须在门内。跨线只改常量与清单，判定逻辑不动。
+- 本轮 DSH 是一次全仓版本提升（顶层组件 91 项里 90 项版本变化）。真正的运行时改动集中在四个包，逐个逐行核对后确认**都不在删除事务路径上**：`dsh-session` 新增实验性 plugin record（`SESSION_FORMAT_VERSION` 仍是 4，`SessionStore` 区域只改注释与导出表）；`dsh-agent-loop` 的 factory dispose **成功路径顺序逐行未变**，唯一变化是把 `scope.dispose()` 挪进独立 `try/catch`（插件出错即停在 preflight，仍是更保守的子集）；`dsh-session-persistence-jsonl` 的 4 个 hunk 只包装了 `readGenerationHeader()` 的返回值、并给 `stat()`/`list()` 各加一个附加键，插件读取面（`header`/`revision`/`sizeBytes`、`locate()`、tracker 的 handles/writers/pending）全未变；`dsh-client-connection.requestRejection()` 的签名与 `undefined|401|403` 值域未变。`dsh-workspace`、`dsh-agent`、`dsh-session-format`、`dsh-session-format-catalog`、`dsh-session-persistence` 整包 `lib/*.js` **逐字相同**（前两个只删掉了插件从不引用的 `invariant.js`）。**删除事务、恢复与其余业务代码一字未改。**
+- 隔离宿主重跑三轮：**范围外基线 5 项 + 轮次 A 68 项 + 轮次 B 65 项全过**。含启动期基线（旧门在 `0.2.1-alpha.2` 上确实零注册）、恢复往返与席位记账、请求边界与准入拒绝的 fail-closed、旧 generation 501（连 journal 都不创建）、v3+v4 并存与纯 v4 实删、boot graph；以及中断注入（trash 根不可写 → 500 quarantined、journal 停在 `prepared` 且 witness 完整）→ quarantine 降级 → 冷启动一致性（journal sha、目录 inode、日志 inode/size 逐项未变）→ 升级遗留事务（witness 属于上一代 generation 仍被认出）→ 人工清事务后重启恢复、重试删除 200 的可恢复性闭环。
+
+### 文档
+
+- `AGENTS.md` 增加 `0.2.0-rc.2 → 0.2.1-alpha.2` 的逐包核对表（含「逐字相同」与「改了但够不着」两类证据）与三轮实测记录，并补上**造隔离数据的第三条硬约束**：历史 generation 的 header 自 v2 起必须带 `delegationDepth`（缺了会让 `readHeader()` 返回 `malformed`、被 `list()` 静默跳过，测出 404 而不是 501）；macOS 上数据路径必须用 `realpath` 形式（`/tmp` 与 `/private/tmp` 混用会让 workspace 席位被静默 prune）。
+- `README.md` 的要求一节改成 `0.2.1` 线；`PUBLISHING.md` 的日志 generation 示例同步。
+
+### 说明
+
+- 本版本**未改动**业务代码，只换版本门、同步同源声明与文档。
+- **`0.2.1-alpha.2` 上「打开归档会话 → 永久删除」这条 live 卸载路径仍未在真实 GUI 补跑**（最近一次真机通过是 `0.1.7-rc.2`）：本轮证据是源码逐行核对 dispose 顺序 + 服务级能力探测 `sessionQuiescenceSupported: true` + 单测 `fakeLiveRuntime()`。无头环境触发不了 DSH 自身"打开会话 + 归档"的交互，升级后建议在真机上走一遍。
+
 ## [0.2.0] - 2026-10-01
 
 ### 变更

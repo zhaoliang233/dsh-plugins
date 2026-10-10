@@ -41,8 +41,8 @@ DSH_HOME="$release_root/dsh-home" dsh plugin --profile web remove dsh-chat-archi
 - 隔离 profile 的 cold JSONL 能通过真实 HTTP 路由实删，并清掉 Workspace 与归档记账，同时不动共享附件。
 - 本进程打开过的空闲 live 会话：卸载后实删成功，且 `lsof` 不再持有该会话的 `session.lock`；运行中或有排队输入的会话返回 `session-busy` 且零副作用。
 - 未归档、不存在、open handle/writer/pending materialization、迁移准备中、有后代的会话都被拒绝。
-- 当前 generation（从 `persistence.locate()` 的规范 basename 反解出的 `session.vN.jsonl[.zstd]`，0.2.0 是 v4）通过 revision/header/identity 校验；更早 generation fail closed；journal 与 trash 目录在 rename 前 durable 且同一 `st_dev`。
-- 空闲的 live 会话（本进程打开过、`phase.kind === 'idle'` 且无排队输入）按 factory 的 dispose 顺序卸载后实删（最近一次真机 GUI 通过是 `0.1.7-rc.2`，2026-09-28：打开归档会话 → 永久删除 → 聊天消失；`0.2.0-rc.2` 这一轮只做了源码逐行复核 + 服务级探测 + 单测，**尚未真机补跑**）；**这一条只有真实 GUI 能验证**（无头环境触发不了"打开会话 + 归档"的交互），每次把新版本加入已验证清单时都要在真机上补跑。
+- 当前 generation（从 `persistence.locate()` 的规范 basename 反解出的 `session.vN.jsonl[.zstd]`，0.2.1 是 v4）通过 revision/header/identity 校验；更早 generation fail closed；journal 与 trash 目录在 rename 前 durable 且同一 `st_dev`。
+- 空闲的 live 会话（本进程打开过、`phase.kind === 'idle'` 且无排队输入）按 factory 的 dispose 顺序卸载后实删（最近一次真机 GUI 通过是 `0.1.7-rc.2`，2026-09-28：打开归档会话 → 永久删除 → 聊天消失；`0.2.0-rc.2` 与 `0.2.1-alpha.2` 两轮都只做了源码逐行复核 + 服务级探测 + 单测，**尚未真机补跑**）；**这一条只有真实 GUI 能验证**（无头环境触发不了"打开会话 + 归档"的交互），每次把新版本加入已验证清单时都要在真机上补跑。
 - 非空或损坏的事务日志只进入 quarantine，不做自动 rename、回滚、前滚或递归删除。
 - 旧版 `$DSH_HOME/workspaces/archived` 空壳注册被注销，目录、会话日志与记账保留；不出现归档专用 Workspace。
 

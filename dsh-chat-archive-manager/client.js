@@ -43,7 +43,7 @@ window.__ModuleLoader__.load({
     /** Settings navigation label and page heading; the nav-icon patch matches this exact text. */
     const SECTION_TITLE = '归档管理'
     /**
-     * 设置分区 order。DSH `0.2.0-rc.2` 自带分区是
+     * 设置分区 order。DSH `0.2.1-alpha.2` 自带分区是
      * account −10 / general 0 / models 10 / plugins 15 / agent-presets 20
      * （0.1.6 的最大项 archived-sessions 25 已被 DSH 删除），
      * **插件分区一律 ≥ 100**：排在内置之后，不插队、也不与内置并列

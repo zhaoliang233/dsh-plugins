@@ -53,7 +53,7 @@ printf 'npm:%s\\n' "$*" >> "\${FAKE_INVOCATION_LOG:?}"
 test('installer accepts every verified version and runs the complete gate before profile add', async () => {
   // 清单里的每个版本都要走“无警告 + 完整闸门”分支；漏同步 install.sh 的
   // DSH_VERIFIED_VERSIONS 会让它退化成“带警告运行”。
-  for (const version of ['0.2.0-rc.2+local.1']) {
+  for (const version of ['0.2.1-alpha.2+local.1']) {
     const fixture = await runInstaller(version)
     try {
       assert.equal(fixture.result.status, 0, fixture.result.stderr)
@@ -70,8 +70,8 @@ test('installer accepts every verified version and runs the complete gate before
 })
 
 test('installer warns for an unverified version within the compatible line', async () => {
-  // 0.2.0-rc.3 在下界之上、线内，但没有逐版本核对过 → 只警告、仍然安装。
-  const fixture = await runInstaller('0.2.0-rc.3')
+  // 0.2.1-alpha.3 在下界之上、线内，但没有逐版本核对过 → 只警告、仍然安装。
+  const fixture = await runInstaller('0.2.1-alpha.3')
   try {
     assert.equal(fixture.result.status, 0, fixture.result.stderr)
     assert.equal(fixture.result.stderr.includes('尚未列入逐版本验证清单'), true)
@@ -83,13 +83,13 @@ test('installer warns for an unverified version within the compatible line', asy
 })
 
 test('installer rejects a version outside the release line before npm or profile changes', async () => {
-  // 0.2.0-alpha.9 / 0.2.0-beta.9 / 0.2.0-rc.1 都低于 rc.2 下界：旧的
-  // `channel !== 'alpha' || seq >= 1` 写法会把前两个判成兼容。
-  for (const version of ['0.1.7-rc.2', '0.2.0-alpha.9', '0.2.0-beta.9', '0.2.0-rc.1', '0.2.1-rc.1']) {
+  // 0.2.1-alpha.0/alpha.1 都低于 alpha.2 下界，0.2.0 一线与 0.2.2 起不在声明范围内：
+  // 判定从「发布线 + 下界」派生，不靠写死的 channel 字符串。
+  for (const version of ['0.1.7-rc.2', '0.2.0', '0.2.0-rc.2', '0.2.1-alpha.0', '0.2.1-alpha.1', '0.2.2-alpha.1']) {
     const fixture = await runInstaller(version)
     try {
       assert.equal(fixture.result.status, 1, `${version} must be refused`)
-      assert.match(fixture.result.stderr, />=0\.2\.0-rc\.2 <0\.2\.1/u, fixture.result.stderr)
+      assert.match(fixture.result.stderr, />=0\.2\.1-alpha\.2 <0\.2\.2/u, fixture.result.stderr)
       assert.equal(fixture.invocations, '')
     } finally {
       await fixture.cleanup()

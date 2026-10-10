@@ -21,23 +21,25 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  *
  * 能力探测仍然是权威判定：**线内**版本即使未逐条核对，也照常挂载并逐项 fail closed 降级。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
 
 /**
- * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.0`、`0.2.0-<channel>.N`）。
+ * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.1`、`0.2.1-<channel>.N`）。
  * 语义与 `install.sh` 的 `DSH_RELEASE_LINE` 逐字对应，并与
- * `DSH_COMPATIBILITY_RANGE=">=0.2.0-rc.2 <0.2.1"` 一致：**0.2.1 的 prerelease 不算在内**
- * （上一线 0.1.7、下一线 0.2.1 都要重新核对契约后另发版本）。
+ * `DSH_COMPATIBILITY_RANGE=">=0.2.1-alpha.2 <0.2.2"` 一致：**0.2.0 一线与 0.2.2 起都不算在内**
+ * （上一线 0.2.0、下一线 0.2.2 都要重新核对契约后另发版本）。
  */
-export const DSH_RELEASE_LINE = '0.2.0'
+export const DSH_RELEASE_LINE = '0.2.1'
 
 /**
- * 兼容线的下界：同线内更低 channel（alpha/beta）或更小序列号的 rc 都低于下界，
- * 判定为不支持。换线时只改 `DSH_RELEASE_LINE` 与这两个字段，判定逻辑不用动。
+ * 兼容线的下界：同线内更低 channel（仅指下界之上的 channel 优先于它）或更小序列号
+ * 的版本都低于下界，判定为不支持。
+ * 换线时只改 `DSH_RELEASE_LINE` 与这两个字段，判定逻辑不用动。
+ * 下界是 alpha 时，同线内的 beta/rc 与更高序列号的 alpha 都在门内。
  */
-export const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
+export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
 
 /** prerelease channel 的先后顺序；下标即优先级。与 `install.sh` 的 `prerelease_rank()` 同序。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
@@ -45,8 +47,8 @@ const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /**
  * 把运行中的 DSH 版本分类成"在不在兼容发布线上/是否逐条核对过"。
  *
- * 只按版本号形状判定，不猜"看起来差不多"的版本：`0.2.0` 正式版与
- * `0.2.0-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律 `supported: false`。
+ * 只按版本号形状判定，不猜"看起来差不多"的版本：`0.2.1` 正式版与
+ * `0.2.1-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律 `supported: false`。
  * `build` 元数据（`+local.1`）不参与比较。
  *
  * @param version - `@deepseek-ai/dsh` 的版本号，或任何未知输入。
