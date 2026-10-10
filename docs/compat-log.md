@@ -81,6 +81,10 @@
 
 真实 profile 的落盘状态也一并只读核对：9 条依赖全是绝对 `link:`（`~`/相对形态的读侧归一在本机 profile 上不会改变任何既有行为）、无本插件相关覆盖项、`state.json` 无墓碑、无残留 `package.json.lock`。
 
+### 发布 0.4.0（2026-10-10，用户授权）
+
+tag `dsh-local-plugin-manager-v0.4.0` → release workflow 全绿 → 三件发布后判据核对通过：registry 可读 `0.4.0`（其 `dshCompatibility.range`/`engines.dsh` 在 registry 侧确认为 `>=0.2.1-alpha.2 <0.2.2`）、`dist.attestations` 有 SLSA provenance、GitHub Release 已创建。**首次 tag 推送失败过一次**（漏同步 `package-lock.json`，见「踩坑与可复用技巧」最后一条），修好后把 tag 重新指向修复提交再推——那次失败下没有任何发布物（registry 仍是 0.3.0、无多余 Release），所以重指 tag 无副作用。
+
 ### 仍未覆盖 / 交接
 
 - **设置页「插件开发」分区的实机观感**（行、说明、图标、开关/弹窗外观与手感）：命令行只能拿到 401 判别码，页面观感请用户目视确认。
