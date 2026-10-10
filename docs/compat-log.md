@@ -28,7 +28,7 @@
 
 ## H1：L2 跨线 `dsh-auto-load-history` + `dsh-default-tuner`（2026-10-10）
 
-运行版本 `0.2.1-alpha.2`，上一验证线 `>=0.2.0-rc.2 <0.2.1`。两个插件**整体换线**到 `>=0.2.1-alpha.2 <0.2.2`（`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}`、清单 `['0.2.1-alpha.2']`）。**本轮不改版本号、不提交、不发版。**
+运行版本 `0.2.1-alpha.2`，上一验证线 `>=0.2.0-rc.2 <0.2.1`。两个插件**整体换线**到 `>=0.2.1-alpha.2 <0.2.2`（`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}`、清单 `['0.2.1-alpha.2']`）。换线轮本身不改版本号、不提交、不发版；**发布由用户在同一会话后续明确授权**（见本文末的「发布」小节）。
 
 ### 逐包 diff（`npm pack` 两版到 `/tmp/dsh-021-diff/{old,new}`，逐文件 sha256）
 
@@ -104,8 +104,22 @@ profile = `dsh-base` + `dsh-web-app` + 两个插件（`dsh plugin --profile web 
 - **extract-fn 类脚本要支持类方法**：`get(session)`/`refresh(...)` 是缩进的类方法，`^function` 型正则抓不到；这类符号改用"文件内行号 + diff hunk 区间"判断未触动更快（`get` 在 `:281`、第一个 hunk 在 `:350` → 未触及）。
 - **默认值要重读官方 patch 文件**：`dsh-base/cordis.patch.yml` 是这些「默认值」的真正来源，`Config` schema 里其实**没有**库默认值（两版都是 `.required()`）。上一轮文档里记的 4096/64/60000/5/10 是当时读到的，本轮必须重新读一遍。
 
+### 发布（2026-10-10，用户授权）
+
+用户随后明确授权「清掉整块 config、删除备份、提交代码和发版」，于是追加：
+
+- **提交**：`bf50a98 feat(dsh-auto-load-history): 跨到 0.2.1 发布线并发布 0.3.0`、`5d73d92 feat(dsh-default-tuner): 跨到 0.2.1 发布线并首发 0.2.0`、`627cc5e docs(repo): 记录两个插件跨到 0.2.1 发布线（H1）`。两个插件都没有运行时依赖、**没有 lockfile 需要同步**，因此跳过了 `npm install` 那一步。
+- **发版前查名**：`dsh-auto-load-history` 的 maintainer 是 `zhaoliang233`（已发布 0.2.0）；`dsh-default-tuner` 在 registry 上仍是 **404**（从未发布，新名可用）。
+- **`dsh-auto-load-history@0.3.0` 发布成功**（跨线走 minor：0.2.0 → 0.3.0）：tag `dsh-auto-load-history-v0.3.0` → workflow 全绿（1m41s）→ **三件发布后判据全过**：registry 可读到 `0.3.0`、`dist.attestations.provenance.predicateType = https://slsa.dev/provenance/v1`、GitHub Release `dsh-auto-load-history@0.3.0` 已创建（Latest）。
+- **`dsh-default-tuner@0.2.0` 首发被 npm 侧配置挡住**：tag `dsh-default-tuner-v0.2.0` 已推，workflow 在「发布到 npm」这一步以
+  `npm error 404 Not Found - PUT https://registry.npmjs.org/dsh-default-tuner` /
+  `The requested resource 'dsh-default-tuner@0.2.0' could not be found or you do not have permission to access it.` 失败（provenance 签名本身已成功，是 registry PUT 被拒）。原因：**该包名的 trusted publisher 还没在 npmjs.com 配置**——这一步只能用浏览器登录后做，CLI/agent 无法代劳。**影响面为零**：失败点在 npm publish，后面的「回查 registry」与「创建 GitHub Release」都没执行，所以 registry 上没有任何半成品（仍是 404）、也没有空 release；publisher 配好后用 workflow 的 `workflow_dispatch`（输入 tag `dsh-default-tuner-v0.2.0`）重跑即可，不必动 tag。
+- **真实宿主上的换线旁证**：用户在 15:08 前后重启了 `dsh web`（PID 68212 → 77003），因为 profile 用 `link:` 指向工作区源码，这次重启让本轮的换线**在真实环境生效**：`/dsh-default-tuner/status` 从 404 变 **401**（门内、路由已注册），而 `/dsh-local-plugin-manager/status`、`/dsh-extra-context/status` 仍是 401（前几轮 F1/G1 的基线），随机路径 404。
+- **用户 profile 的两步清理**（都不是插件代码改动）：① 把他 profile 补丁里 `session-title-llm` 的 `maxOutputTokens: 64` 改成 `4096`（= 继承层），`--dump-config` 退出码 0；② 随后按要求**清掉整块 config**（该条目的覆盖整段删除，手写的 `maxInputBytes: 5120` 一并回到官方 4096），`--dump-config` 确认该条目已完全来自 `@deepseek-ai/dsh-base`；备份文件按要求删除。
+
 ### 仍未覆盖 / 交接
 
+- **`dsh-default-tuner` 的首次发布**：只差用户在 npmjs.com 给 `dsh-default-tuner` 配 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流 `release.yml`）；配好后触发 `gh workflow run release.yml -f tag=dsh-default-tuner-v0.2.0`（或重推该 tag）即可，代码与 tag 都已就绪。
 - **ALH 的浏览器侧实机行为**（补齐到 `hasMore === false`、锚点稳定、defer 让位）本轮**没有重跑无头回归**——它在 0.2.0-rc.2 上跑过（见该插件 AGENTS 的实测表），本轮只做到"契约面逐行核对 + 版本门 + boot graph"。若要实机确认，按该插件 AGENTS 的「GUI 验证清单」在重启后的 3080 上目视即可。
 - **DDT 的客户端页面观感**（分区、折叠模块、Tag、按钮）本轮只做到"宿主路由 + 数据回执"，没开浏览器。
 - **其余 4 个插件仍在 `0.2.0` 线**（`dsh-chat-archive-manager`、`dsh-mcp-console`、`dsh-sticky-user-bubble`、`dsh-mobile-compat`）：在 `0.2.1-alpha.2` 上按版本门 inert，且都是 L3，各自需要独立会话。

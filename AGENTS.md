@@ -72,7 +72,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-10 起 `dsh-default-workspace`、`dsh-extra-context`（见 `docs/compat-log.md` 的 F1）与 `dsh-local-plugin-manager`（G1）已换到 `>=0.2.1-alpha.2 <0.2.2`，其余 6 个仍在 `>=0.2.0-rc.2 <0.2.1`：当前运行的 `0.2.1-alpha.2` 在前三个的门内，**在其余 6 个的门外（那 6 个眼下按版本门 inert）**——跨线必须逐插件单独开一轮，别一次全动。
+- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-10 起 `dsh-default-workspace`、`dsh-extra-context`（F1）、`dsh-local-plugin-manager`（G1）与 `dsh-auto-load-history`、`dsh-default-tuner`（H1）已换到 `>=0.2.1-alpha.2 <0.2.2`，其余 4 个仍在 `>=0.2.0-rc.2 <0.2.1`：当前运行的 `0.2.1-alpha.2` 在这 5 个的门内，**在其余 4 个的门外（那 4 个眼下按版本门 inert）**——跨线必须逐插件单独开一轮，别一次全动。
 - 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-tuner` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。**但版本门只作用于 Host 半体**：纯客户端插件的 client bundle 由 `dsh-client-modules` 按 `package.json#dsh.client` 直接进启动图（不看你 `apply()` 注册了什么），范围外照样在浏览器里跑——这类插件范围外的兜底只有客户端自己的能力检查（fail closed）与让用户先从 profile 移除；改版本门时别以为它顺手把 UI 也关掉了。`dsh-mobile-compat` 就是这类：宿主半体只有状态路由，门在 client bundle + `install.sh`。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
@@ -108,9 +108,9 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 |---|---|---|---|
 | L1 | `dsh-default-workspace` | `0.2.1` | 公开 `workspaceRegistry` + 一个 slot；唯一私有触碰是客户端 `workspaces` 的 `rename/delete/insertBefore` 补丁（fail closed、可摘除） |
 | L1 | `dsh-extra-context` | `0.2.1` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
-| L2 | `dsh-auto-load-history` | `0.2.0` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
+| L2 | `dsh-auto-load-history` | `0.2.1` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
 | L2 | `dsh-local-plugin-manager` | `0.2.1` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
-| L2 | `dsh-default-tuner` | `0.2.0` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到（原名 `dsh-default-overrides`） |
+| L2 | `dsh-default-tuner` | `0.2.1` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到（原名 `dsh-default-overrides`） |
 | L3 | `dsh-chat-archive-manager` | `0.2.0` | 3056 行 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
 | L3 | `dsh-mcp-console` | `0.2.0` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收（原名 `dsh-mcp-manager`） |
 | L3 | `dsh-sticky-user-bubble` | `0.2.0` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
@@ -153,9 +153,9 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 ## 发布与分发（npm / OIDC）
 
-7 个包已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token。**7 个包当前发布的版本**：`0.2.1` 线——`default-workspace` / `extra-context` = `0.3.0`、`local-plugin-manager` = `0.4.0`（均 2026-10-10 发布）；`0.2.0` 线——`auto-load-history` / `chat-archive-manager` / `sticky-user-bubble` = `0.2.0`、`mobile-compat` = `0.5.0`。三个发布后判据逐包核对通过：registry 可读到该版本、`dist.attestations` 有 SLSA provenance、GitHub Release 已创建。**打包形态的 `install.sh` 不在发布物里**（`files` 白名单不含它），所以改它不需要发版；改 `lib/`、`client.js`、`package.json` 或文档则要发新版本才生效。**跨线发版走 minor**（旧线用户被版本门挡在门外 = 破坏性变更，先例：`dsh-mobile-compat` 0.3.7→0.4.0、这三个包 0.2.0→0.3.0/0.4.0）。
+7 个包已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token。**7 个包当前发布的版本**：`0.2.1` 线——`default-workspace` / `extra-context` = `0.3.0`、`local-plugin-manager` = `0.4.0`、`auto-load-history` = `0.3.0`（均 2026-10-10 发布）；`0.2.0` 线——`chat-archive-manager` / `sticky-user-bubble` = `0.2.0`、`mobile-compat` = `0.5.0`。三个发布后判据逐包核对通过：registry 可读到该版本、`dist.attestations` 有 SLSA provenance、GitHub Release 已创建。**打包形态的 `install.sh` 不在发布物里**（`files` 白名单不含它），所以改它不需要发版；改 `lib/`、`client.js`、`package.json` 或文档则要发新版本才生效。**跨线发版走 minor**（旧线用户被版本门挡在门外 = 破坏性变更，先例：`dsh-mobile-compat` 0.3.7→0.4.0、这三个包 0.2.0→0.3.0/0.4.0、`dsh-auto-load-history` 0.2.0→0.3.0）。
 
-**发版前先确认包名归我们所有**（`npm view <包名> maintainers`）：2026-10-08 把这条从"阻塞"落成了"规则"——两个未发布插件的旧名当时都被别人占着（`dsh-mcp-manager` = 0.6.0、维护者 `nichts`，描述恰好也是「从 Web 设置页管理 DSH 的 MCP 服务器」，是最坏的一种撞名；`dsh-default-overrides` = 0.5.3、维护者 `chenwei116057`、Bash/PowerShell overrides），于是整体改名为 `dsh-mcp-console` 与 `dsh-default-tuner`，**新名同日实测未被占用**。所以：① 立项和发版前都先查名（撞名时 `add <包名>` 会装到别人的包上）；② 撞名就改名，落点清单见两个插件各自的 `AGENTS.md`，**不要**在撞名的包上 bump 版本打 tag——那会在 workflow 里以无权限失败并留下一个空 release；③ 改完还要到 npmjs.com 给新包名配一次 trusted publisher。两个插件**都已跨到 0.2.0 线**，当前走本地 `link:` 路线。
+**发版前先确认包名归我们所有**（`npm view <包名> maintainers`）：2026-10-08 把这条从"阻塞"落成了"规则"——两个未发布插件的旧名当时都被别人占着（`dsh-mcp-manager` = 0.6.0、维护者 `nichts`，描述恰好也是「从 Web 设置页管理 DSH 的 MCP 服务器」，是最坏的一种撞名；`dsh-default-overrides` = 0.5.3、维护者 `chenwei116057`、Bash/PowerShell overrides），于是整体改名为 `dsh-mcp-console` 与 `dsh-default-tuner`，**新名同日实测未被占用**。所以：① 立项和发版前都先查名（撞名时 `add <包名>` 会装到别人的包上）；② 撞名就改名，落点清单见两个插件各自的 `AGENTS.md`，**不要**在撞名的包上 bump 版本打 tag——那会在 workflow 里以无权限失败并留下一个空 release；③ 改完还要到 npmjs.com 给新包名配一次 trusted publisher——**这一步无法用 CLI 代劳，也不存在"包还不存在所以配不了"的例外**：2026-10-10 给 `dsh-default-tuner` 打 tag（`dsh-default-tuner-v0.2.0`）时，`npm publish` 在 workflow 里以 `E404 Not Found - PUT https://registry.npmjs.org/dsh-default-tuner` 失败，就是 publisher 还没配；失败点在 npm publish 这一步，所以**不会**留下空 release、registry 上也没有半成品（可用 `workflow_dispatch` 手动重跑该 tag）。`dsh-mcp-console` 与 `dsh-default-tuner` 都已跨到 0.2.1 线，当前走本地 `link:` 路线，发布只差配 publisher 这一步。
 
 - 发布流程：改 `package.json#version` → 写 `CHANGELOG.md` 条目 → 跑该插件的 `npm run publish:check` → `git tag dsh-<插件>-v<版本>` → `git push origin HEAD && git push origin dsh-<插件>-v<版本>`。tag 必须与 `package.json#version` 完全一致；工作流还会拒绝 `private: true` 的包，并在发布后回查 registry。
 - 发版必须由用户明确授权：`commit`/`tag`/`push` 都属「提交规范」里的受限操作（只读检查不受限）。

@@ -50,6 +50,8 @@
 
 改动：`lib/index.js` 的四个常量（`DSH_RELEASE_LINE='0.2.1'` + `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` + 清单 `['0.2.1-alpha.2']`）、`install.sh` 的五个常量与一处注释、`package.json`/`engines.dsh`/`README.md` 的兼容段、`test/version-gate.test.js` 的 13 档矩阵（下界换 channel 后必须覆盖两条新判据：`beta`/`rc` 放行、`alpha.1` 挡住）与四处同源断言，外加上面那条默认值文案同步。**插件业务逻辑一字未改**。
 
+**发布（2026-10-10，用户授权）**：`package.json` bump 到 `0.2.0`（首次发布；跨线按惯例走 minor），CHANGELOG 写了 `[0.2.0]` 条目并把原先的「未发布（2026-10-08 改名）」并入首发说明；`publish:check` 44 项 + tarball 8 文件全绿；commit `5d73d92`，tag `dsh-default-tuner-v0.2.0` 已推送。**workflow 在「发布到 npm」这一步失败**：`npm error 404 Not Found - PUT https://registry.npmjs.org/dsh-default-tuner` / `The requested resource 'dsh-default-tuner@0.2.0' could not be found or you do not have permission to access it.`（provenance 签名本身成功，是 registry PUT 被拒）。原因是该包名的 **trusted publisher 还没在 npmjs.com 配置**——首次发布也必须先配，这一步只能用浏览器登录后做，CLI 与 agent 都代劳不了。**没有任何残留**：失败点在 npm publish，后面的「回查 registry」与「创建 GitHub Release」都没执行（registry 上仍是 404、也没有空 release）。用户在 npmjs.com 配好 publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流 `release.yml`）后，用 `gh workflow run release.yml -f tag=dsh-default-tuner-v0.2.0` 重跑即可，不必动 tag。
+
 **`0.2.0-rc.2`（2026-10-01 跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，跨线是立项而不是例行检查。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装）后，本插件点名的契约面**逐条在 0.2.0-rc.2 的实际安装包里重读**（行号取自 0.2.0-rc.2）：
 
 | 契约项 | 0.2.0-rc.2 现状（读的是实际安装包，不是 CHANGELOG） |
