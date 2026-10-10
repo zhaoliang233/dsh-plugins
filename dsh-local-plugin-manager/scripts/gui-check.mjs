@@ -21,6 +21,8 @@
 
 import { readFile } from 'node:fs/promises'
 
+import { isMap, isSeq, parseDocument } from 'yaml'
+
 const args = process.argv.slice(2)
 const option = (name, fallback) => {
   const index = args.indexOf(`--${name}`)
@@ -149,20 +151,31 @@ const clickSwitch = (name) => `(() => {
   return before
 })()`
 
-const countOverrides = (text, name) => (text.match(new RegExp(`id: ${name}\\b`, 'gu')) ?? []).length
+/**
+ * 该行在 patch 文本里的**顶层、不带 `insert`** 覆盖项条目。
+ *
+ * 必须用真正的 YAML 解析（而不是逐行正则）：`yaml` 库给「流式空序列」追加条目时会写出
+ * 流式 YAML（`[ { id: x, disabled: true } ]`），且 `!!js` 表达式也要能解析。这不是本包
+ * 的分歧——官方 `writePluginEnabled` 是同一段操作 + 同一份 `yaml@2.9.1`，实测逐字输出相同
+ * （空 patch 上追加第一条覆盖项时也会写成流式），所以断言只能度量语义，不能度量排版。
+ */
+function overrideEntries(text, name) {
+  const document = parseDocument(text, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value) => value }] })
+  if (document.errors.length > 0) throw new Error(`patch 不是有效 YAML：${document.errors[0].message}`)
+  if (!isSeq(document.contents)) throw new Error('patch 必须是顶层 YAML 数组')
+  return document.contents.items.filter(
+    (item) => isMap(item) && item.has('insert') === false && item.get('id') === name
+  )
+}
+
+const countOverrides = (text, name) => overrideEntries(text, name).length
 
 /** 该行在 patch 文本里最后一条顶层覆盖项的 disabled 值；没有覆盖项时返回 null。 */
 const lastOverrideDisabled = (text, name) => {
-  const lines = text.split('\n')
-  const starts = lines.flatMap((line, index) => (/^-\s/u.test(line) ? [index] : []))
-  let value = null
-  for (const start of starts) {
-    if (lines[start].trim() !== `- id: ${name}`) continue
-    const end = starts.find((index) => index > start) ?? lines.length
-    const disabled = lines.slice(start + 1, end).find((line) => /^\s+disabled:\s+(?:true|false)\s*$/u.test(line))
-    value = disabled === undefined ? null : /\btrue\s*$/u.test(disabled)
-  }
-  return value
+  const last = overrideEntries(text, name).at(-1)
+  if (last === undefined) return null
+  const value = last.get('disabled')
+  return typeof value === 'boolean' ? value : null
 }
 
 const cdp = await connect()

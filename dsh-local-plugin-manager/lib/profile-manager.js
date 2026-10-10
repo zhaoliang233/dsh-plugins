@@ -25,18 +25,18 @@ export const PLUGIN_NAME = 'dsh-local-plugin-manager'
  * 兼容发布线。与 `package.json#dshCompatibility.range` / `engines.dsh` /
  * `install.sh` 的 `DSH_COMPATIBILITY_RANGE` **同源**。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.0-rc.2 <0.2.1'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
 /** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
-export const DSH_RELEASE_LINE = '0.2.0'
+export const DSH_RELEASE_LINE = '0.2.1'
 /**
- * 兼容线下界（`0.2.0-rc.2`）：同线内更低 channel（alpha/beta）或更小序列号
- * 的 rc 都低于下界，判为不支持。跨线时只改这三个常量，判定逻辑不用动。
+ * 兼容线下界（`0.2.1-alpha.2`）：同线内更低 channel（本线里 beta/rc 更高，所以只可能是
+ * 更小的 alpha 序列号）都低于下界，判为不支持。跨线时只改这三个常量，判定逻辑不用动。
  */
-export const DSH_RELEASE_FLOOR = { channel: 'rc', sequence: 2 }
+export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
 /** prerelease channel 的先后顺序；下标即优先级。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.0-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
 export const DEFAULT_PROFILE = 'web'
 
 // state.json 只保留卸载墓碑；禁用状态的真源是 profile patch 的覆盖项本身。
@@ -74,7 +74,7 @@ function normalizeDescription(value) {
  * 判定 DSH 版本是否落在已核对契约的兼容线内。
  *
  * 只按版本号形状判定，不猜「看起来差不多」的版本：正式版与
- * `0.2.0-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律
+ * `0.2.1-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律
  * `supported: false`。
  * @param {unknown} version
  * @returns {{supported: boolean, verified: boolean, normalized?: string}}
@@ -235,9 +235,27 @@ function withinDirectory(root, candidate) {
   return delta === '' || (!delta.startsWith(`..${sep}`) && delta !== '..' && !isAbsolute(delta))
 }
 
+/**
+ * 定位 `link:` 依赖记录的源码目录。
+ *
+ * pnpm 原样记录 `dsh plugin add` 收到的路径，所以 profile 里可能是绝对路径、
+ * 相对 profile 目录的路径，或 `~/` 开头的 home 路径（2026-10-10 实测 pnpm 12.6.0：
+ * `link:../src/foo` 记成 `link:../src/foo`，`link:~/x` 也原样记下）。归一方式与官方
+ * `@deepseek-ai/dsh-plugin-manager` 的 `dependencySpec()` 一致：先把行首 `~` 换成 home，
+ * 再按 profile 目录解析相对路径。
+ * @param {string} profileDir profile 目录（pnpm 记录相对路径时的基准）
+ * @param {string} target `link:` 后面记录的路径
+ * @param {string} [home] 测试注入点；默认取真实 home
+ * @returns {string} 归一后的绝对路径（不保证存在）
+ */
+export function resolveRecordedLocalPath(profileDir, target, home = homedir()) {
+  const expanded = target.replace(/^~(?=$|[\\/])/u, () => home)
+  return resolve(profileDir, expanded)
+}
+
 async function inspectLocalPackage(profileDir, name, spec, profileBundles) {
   const target = spec.slice('link:'.length)
-  const lexicalPath = resolve(profileDir, target)
+  const lexicalPath = resolveRecordedLocalPath(profileDir, target)
   let sourcePath
   try {
     sourcePath = await realpath(lexicalPath)

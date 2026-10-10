@@ -8,7 +8,7 @@
 
 - 列出当前 profile 里所有 `link:` 挂载的本地源码插件：名称、插件自己的 `package.json#description`（最多两行，悬停看全文；缺失时显示灰色「未提供说明」）、版本与源码路径。
 - 行 id 与包名不同、或一个包贡献了多条 loader 行时，额外显示它在 loader 树里的行 id，方便直接对照 profile 的 `cordis.patch.yml`。
-- 持久化启用 / 禁用状态，切换后由 Host 通过 profile 的 live patch reload 热生效。
+- 持久化启用 / 禁用状态，切换后由 Host 监听 profile 的 patch 与 manifest 变化热生效。
 - 从 profile 移除本地 link 插件：移除前先检查用户 patch 是否仍通过 `insert` 引用目标包，存在引用时拒绝操作；成功后重新读取 manifest，确认依赖与 bundle 层都已移除。
 - 管理器自身只读保护，避免从自己的面板里关掉或卸载恢复入口。
 - 只管理 bundle patch 完全由带稳定 id 的 `insert` 条目组成的插件；会改写既有条目的复杂 bundle 显示为不可管理，避免出现「只关掉一半」的假状态。
@@ -25,16 +25,16 @@
 
 ## 要求
 
-- DeepSeek Harness Web `>=0.2.0-rc.2 <0.2.1`；`0.2.0-rc.2` 已逐版本验证。同一 `0.2.0` 发布线内的其他 alpha/beta/rc/正式版允许启动，未列入逐版本验证清单时给出警告，并继续由 profile 结构、bundle patch、Loader 方法与 Settings Slot 等运行时能力检查 fail closed；跨到 `0.2.1` 或其他发布线前必须先重新核对契约。
+- DeepSeek Harness Web `>=0.2.1-alpha.2 <0.2.2`；`0.2.1-alpha.2` 已逐版本验证。同一 `0.2.1` 发布线内的其他 alpha/beta/rc/正式版允许启动，未列入逐版本验证清单时给出警告，并继续由 profile 结构、bundle patch、Loader 方法与 Settings Slot 等运行时能力检查 fail closed；跨到 `0.2.2` 或其他发布线前必须先重新核对契约。
 - `web` profile。
 - Node.js 20 或更高版本。
 
 ## 安装与卸载
 
 ```bash
-dsh plugin --profile web add dsh-local-plugin-manager        # 安装
-dsh plugin --profile web add dsh-local-plugin-manager@0.2.1  # 升级到指定版本
-dsh plugin --profile web remove dsh-local-plugin-manager     # 卸载
+dsh plugin --profile web add dsh-local-plugin-manager          # 安装 / 升到 caret 范围内的最新版
+dsh plugin --profile web add dsh-local-plugin-manager@<版本>   # 升级必须显式写版本号
+dsh plugin --profile web remove dsh-local-plugin-manager       # 卸载
 ```
 
 已发布为 [`dsh-local-plugin-manager`](https://www.npmjs.com/package/dsh-local-plugin-manager)。profile 依赖是 caret 范围，升级需要显式写版本号。安装会向 profile 增加 bundle，而 bundle 列表只在启动时读取，因此**需要重启 `dsh web` 并刷新页面**，之后打开「设置 > 插件开发」。
@@ -52,7 +52,7 @@ dsh plugin --profile web remove dsh-local-plugin-manager     # 卸载
 
 管理器只改这一批覆盖项，patch 里的其他内容（例如 Figma / Jira MCP 的 `insert` 区块、注释、`!!js` 表达式）按字节保留。
 
-`web` profile 的 `patchReload: live` 会让配置变化热生效，页面无需重载；带浏览器半体的插件可能仍需要刷新页面同步 UI。若这次变化没有热生效，管理器会提示重启，状态也会在下次 `dsh web` 启动时生效。
+`web` profile 下 DSH 会监听 profile 的 `cordis.patch.yml`、home 级 patch 与 profile manifest，配置变化热生效，页面无需重载；带浏览器半体的插件可能仍需要刷新页面同步 UI。若这次变化没有热生效，管理器会提示重启，状态也会在下次 `dsh web` 启动时生效。
 
 home 级 patch（`~/.dsh/cordis.patch.yml`）优先级高于 profile patch，因此它若控制同一个 loader 行，管理器会显示冲突并拒绝写入一个无效开关。
 

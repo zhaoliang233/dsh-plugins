@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join, relative } from 'node:path'
 import test from 'node:test'
 
 import { nextPatchText, pruneRowOverrides } from '../lib/patch-writer.js'
@@ -12,10 +12,11 @@ import {
   LocalPluginProfile,
   classifyDshVersion,
   resolveCurrentDshRuntime,
+  resolveRecordedLocalPath,
   runDshPluginRemove
 } from '../lib/profile-manager.js'
 
-const TEST_DSH_VERSION = '0.2.0-rc.2'
+const TEST_DSH_VERSION = '0.2.1-alpha.2'
 const FIGMA_PATCH = `# Your patch layer\n# >>> Figma Desktop MCP\n- insert:\n    - id: mcp-figma-desktop\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: figma\n# <<< Figma Desktop MCP\n`
 const ROW = { id: 'dsh-demo-local', name: 'dsh-demo-local' }
 
@@ -173,6 +174,32 @@ test('lists link bundles and protects source paths as server-owned facts', async
   assert.equal(plugin.enabled, true)
   assert.equal(plugin.status, 'enabled')
   assert.equal(plugin.canDisable, true)
+})
+
+test('normalizes every link: form pnpm records, like the official dependencySpec()', () => {
+  const profileDir = '/tmp/probe/.dsh/profiles/web'
+  assert.equal(resolveRecordedLocalPath(profileDir, '/Users/someone/src/plugin', '/home/u'), '/Users/someone/src/plugin')
+  // pnpm 原样记录 add 时收到的路径：相对路径以 profile 目录为基准。
+  assert.equal(resolveRecordedLocalPath(profileDir, '../src/plugin', '/home/u'), '/tmp/probe/.dsh/profiles/src/plugin')
+  assert.equal(resolveRecordedLocalPath(profileDir, '~/plugins/foo', '/home/u'), '/home/u/plugins/foo')
+  assert.equal(resolveRecordedLocalPath(profileDir, '~', '/home/u'), '/home/u')
+  // 官方那条正则只在 `~` 后是结尾或分隔符时替换，所以 `~foo` 仍按相对路径解析。
+  assert.equal(resolveRecordedLocalPath(profileDir, '~foo', '/home/u'), '/tmp/probe/.dsh/profiles/web/~foo')
+  assert.equal(resolveRecordedLocalPath(profileDir, '~/.dsh/plugins/foo'), join(homedir(), '.dsh/plugins/foo'))
+})
+
+test('lists a plugin whose recorded dependency is a relative link path', async (t) => {
+  const fixture = await createFixture()
+  t.after(() => fixture.cleanup())
+  const manifestPath = join(fixture.profileDir, 'package.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  const sourceDir = join(fixture.root, 'sources', 'dsh-demo-local')
+  manifest.dependencies['dsh-demo-local'] = `link:${relative(fixture.profileDir, sourceDir)}`
+  await writeJson(manifestPath, manifest)
+
+  const plugin = pluginByName(await fixture.profile.list())
+  assert.equal(plugin.manageable, true)
+  assert.equal(plugin.path, await realpath(sourceDir))
 })
 
 test('publishes one bounded single-line description per plugin', async (t) => {
@@ -473,32 +500,38 @@ test('force-kills a hung uninstall command after its timeout', async (t) => {
 })
 
 test('accepts the compatible DSH release line and rejects adjacent lines', () => {
-  assert.deepEqual(classifyDshVersion('0.2.0-rc.2+build.1'), {
+  assert.deepEqual(classifyDshVersion('0.2.1-alpha.2+build.1'), {
     supported: true,
     verified: true,
-    normalized: '0.2.0-rc.2'
+    normalized: '0.2.1-alpha.2'
   })
-  // 0.2.0-rc.2 是当前的逐版本验证版本：本插件用到的契约包逐个核过
-  // （profile patch 事务与写锁、webServer、requestRejection、settings.section、
-  // include 行 id 与 EntryTree.sep）。同线内其它版本仍允许启动，但只给一条告警，
-  // 运行时的结构与能力检查继续 fail closed。
-  assert.deepEqual(classifyDshVersion('0.2.0-rc.3'), {
+  // 0.2.1-alpha.2 是当前的逐版本验证版本：本插件用到的契约包逐个核过
+  // （profile patch 事务与写锁、官方 removeBundle 语义、webServer、requestRejection、
+  // settings.section、include 行 id 与 EntryTree.sep、dsh-hmr 的 profile 重组与清单缓存）。
+  // 同线内其它版本仍允许启动，但只给一条告警，运行时的结构与能力检查继续 fail closed。
+  assert.deepEqual(classifyDshVersion('0.2.1-alpha.3'), {
     supported: true,
     verified: false,
-    normalized: '0.2.0-rc.3'
+    normalized: '0.2.1-alpha.3'
   })
-  // 下界是 rc：同线内 alpha/beta 与更小的 rc 序列号一律在门外，正式版在门内。
-  assert.equal(classifyDshVersion('0.2.0-alpha.1').supported, false)
-  assert.equal(classifyDshVersion('0.2.0-beta.9').supported, false)
-  assert.equal(classifyDshVersion('0.2.0-rc.1').supported, false)
-  assert.equal(classifyDshVersion('0.2.0').supported, true)
-  assert.equal(classifyDshVersion('0.2.0').verified, false)
-  // 相邻发布线一律拒绝：上一线的用户留在上一线的插件版本上。
-  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false)
-  assert.equal(classifyDshVersion('0.1.7').supported, false)
+  assert.deepEqual(classifyDshVersion('0.2.1-beta.1'), {
+    supported: true,
+    verified: false,
+    normalized: '0.2.1-beta.1'
+  })
+  // 下界是 alpha.2：同线内 beta/rc 与正式版都在门内，更小的 alpha 序列号在门外。
   assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false)
+  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true)
+  assert.equal(classifyDshVersion('0.2.1-rc.1').verified, false)
+  assert.equal(classifyDshVersion('0.2.1').supported, true)
+  assert.equal(classifyDshVersion('0.2.1').verified, false)
+  // 相邻发布线一律拒绝：上一线的用户留在上一线的插件版本上。
+  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false)
+  assert.equal(classifyDshVersion('0.2.0').supported, false)
+  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false)
+  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false)
   assert.equal(classifyDshVersion('invalid').supported, false)
-  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.0-rc.2 <0.2.1')
+  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.1-alpha.2 <0.2.2')
 })
 
 test('resolves and classifies the running DSH package', async (t) => {

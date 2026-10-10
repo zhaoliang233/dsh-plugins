@@ -1,6 +1,6 @@
 {
   "name": "dsh-local-plugin-manager",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
@@ -31,9 +31,9 @@
   "dshCompatibility": {
     "policy": "compatible-release-line",
     "package": "@deepseek-ai/dsh",
-    "range": ">=0.2.0-rc.2 <0.2.1",
+    "range": ">=0.2.1-alpha.2 <0.2.2",
     "verifiedVersions": [
-      "0.2.0-rc.2"
+      "0.2.1-alpha.2"
     ],
     "futureVersionsRequireCapabilityChecks": true
   },
@@ -46,20 +46,21 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check lib/patch-writer.js && node --check lib/errors.js && node --check client.js && node --check scripts/check-pack.js && node --check scripts/gui-check.mjs && bash -n install.sh && bash -n uninstall.sh",
+    "check": "node --check lib/index.js && node --check lib/profile-manager.js && node --check lib/patch-writer.js && node --check lib/errors.js && node --check client.js && node --check scripts/check-pack.js && node --check scripts/gui-check.mjs && node --check scripts/e2e-remove-reinstall.mjs && bash -n install.sh && bash -n uninstall.sh",
     "test": "node --test test/*.test.js",
     "verify": "npm run check && npm test",
     "pack:check": "node scripts/check-pack.js",
     "publish:check": "npm run verify && npm run pack:check",
     "gui:check": "node scripts/gui-check.mjs",
+    "e2e:check": "node scripts/e2e-remove-reinstall.mjs",
     "prepublishOnly": "npm run publish:check"
   },
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.2.0-rc.2 <0.2.1"
+    "dsh": ">=0.2.1-alpha.2 <0.2.2"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-atomic-write": "~0.2.0-rc.2",
+    "@deepseek-ai/dsh-atomic-write": "~0.2.1-alpha.2",
     "yaml": "^2.9.0"
   },
   "publishConfig": {

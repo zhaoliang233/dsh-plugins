@@ -2,6 +2,19 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.4.0] - 2026-10-10
+
+### 变更
+
+- **兼容发布线从 `>=0.2.0-rc.2 <0.2.1` 跨到 `>=0.2.1-alpha.2 <0.2.2`**：本包点名的契约面在 `0.2.1-alpha.2` 的实际安装包里逐项重读，其中三处新结构逐行核对——官方新增的 `dependencySpec()`（把 profile 记录的 `file:`/`link:` 值归一成绝对路径）、`dsh-app-boot` 放宽的运行时替换校验（profile 映射与 `localPackageNames` 允许移除，卸载一个 `link:` 插件终于能进程内生效）、`dsh-hmr` 新增的 `package.json` 缓存失效（非 `node_modules` 的清单变化时清 Node 内部缓存）。官方 `writePluginEnabled`、profile 写锁、`include:<rowId>` 行 id、`reconcileProfilePatches`、`settings.section` 声明、`webServer.register` 与 `requestRejection` 等其余契约逐字相同或语义不变。跨到 `0.2.2` 之前必须重新读取 DSH 源码与实时契约。
+- **读侧按官方的 `dependencySpec()` 归一 `link:` 的记录形态**：pnpm 会原样记录 `link:../相对路径` 或 `link:~/…`（实测 pnpm 12.6.0），而管理器此前只按 profile 目录解析相对路径，`~` 形态会被判成「本地链接目标不可用」因而不可管理；现在 `resolveRecordedLocalPath()` 与官方同一套规则（行首 `~` 换 home，再按 profile 目录解析）。
+- 运行时依赖 `@deepseek-ai/dsh-atomic-write` 由 `~0.2.0-rc.2` 升到 `~0.2.1-alpha.2`：两版 lib 逐字相同（锁路径与提交语义都没变），升级只是让**写锁与宿主用同一条线的实现**。
+- 新增 `scripts/e2e-remove-reinstall.mjs`（`npm run e2e:check`）：隔离宿主上把「用设置页摘除一个 `link:` 插件，再从官方插件页装回来」跑成 24 项断言（manifest / 面板 / boot graph + patch 覆盖项 + 卸载墓碑）。脚本不进发布物。
+
+### 修复
+
+- `scripts/gui-check.mjs` 的 profile patch 断言改用真正的 YAML 解析：空 patch（注释 + `[]`）上追加第一条覆盖项时 `yaml` 会写出流式 YAML `[ { id: x, disabled: true } ]`，逐行正则会把语义完全正确的写入判成失败。已用官方那份 `yaml@2.9.1` 复现，两版输出**逐字相同**，所以这是排版差异、不是与官方的分歧。
+
 ## [0.3.0] - 2026-10-01
 
 ### 变更
