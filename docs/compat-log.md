@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| H1（2026-10-10） | `0.2.1-alpha.2` | L2 两个插件 `dsh-auto-load-history` + `dsh-default-tuner` 换到 `>=0.2.1-alpha.2 <0.2.2`：28 个契约包两版逐文件 sha256 比对（new 侧与运行安装全树逐字一致）；`configEditor`/`eventSource`/`register()`/锚点标记等契约面全部成立；唯一实质修复是官方默认值漂移（`maxOutputTokens` 64→4096）与随之的两处文案；隔离宿主上 DDT 的 `/status` 由 404 变 401→200（ALH 无 Host 路由，另证） |
 | G1（2026-10-10） | `0.2.1-alpha.2` | L2 插件 `dsh-local-plugin-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：三处新结构（官方 `dependencySpec()`、`dsh-app-boot` 的运行时替换校验放宽、`dsh-hmr` 的 `package.json` 缓存失效）逐行有证据；业务逻辑只改了读侧 `link:` 记录形态归一；新增端到端脚本，隔离宿主上跑通「设置页摘除一个 `link:` 插件 → 官方插件页装回」**24 项全过** |
 | F1（2026-10-10） | `0.2.1-alpha.2` | L1 两个插件 `dsh-default-workspace` + `dsh-extra-context` 整体换到 `>=0.2.1-alpha.2 <0.2.2`（换线不是放宽上界）；逐包 diff 后契约面只有 `uiWorkspace.startSession` 变了（单参数=总是新建空白会话），已按 `{clearPreviousDraft:false}` 保住复用语义；换线前两条 `/status` 404、换线后 200 |
 | E1（2026-10-08，改名） | `0.2.0-rc.2` | 两个未发布插件在 npm 上撞名，整体改名：`dsh-mcp-manager` → `dsh-mcp-console`、`dsh-default-overrides` → `dsh-default-tuner`（新名同日实测未被占用）；包名/条目 id/bundle 注册名/设置条目 id/路由与头名/内部前缀/文档同步，**功能与版本号未动**，两包 `publish:check` 全绿；本机 web profile 已切到新名 |
@@ -22,6 +23,92 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## H1：L2 跨线 `dsh-auto-load-history` + `dsh-default-tuner`（2026-10-10）
+
+运行版本 `0.2.1-alpha.2`，上一验证线 `>=0.2.0-rc.2 <0.2.1`。两个插件**整体换线**到 `>=0.2.1-alpha.2 <0.2.2`（`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}`、清单 `['0.2.1-alpha.2']`）。**本轮不改版本号、不提交、不发版。**
+
+### 逐包 diff（`npm pack` 两版到 `/tmp/dsh-021-diff/{old,new}`，逐文件 sha256）
+
+28 个契约包 × 2 版，先自证：**new 侧 28 个包的整棵树与运行安装 `diff -rq` 全部逐字一致**（0 差异），再开始比较。命中的包与规模（`+`/`−` 行）：
+
+| 包 | 规模 | lib 真正动了什么 |
+|---|---|---|
+| `dsh-client-ui-chat` | +6489/−5060 | 11.5k 行 diff，但**锚点那几段是纯位置搬移**（`+4903/-7767` 同一段代码） |
+| `dsh-client-ui-conversation` | +8057/−3222 | 大量无关区域；slot 声明/渲染/scrollport 零触及 |
+| `dsh-client-ui-primitives` | +438/−311 | 导出表只新增 `CommandText`/`InlineEditor` |
+| `dsh-client-ui-workspace` | +706/−20 | 与两个插件无关 |
+| `dsh-api-session-controller/lib/client.js` | +666/−20 | 会话 API 零改动行命中 |
+| `dsh-client-connection/lib/index.js` | +94/−38 | `requestRejection` 零改动行命中 |
+| `dsh-host-webserver/lib/index.js` | +207/−63 | `register(route)` 逐字相同 |
+| `dsh-app-boot/lib/index.js` | +199/−43 | 关键四函数逐字相同，`loadProfileDirectory` 只多一层 `dropRetiredBundles` |
+| `dsh-session` | +136/−20 | `get(id)`/`list()` 逐字未变 |
+| `dsh-session-title` | 3 hunk | `get`/`refresh` 位置与函数体未变（改的是 `register` 的 closing 判定、一处边界、`generate` 的新入参） |
+| `dsh-session-title-first-prompt-llm` | +91/−8 | **整包重写**（`Config` 字段本地化、`apply()` 改 `ctx.sessionTitle.register`），但白名单要的 5 个字段仍全 required |
+| `dsh-session-title-llm` | +60/−81 | `frameMessages` 移到 first-prompt 包；超限文案逐字相同 |
+| `dsh-session-projection` | 2 hunk | `register()` 返回值写法变了，`stateOf` 未动 |
+| `cordis-plugin-loader` | 2 hunk | 新增 `moduleNamespace` 字段（HMR 用） |
+
+**逐字相同**（整包 `lib/` 0 差异）：`dsh-config-editor`、`dsh-atomic-write`、`cordis`、`schemastery`、`dsh-settings`、`dsh-client-ui-slots`、`dsh-client-store`、`dsh-client-ui-settings`。
+
+### 两个插件的契约判定（都是**成立**，业务代码一字未改）
+
+**`dsh-auto-load-history`**（L2：会话 API + 一处 `scrollTop` 锚点补偿）：上表 10 行契约逐个重读成立——`loadOlder`/`loadThrough` 的**签名、实现与 JUMP 页选项逐字相同**（`session.js` 整个文件 sha256 一致）、`SessionSnapshot` 四字段零改动行命中、`SessionBinding`（`sessionId`/`session`/`eventSource`/`ctx`）逐字相同、slot 声明 `{kind:'list',scope:'session'}` 与渲染点逐字相同、`sessionId` 座位逐字相同、`bindInjectSources`/`locale` 零触及、`[data-conversation-scroll]` 与 `data-chat-anchor-key`/`data-turn-tail` 计数与内容集合一致、**「加载更早」按钮渲染块逐字相同**（行号 `:5271` → `:3635`）。
+
+**`dsh-default-tuner`**（L2：`configEditor` 事务 + 隔离宿主）：`dsh-config-editor` 整个文件逐字相同（写坏 profile 的那条链未动）、`dsh-atomic-write`/`cordis`/`schemastery` 逐字相同、`cordis-plugin-loader` 只多一个 HMR 字段且 `unwrapExports`/`registry.plugin(config)` 调用未变、`dsh-app-boot` 的 `composeEntries`/`readProfilePatches`/`reconcileProfilePatches`/`readProfileManifest` 函数体逐字相同、目标条目 8 个字段仍全是 required 顶层字段、超限文案逐字相同、`titleInput` 投影（`stateVersion:3`、`{seq,text}`）逐字相同、`sessionTitle.get/refresh` 与 `sessions.get/list` 未变、`host-webserver.register`/`client-connection.requestRejection` 未变、`order` 上限仍是 100/20（插件 110 安全）。
+
+### 本轮唯一的实质修复：官方默认值漂移
+
+`dsh-base/cordis.patch.yml` 把 `session-title-llm` 的 **`maxOutputTokens` 从 `64` 改成 `4096`**（其余 7 个字段默认值未变）。插件里硬编码了「默认 64」的**用户可见文案**随之失真：`dsh-default-tuner/lib/overrides.js` 的字段提示 + `README.md` 的默认值表格——两处都同步成 4096。**教训：默认值属于"官方随时会调"的数据，跨线时必须重读 `dsh-base/cordis.patch.yml`，别信自己上一轮的记录。**
+
+### 隔离宿主实测（`DSH_HOME` 独立、端口 3099、受管 background job；用户的 3080 全程未触碰，验证后已停）
+
+profile = `dsh-base` + `dsh-web-app` + 两个插件（`dsh plugin --profile web add link:<目录>` 自动初始化），对照组是 `git archive HEAD` 出来的换线前副本：
+
+| 判据 | 换线前 | 换线后 |
+|---|---|---|
+| `/dsh-default-tuner/status`（无认证） | **404**（与随机路径同码 = 零注册） | **401**（路由已注册） |
+| `/dsh-default-tuner/action`（无认证 / 无 CSRF） | — | **401** / **403** |
+| `/dsh-default-tuner/status`（cookie + `x-dsh-default-tuner-client: 1`） | — | **200**（`ok:true`、`totalEntries:187`、两条目 `writable:true`） |
+| `/dsh-auto-load-history/status` | 404 | 404（**该插件没有 Host 路由**，见下） |
+| 随机路径 / 随机 POST | 404 | 404 / 405 |
+| boot graph 里两个 client bundle | — | 各 4 处（id/url/rev/inject） |
+
+- **ALH 的路由判别码不适用**：纯客户端插件的 Host 半体只做版本门、从不注册路由（AGENTS「边界」一节写明），所以它换线前后都是 404。等价证据：用真实运行版本调 `classifyDshVersion('0.2.1-alpha.2')` → `{supported:true,verified:true}` 且 `applyForVersion` **零告警**，门外对照 `0.2.0-rc.2` 打出 `… is outside >=0.2.1-alpha.2 <0.2.2; plugin remains inert`。
+- **DDT 写路径端到端**（同一隔离宿主）：`apply maxInputBytes=8192` → 200、补丁追加整块 config（含 `maxOutputTokens: 4096`）、**块外注释保留**；`reset` → 200、生效值回到 4096。回执里 8 个字段的实际默认值也一并核对：4096 / **4096** / 60000 / 5 / 10 与 80 / 5 / 40。
+
+### 顺带发现：`configEditor` 的一个注释边界（与 DSH 版本无关）
+
+隔离宿主的 reset 实验里，补丁文件的**顶部注释消失了**（217 字节 → 3 字节 `[]`）。定位过程与根因：
+
+1. 先用运行安装里的 `yaml@2.9.1` 做最小复现（`add` → `row.delete('config')` → `document.delete(0)`）→ **注释保留**，与观测不符；
+2. 意识到要**用真实文件**（`apply` 后写出的那份）复现 → **注释丢失**，与观测一致；
+3. 根因：`parseDocument('# 注释\n[]\n')` 把注释挂在 **`contents.commentBefore`**（空数组节点上），而 `parseDocument('# 注释\n- id: …')` 把同一段注释挂在**第一个条目**上。`edit()` 每次都重新解析文件，于是「注释 + 条目 → 删掉唯一条目」这一步会把注释一起删掉。
+
+即：**当补丁里只有这一个条目时，「恢复默认」/「清除整块覆盖」会连带删掉块外注释**；补丁里还有别的条目时注释仍在。这是官方 `configEditor.edit()` + `yaml` 的既有行为（两版 `dsh-config-editor` 逐字相同、`yaml@2.9.1` 同版），插件不自己写文件、无法干预——已订正 `dsh-default-tuner/AGENTS.md` 的「机制契约」表（原先写的是"块外注释完整保留"，现在补了这条边界）。
+
+### 闸门与离线网
+
+- 两包 `npm run publish:check` 全绿：`dsh-auto-load-history` 37 项 + tarball 8 文件；`dsh-default-tuner` 44 项 + tarball 8 文件。
+- 全仓 9 个插件 `npm test` **458 项全过**（37/78/44/19/75/47/104/26/28，0 失败）。
+- `node tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94）。
+- 四处同源逐字核对通过（`package.json#dshCompatibility` + `engines.dsh` + `install.sh` 五个常量 + `lib/index.js` 四个常量 + 两个文档腿）；版本号未动（`0.2.0` / `0.1.0`）。
+
+### 踩坑与可复用技巧
+
+- **「diff 触及」必须用 `^[+-][^+-]` 前缀计数**：先用了 `grep -c -F '符号' diff文件`，它会把 **diff 的上下文行**（未修改的行，diff 里占多数）也算进去，于是「零改动行命中」被误判成"改了很多"。改用 `grep -c -E "^[+-][^+-].*符号"` 才是真正的"改动行命中数"。
+- **大文件 diff 用「集合比对」判搬移**：`dsh-client-ui-chat/lib/client.js` 有 11.5k 行 diff，但把含目标串的行 `trim` 后排序做 `diff`，两侧逐字相同 → 纯位置搬移（`+` 段与 `−` 段是同一段代码）。比逐 hunk 读快得多，也更容易向人解释。
+- **函数定义体比对要先配对参数括号**：`function f(a = () => {})` 这类默认参数里就有花括号，直接"找第一个 `{` 再配对"会截断成参数片段、把**不同的函数判成相同**（本轮先用错版本比对 `composeEntries` 得到假 "IDENTICAL"，改成"先配对 `(` … `)` 再找函数体"后才拿到真结论 229/700/1787/461 字节）。
+- **extract-fn 类脚本要支持类方法**：`get(session)`/`refresh(...)` 是缩进的类方法，`^function` 型正则抓不到；这类符号改用"文件内行号 + diff hunk 区间"判断未触动更快（`get` 在 `:281`、第一个 hunk 在 `:350` → 未触及）。
+- **默认值要重读官方 patch 文件**：`dsh-base/cordis.patch.yml` 是这些「默认值」的真正来源，`Config` schema 里其实**没有**库默认值（两版都是 `.required()`）。上一轮文档里记的 4096/64/60000/5/10 是当时读到的，本轮必须重新读一遍。
+
+### 仍未覆盖 / 交接
+
+- **ALH 的浏览器侧实机行为**（补齐到 `hasMore === false`、锚点稳定、defer 让位）本轮**没有重跑无头回归**——它在 0.2.0-rc.2 上跑过（见该插件 AGENTS 的实测表），本轮只做到"契约面逐行核对 + 版本门 + boot graph"。若要实机确认，按该插件 AGENTS 的「GUI 验证清单」在重启后的 3080 上目视即可。
+- **DDT 的客户端页面观感**（分区、折叠模块、Tag、按钮）本轮只做到"宿主路由 + 数据回执"，没开浏览器。
+- **其余 4 个插件仍在 `0.2.0` 线**（`dsh-chat-archive-manager`、`dsh-mcp-console`、`dsh-sticky-user-bubble`、`dsh-mobile-compat`）：在 `0.2.1-alpha.2` 上按版本门 inert，且都是 L3，各自需要独立会话。
 
 ---
 
