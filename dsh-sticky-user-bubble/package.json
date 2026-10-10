@@ -1,6 +1,6 @@
 {
   "name": "dsh-sticky-user-bubble",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
@@ -20,9 +20,9 @@
   "dshCompatibility": {
     "policy": "compatible-release-line",
     "package": "@deepseek-ai/dsh",
-    "range": ">=0.2.0-rc.2 <0.2.1",
+    "range": ">=0.2.1-alpha.2 <0.2.2",
     "verifiedVersions": [
-      "0.2.0-rc.2"
+      "0.2.1-alpha.2"
     ],
     "futureVersionsRequireCapabilityChecks": true
   },
@@ -55,7 +55,7 @@
   },
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.2.0-rc.2 <0.2.1"
+    "dsh": ">=0.2.1-alpha.2 <0.2.2"
   },
   "publishConfig": {
     "access": "public"
