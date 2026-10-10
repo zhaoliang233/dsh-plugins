@@ -9,6 +9,8 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| B8（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-chat-archive-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：296 个包两版逐文件 sha256 比对，删除事务路径上「逐字相同」与「改了但够不着」两类都逐行有证据（`dsh-agent-loop` 的 factory dispose 只把 `scope.dispose()` 挪进独立 `try/catch`；`dsh-session-persistence-jsonl` 的 4 个 hunk 只包装返回值 / 新增附加键；`dsh-workspace`+`dsh-agent`+`dsh-session-format*`+`dsh-session-persistence` 整包逐字相同）；隔离宿主**基线 5 + 轮次 A 68 + 轮次 B 65 全过**（含中途中断与可恢复性闭环）；`publish:check` 78 项 + tarball 9 文件全绿 |
+| B7（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-sticky-user-bubble` 换到 `>=0.2.1-alpha.2 <0.2.2`：chat 包 11.5k 行 diff 逐行分类为「位置搬移 + CSS 4 处无值级几何变化 + opt-in 折行动画」；六个几何常量在隔离宿主上重新量出且与 0.2.0 全线一致（含 push 上限 102 与候选交接帧）；业务代码一字未改 |
 | G2（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-mcp-console` 换到 `>=0.2.1-alpha.2 <0.2.2`：**「契约面逐字相同」这句话要拆开说**——`dsh-mcp-client` 的 `lib/index.js` 与 5 个 `.d.ts` 同哈希（835 行），但它运行时依赖的 `@modelcontextprotocol/client` 由 `2.0.0` 升到 **`2.2.0`**（这条用实测覆盖：动态挂载/工具发现/dispose 全通）；隔离宿主上单测 104/104、真机 GUI **52/52 连跑两轮**、鉴权/CSRF 12/12、volatile→对账、幂等、凭据链闭环，明文 0 次入载荷 |
 | H1（2026-10-10） | `0.2.1-alpha.2` | L2 两个插件 `dsh-auto-load-history` + `dsh-default-tuner` 换到 `>=0.2.1-alpha.2 <0.2.2`：28 个契约包两版逐文件 sha256 比对（new 侧与运行安装全树逐字一致）；`configEditor`/`eventSource`/`register()`/锚点标记等契约面全部成立；唯一实质修复是官方默认值漂移（`maxOutputTokens` 64→4096）与随之的两处文案；隔离宿主上 DDT 的 `/status` 由 404 变 401→200（ALH 无 Host 路由，另证） |
 | G1（2026-10-10） | `0.2.1-alpha.2` | L2 插件 `dsh-local-plugin-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：三处新结构（官方 `dependencySpec()`、`dsh-app-boot` 的运行时替换校验放宽、`dsh-hmr` 的 `package.json` 缓存失效）逐行有证据；业务逻辑只改了读侧 `link:` 记录形态归一；新增端到端脚本，隔离宿主上跑通「设置页摘除一个 `link:` 插件 → 官方插件页装回」**24 项全过** |
@@ -24,6 +26,131 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## B8：L3 跨线 `dsh-chat-archive-manager`（2026-10-10）
+
+运行版本 `0.2.1-alpha.2`，上一验证线 `>=0.2.0-rc.2 <0.2.1`。插件**整体换线**到 `>=0.2.1-alpha.2 <0.2.2`（`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha', sequence:2}`、清单 `['0.2.1-alpha.2']`）。**本轮不改版本号、不提交、不发版**。业务代码一字未改：改动只有版本门（`lib/index.js` + `install.sh` 五个常量，照抄 H1/G1 形状）、三条测试守卫、一句 `client.js` 注释与四份文档。
+
+它是带**永久删除事务**的 L3 插件，所以结论不能靠"包名没变"或"整体提升"推断：必须同时给出「逐字相同」与「改了但够不着」两类证据。
+
+### 逐包 diff（296 个 `@deepseek-ai/*` 包 × 2 版，逐文件 sha256）
+
+方法：`npm view @deepseek-ai/dsh@<版本> dependencies` 拿顶层组件清单（91 项，其中 90 项版本号变化、9 个实验包新增、6 个被移除），用 `npm install --package-lock-only` 解析出**两版各自的确切包清单**（old 296 / new 307），再按 `包名@确切版本` 从 registry 拉 tarball；**new 侧直接用运行安装树**并先自证一致（lockfile 与实际安装逐包对版本：0 处不符；缺的 8 个是其它平台的原生包与 meta 包本身）。
+
+真正改了**运行时 JS** 的包只有十来个，其余全是 README / `.d.ts` / `package.json` / 与本插件无关的模块。与本插件同一条链沾边的逐个证据见插件 `AGENTS.md` 的 `0.2.1-alpha.2` 记录表，这里只摘结论：
+
+| 类别 | 包 | 结论 |
+|---|---|---|
+| 整包 `lib/*.js` **逐字相同** | `dsh-workspace`、`dsh-agent`、`dsh-session-format`、`dsh-session-format-catalog`、`dsh-session-persistence`、`dsh-client-ui-settings`、`dsh-client-store`、`dsh-client-ui-slots`、`dsh-api-workspace-controller` | sha256 全等；`dsh-workspace`/`dsh-agent` 只额外**删掉**了 `lib/invariant.js` 与 `./invariant` 导出（插件从不引用） |
+| 改了但**够不着**删除事务 | `dsh-session`（新增实验性 plugin record + `Session.append` 拆 `publicationEntry()`/`commit()`；`SESSION_FORMAT_VERSION` 仍是 4；`SessionStore` 区域只改注释与导出表）、`dsh-agent-loop`（**factory dispose 成功路径顺序逐行未变**，唯一结构性变化是 `scope.dispose()` 挪进独立 `try/catch`——旧版 cancel/whenIdle 抛错会跳过它，新版尽力清完再抛 `AggregateError`）、`dsh-session-persistence-jsonl`（4 个 hunk：migration worker 等自然退出、`readGenerationHeader()` **只把返回值包装成 `{header, formatStatus}`**、`stat()`/`list()` 各多一个附加键）、`dsh-storage-domain`（一句注释）、`dsh-host-webserver`（`register(route)` 函数体逐字相同，改动在 HTTPS/压缩中间件）、`dsh-client-connection`（`requestRejection()` 签名与 `undefined\|401\|403` 值域未变，新增 carrier host/protocol） | 插件的读取面 `snapshot.header`/`revision`/`sizeBytes`、`locate()` 的 `{kind:'jsonl', path}`、tracker 的 `openHandles`/`writers`/`pending`/`hasPending`/`pendingEntries`、registry 三个 Map 缓存与 `unarchiveSession()` 全部未变 |
+| 与删除事务无关的改动 | `dsh-app-boot`、`dsh-plugin-manager`（启动期 profile/bundle 解析与补丁层：`ProfileRuntimeResolution`、`normalizeShippedProfile` 写回、official-bundles 目录、`parseInstallSpec`/`readPolicy`） | 插件在运行期**完全不引用**这两个包（`lib/*.js` 与 `client.js` 里 0 命中，也不注入它们的服务） |
+
+### 隔离宿主三轮（`DSH_HOME=/private/tmp/dsh-cam-021-home`、端口 5947 / 基线 5948；用户的 3080 未触碰）
+
+数据仍是**本轮自造**的（canonical 路径的合法 header artifact、零用户会话数据、v4/v3/v0 三种 generation、统一 zstd 压缩）。流程这一轮**脚本化**了（`prep-data.mjs` + `lib.mjs` + `run-a.mjs`/`run-b.mjs`/`run-baseline.mjs`），断言按项计数：
+
+| 轮次 | 项数 | 关键结果 |
+|---|---|---|
+| 范围外基线 | 5/5 | 插件换回 HEAD 的旧门（0.2.0 线）后 `GET /status` → 404、`POST /delete`/`POST /restore` → **405**（壳层 fallback 的方法拒绝，非插件路由）、随机路径 404、boot 仍广告 client bundle（版本门只管 Host 半体） |
+| A：路由与实删 | 68/68 | status（未认证 401 / 认证 200，三布尔全 true，`dshVersion: "0.2.1-alpha.2"`、`dshVersionVerified: true`）；restore 往返 8→7 且 W2 席位保留、重复 409；请求边界 403/403/415/400/405/401/400；准入 409/404；仅 v3 → 501、v0 legacy → 501（generation 运行期反解、**journal 文件都没创建**）；v3+v4 并存整目录搬移实删 200、纯 v4 zstd 实删 200（trash 清空、journal 归 `null`、归档集合与 W1 席位同步收缩）；boot graph combo URL + `inject` 三条 + 取回内容以源码逐字节开头 + 裸路径 404 |
+| B：中断与可恢复性 | 65/65 | trash 根 `chmod 500`（先 `mkdir` + 前置断言"确实不可写"）→ delete → **500 `archive-delete-quarantined`**，journal 停在 `phase:"prepared"` 且 witness（目录 inode、日志 inode/size、文件名、header.id）完整；S8 目录 inode 与日志 size 未变、trash 0 项、记账未动；运行期降级三布尔 false + `deletionCode: archive-delete-quarantined` / `restorationCode: deletion-recovery-required`，该会话与**其它**归档会话的 delete/restore 全 503；冷启动后 journal sha、目录 inode、日志 inode/size 逐项一致、trash 仍空（此时 `deletionCode` 是 `deletion-recovery-required`）；把 witness 改写成上一代 `session.v3.jsonl.zstd` 后冷启动仍被认出、journal sha 与 inode 未变、trash 未创建；人工清空事务 → 重启 → 三布尔恢复 true、重试删除 200、目录消失、trash 清空、journal 归 `null` |
+
+### 闸门与离线网
+
+- `npm run publish:check`：78 项测试 + `node --check` + `bash -n` + tarball 白名单（9 文件 / 50243 字节）全绿。
+- `node tools/dsh-icons/check.js`：无漂移（188 个图标，Medium/Regular 各 94，工作区插件导入全部存在）。
+- `node tools/dsh-icons/verify-nav-icon.js --plugin dsh-chat-archive-manager --measure`：六项全过。
+- 四处同源逐字核对通过（`package.json#dshCompatibility` + `engines.dsh` + `install.sh` 五个常量 + `lib/index.js` 四个常量 + 文档）；**版本号未动**（仍是 `0.2.0`）。
+
+### 踩坑与可复用技巧（跨轮有效）
+
+- **范围外基线的 POST 路径不是 404 而是 405**：DSH 的 fallback（SPA dist server）只接受 GET/HEAD，POST 到任何未注册路径都被它以"方法不允许"拒掉。所以"插件确实 inert"的判据要写成「GET /status 与随机路径同码 404；POST 得到 405（壳层行为）」，不要照抄上一轮"三个路由全 404"的记法。
+- **造隔离数据的第三条硬约束：历史 generation 的 header 自 v2 起必须带 `delegationDepth`**。缺了会让 `catalog.readHeader()` 返回 `malformed`（`released v2 physical header lacks delegationDepth`），`readGenerationHeader()` 对 `malformed` 返回 `undefined`，于是 artifact 在 `list()` 阶段被静默跳过——测出来是 **404 而不是 501**，看起来像"插件把旧 generation 判错了"。合法最小形状：v4 `{type,version:4,id,createdAt,cwd,delegationDepth,isSeeded:false}`；v3 同字段换 `version:3`；v0 去掉 `isSeeded`。
+- **macOS 上路径必须用 `realpath` 形式**：`/tmp/...` 与 `/private/tmp/...` 混用会让 `WorkspaceRegistry` 的席位校验（id + canonical cwd membership）在 `mutate()` 里把 `sessionIds` **静默 prune 掉**，`bootstrap()` 还会另建一个 `/private/tmp/...` 的工作区。表现是"席位断言假通过（空数组不含目标 id）+ 席位保留断言失败"。造数据、workspace.json 的 `path` 与断言都要用 canonical 路径。
+- **冷启动与运行期的 quarantine code 不同**：运行期中断走 `currentSnapshot()` 覆盖 → `deletionCode: archive-delete-quarantined`；冷启动走 `createArchiveDeletionService().initialize()` 失败分支（`deletionService` 未建立）→ `deletionCode = deletionUnavailable.code = deletion-recovery-required`。两者都是 quarantine、都 503，断言要分开写。
+- **就绪判据不能用插件自己的路由**：范围外基线里 `/status` 必须是 404，用它做 `waitForReady` 会永远等不到 200。改用首页（未认证 401 / 认证 200）。
+- **宿主进程由脚本 `spawn` 并 `child.kill()`**：这样"归属"天然可证明，不需要按端口猜。收尾时若发现遗留进程（脚本异常退出会留下子进程），按 `lsof -nP -iTCP:<端口> -sTCP:LISTEN -t` → `ps -Eww` 读 `DSH_HOME` + 命令行 `--port <端口>` 双重确认后再 kill（本轮就是这样清掉了一个 5948 上的遗留实例）。
+- **注入类用例的前置断言不能省**：`chmod 500` 前先 `mkdir -p`（trash 根只在第一次事务时创建），并断言"探测文件确实写不进去"，否则 `chmod` 静默失败会把删除直接跑成 200、断言变成假阳性/假阴性。
+
+### 仍未覆盖
+
+- **真机 GUI 的 live 卸载路径**（打开归档会话 → 永久删除）：本轮仍是无头隔离宿主 + 源码逐行 + 单测三层证据，没有真机补跑；`PUBLISHING.md` 里这条的"尚未真机补跑"标记已扩展到 `0.2.1-alpha.2`。
+- 设置页导航行与归档管理页的**纯视觉项**（图标几何已由 `verify-nav-icon.js --measure` 离线钉住）。
+- **发布未做**（用户本轮明确要求不改版本号、不提交）：要让本轮的换线生效必须另开一轮改 `package.json#version`（跨线走 minor）→ 写 CHANGELOG → `publish:check` → 打 tag → OIDC 发布。
+
+---
+
+## B7：L3 跨线 `dsh-sticky-user-bubble`（2026-10-10）
+
+`dsh-sticky-user-bubble` 从 `>=0.2.0-rc.2 <0.2.1` 换到 **`>=0.2.1-alpha.2 <0.2.2`**，运行版本 `0.2.1-alpha.2`。**本轮不改 `package.json#version`、不提交、不打 tag、不发版**（留给用户授权的发布轮）。**业务代码一字未改**：改动只有版本门（`lib/index.js` 的五个常量 + `install.sh` 的五个常量，照抄既跨线插件的基准形状）、`package.json` 的 range/engines/清单、两条测试守卫（`test/host.test.js` 的版本矩阵、`test/manifest.test.js` 的逐字断言）、`README.md` 要求节与四份文档。
+
+这是同一插件继 B4（0.1.7 → 0.2.0）之后的第二次换线，结论形状一致：**六个几何常量重新量出、与上一线全线一致**。差别在于本轮上游包不是「几乎没动」而是「结构性新增但非破坏」，所以先做逐行分类、再量几何。
+
+### `dsh-client-ui-chat` 的逐行 diff 分类（`npm pack` 两版 + 内联 CSS 逐模块规范化比对）
+
+`lib/client.js`：0.2.0-rc.2 = 12515 行 / 565KB → 0.2.1-alpha.2 = 13944 行 / 616KB；行 diff 58 个 hunk、−5058/+6487 行，但**多重集去重后只有 −330/+1759 行真正新增**（其余是位置搬移，与 H1 的判断一致）。三类内容：
+
+| 类别 | 结论 |
+|---|---|
+| 内联 CSS | 17 段 CSS 模块：**13 段按模块哈希前缀规范化后逐字相同**；4 段不同且**没有值级几何变化**——`EvIC1a`：flow-gap 选择器 `.column>` 放宽为 `:is(.column,[data-slot="conversation.chat.flow"])>`（值仍是 `var(--dsh-chat-flow-gap,6px)`）、新增 `.turnSpacer{height:0}` 与 `[data-chat-motion]` 的 `transition:margin-top .16s`；`O_Ebla` 只多两条同样的 motion 规则；`lcKema` 把 `[data-disclosure-row]` 换成 `[data-disclosure-header]`；`bOPqQW`（StatsPills）把 root 的盒模型/字号规则挪到 `.anchor` |
+| 类名表 | 18 个 CSS 模块的 `X_module_css_default` 映射：只有 ChatView 多一个 `turnSpacer`、StatsPills 少一个 `root`，其余逐字相同。**“类名表大面积变化”的表象来自 `css$N`/`tagId$N` 变量编号位移**（`css$17` → `css$14` 这类），不是类名本身变了 |
+| JS | 新增 `flow-motion.js`（233 行）/`ChatFlow.js`（77）/`ReasoningContent.js`（26）、`nodes.bottomSource(key)`（`EMPTY_BOTTOM_SOURCE` 是它的空实现）、`TurnProcessViewEntry.collapsed`；打包依赖升级 `@tanstack/virtual-core` 3.17.7→3.17.8、`@tanstack/react-virtual` 3.14.9→3.14.10，`@deepseek-ai/dsh-util-values` 新进包体 |
+
+**插件读的标记逐个核对（chat 包内计数）**：`data-chat-anchor-key` 5/5、`data-chat-flow-key` 3/3、`data-chat-flow-kind` 19/19、`data-chat-node-key` 1/1、`data-chat-group-part` 3/3、`data-chat-paging-anchor` 3/3（新旧完全相同）；新增 `conversation.chat.flow` 12 处、`data-chat-motion` 16 处、`data-chat-turn-spacer` 2 处。
+
+### 两条 0.2.1 的新结构（对插件无破坏，但要记进升级清单）
+
+1. **行容器多了一层**：`[data-slot="conversation.chat.flow"]`（类名为空、高度 0）成了行的直接父元素，`.EvIC1a_column` 是它的父。插件取到的 flow 仍是 `.EvIC1a_column`（`[data-chat-flow]` 计数 492 不变 → `visibleFlow()` 语义不变），`readingInset` 取 `flow.parentElement`（`.EvIC1a_scroll`）仍是 16px；chat CSS 里那些 `:is(.column,[data-slot=…])>` 的放宽就是为它做的。
+2. **opt-in 折行动画**：`flow-motion.js` 在 `[data-chat-motion]` 作用域内折叠行时写 `height`/`margin-top`/`opacity` 过渡（≤240ms）、把移除的高度记到 `[data-chat-turn-spacer]`、并按需把滚动祖先的 `overflowAnchor` 置 `none`。静态会话实测 `[data-chat-motion]` 计数 **0**、spacer `height:0`。插件只在滚动/RO/rAF 触发时重算 `incomingTop`，而折叠期间 flow 总高被 spacer 顶住（RO 可能不触发）→ 理论上存在 ≤240ms 的陈旧 `push`；本轮脚本化量测是静态回放，**覆盖不到这一瞬**，已写进插件 `AGENTS.md` 的「仍未覆盖」。
+
+### 六个几何常量（隔离宿主 + 无头 Chrome 155/CDP 9371，视口 1512×813）
+
+| 常量 | `0.2.1-alpha.2` 实测 | 与 `0.2.0-rc.2` 的差异 |
+|---|---|---|
+| 出现阈值 | 边界 **76**（= `scrollRect.top`）、阅读线 **92**；底边 140/100/92/84/80/77 全隐藏，**76 → `ready`**（落点 92）；细扫翻转点 = 边界 + `EPSILON(0.75)` | 完全一致 |
+| 让位清距 | 卡片拉近后 +4px 步进：清距从 236 递减，**到 16 后恒定**；push 2→100，交接帧 `incomingTop = 92` 翻 `inactive-source-visible`、host 清空；push 上限 **102 = 86 + 16** | 完全一致（B4 的 102 同样是「上一帧 100、交接帧 92」） |
+| `clip-path` | 逐帧 `inset(push − 16)`（push 18→100 对应 `2px`…`84px`；push ≤ 16 为 `none`） | 完全一致 |
+| 三行折叠 | 源气泡 218px → clone **86px** = 3×22 + 20；wrapper 66px、`scrollHeight` 198px、`overflow:hidden` | 完全一致（同一行 `13:input-messagee5e14446…`） |
+| 展开上限 | 452/392/332px：自然全高 218、底边 310；292/252/212px：**184/144/104** = `incomingTop − 16 − 92`，底边 276/236/196，wrapper 切 `overflow-y:auto`；172px 时窗口 64 < 折叠高 86 → 保持三行 | 完全一致 |
+| 展开不越过 composer | 1512×813：seat 684.5、`availableHeight` 577；压到 1512×420：seat 292、`availableHeight` **184**、展开高正好 184、底边 276 ≤ 292 | 完全一致 |
+| 跳回 | `scrollTop 6152 → 5902`，源气泡 top 回到 92 | 一致（终点同为 5902） |
+| 控制台 | 0 error / exception | 一致 |
+
+隔离环境事实：**B4 轮的 `/tmp/dsh-020-home` 里 `sessions/<workspace>/` 只剩空目录**，本轮从真实 `~/.dsh` 只读拷 `storages/`、`workspaces/` 与目标会话重建了 home；`dsh plugin --profile web add link:<目录>` 在新 home 里自动初始化 profile。目标会话仍是 `f8e6ec6b`（4350 行 / 53 用户行 / 492 flow，与上一线逐数相同）。
+
+### 其它契约包（插件点名的那些）
+
+| 包 | 结论 |
+|---|---|
+| `dsh-client-ui-conversation` | `data-composer-seat` 1/1、`data-conversation-scroll` 3/3 计数不变（lib 有 diff，但插件读的标记一字未动） |
+| `dsh-client-ui-primitives` | `data-ref-chip` 2/2、chip `title` 路径不变；导出表只新增 `CommandText`/`InlineEditor` |
+| `dsh-client-ui-layout`（不在 H1 的包里，本轮单独 `npm pack` 两版） | `.overlayLayer` 规则逐字相同（`z-index:20; pointer-events:none; position:absolute; inset:0`）、`shell.overlay` 声明不变；新增 `shell.bottom` 槽 + `bottomRow`（`grid-template-rows:100%` → `minmax(0,1fr) auto`）与字族变量——实测 scrollport 底边 813 / 座位 684.5 不变 |
+| `dsh-client-ui-session` | `retainedBy.mainView ?? 0` 三处命中不变（当前会话解析仍成立）；插件在隔离宿主上确实取到会话并进 `ready` |
+| `dsh-client-ui-slots` / `dsh-client-store` / `dsh-client-ui-settings` / `dsh-settings` / `dsh-config-editor` / `dsh-atomic-write` / `cordis` / `schemastery` | 整包 `lib/` 0 差异（沿用 H1 的比对结果） |
+
+### 闸门与离线网
+
+- `npm run publish:check` 全绿：28 项测试 + tarball 8 文件（27213 字节）。
+- 全仓 9 个插件 `npm test` **458 项全过**（37/78/44/19/75/47/104/26/28，0 失败）。
+- `node tools/dsh-icons/check.js` 无漂移（188 个图标，Medium/Regular 各 94，插件导入全部存在）。
+- 四处同源 14 项脚本核对全过；`install.sh` 版本门离线矩阵：`0.2.1-alpha.1` 拒绝、`alpha.2/alpha.3/beta.1/rc.1/0.2.1` 兼容、`0.2.0/0.2.0-rc.2/0.1.7-rc.2/0.2.2` 拒绝，逐版本清单只认 `0.2.1-alpha.2`；版本号未动（仍是 `0.2.0`）。
+
+### 踩坑与可复用技巧
+
+- **让位/展开量测要先把下一张卡片拉近**：目标用户行后隔着 ~1000px 助理内容时，从「气泡底边 = 边界」起步的 +4px×24 帧全在未夹紧区间，量出的是「清距随滚动单调递减」的假结果（第一轮实测踩到）。正确做法：先按 `incomingTop − (cloneBottom + gap + 240)` 平移一次再步进，并在同一循环里跑到候选交接（`incomingTop = 阅读线`）才看得到 push 上限与 host 清空。
+- **判「diff 里到底改了什么」要三道筛**：① 内联 CSS 先按模块哈希前缀规范化再比（否则哈希位移淹没真差异）；② JS 用多重集去重去掉位置搬移（−5058/+6487 → −330/+1759）；③ 类名表单独抽出来比（`css$N` 编号位移会被误读成「类名表变了」）。
+- **别假设旧隔离 home 还能用**：B4 的 `/tmp/dsh-020-home` 会话目录已被清空、profile 清单也不在；新 home = 拷 `storages/` + `workspaces/` + 目标会话目录，再 `DSH_HOME=… dsh plugin --profile web add link:<插件目录>` 自动初始化。
+- **侧边栏展开要点 chevron**：工作区行（`[role=treeitem]`）里的两个 `button` 是「操作」与「新建会话」，点行本身或这两个按钮都不会展开，必须点 `row.querySelector('[class*=chevron]')`（本轮两轮探针才定位）。
+- **量测脚本要自带收敛与稳态等待**：`dsh-auto-load-history`（已跨线）会真的补齐历史，落点定位仍须收敛式；本轮收敛上限 8 次 / 420ms、落点误差 ≤0.2px，且行数「连续 3 次不变」才开测。
+- **并行会话会同时改同一份 `docs/compat-log.md`**：本轮写档案时撞上另一会话正在追加 B8（`dsh-chat-archive-manager`），`edit` 连续两次因「文件已变」失败——重读一次再改即可，别用整文件覆盖写。
+
+### 仍未覆盖（交给用户或后续会话）
+
+- **目视观感**：滚动流畅度、真实鼠标 hover 的手感、非 1 缩放与自定义字号下的观感；含 `@` 引用 chip 的用户消息（本会话该类为 0，仍只有静态核对）。
+- **折行动画进行中的那一瞬**（0.2.1 新系统）：需要真实运行中的 turn 或能触发 fold 的场景，静态回放覆盖不到。
+- 发布相关（版本号、CHANGELOG 条目、tag、npm）本轮按用户指示全部未做。
 
 ---
 
