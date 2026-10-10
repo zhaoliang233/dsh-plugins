@@ -32,7 +32,7 @@ test('status snapshot reports whether core owns a default-Workspace initializer'
         effect: (factory) => factory()
       })
     }
-    await applyForVersion(ctx, '0.2.0-rc.2')
+    await applyForVersion(ctx, '0.2.1-alpha.2')
     return payload
   }
 
@@ -101,18 +101,22 @@ class FakeRegistry {
 }
 
 test('runtime version gate stays inert outside the audited release line', async () => {
-  assert.deepEqual(classifyDshVersion('0.2.0-rc.2+local'), {
-    supported: true, verified: true, normalized: '0.2.0-rc.2'
+  assert.deepEqual(classifyDshVersion('0.2.1-alpha.2+local'), {
+    supported: true, verified: true, normalized: '0.2.1-alpha.2'
   })
-  assert.equal(classifyDshVersion('0.2.0-rc.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.0-rc.3').verified, false, 'same line but not individually verified')
-  assert.equal(classifyDshVersion('0.2.0-rc.10').supported, true, '序列号按数值比较，不是字典序')
-  assert.equal(classifyDshVersion('0.2.0').supported, true)
-  assert.equal(classifyDshVersion('0.2.0-rc.1').supported, false, '兼容线下界之前必须挡住')
-  assert.equal(classifyDshVersion('0.2.0-rc.0').supported, false)
-  assert.equal(classifyDshVersion('0.2.0-beta.4').supported, false, 'beta 低于 rc 下界')
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').verified, false, 'same line but not individually verified')
+  assert.equal(classifyDshVersion('0.2.1-beta.1').supported, true, 'beta 档位高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true, 'rc 档位高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.1-rc.10').supported, true, '序列号按数值比较，不是字典序')
+  assert.equal(classifyDshVersion('0.2.1').supported, true, '正式版与 prerelease 同线')
+  assert.equal(classifyDshVersion('0.2.1').verified, false, '没核对过就不得自称已核对')
+  assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false, '兼容线下界之前必须挡住')
+  assert.equal(classifyDshVersion('0.2.1-alpha.0').supported, false)
+  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, '上一发布线必须挡住')
+  assert.equal(classifyDshVersion('0.2.0').supported, false)
   assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, 'previous release line is now outside')
-  assert.equal(classifyDshVersion('0.2.1').supported, false, '下一发布线必须挡住')
+  assert.equal(classifyDshVersion('0.2.2').supported, false, '下一发布线必须挡住')
 
   let sideEffects = 0
   await applyForVersion({

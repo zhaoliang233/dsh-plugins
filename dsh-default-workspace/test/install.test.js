@@ -51,7 +51,7 @@ printf 'npm:%s\\n' "$*" >> "\${FAKE_INVOCATION_LOG:?}"
 }
 
 test('installer accepts the verified release and runs the complete gate before profile add', async () => {
-  const fixture = await runInstaller('0.2.0-rc.2+local.1')
+  const fixture = await runInstaller('0.2.1-alpha.2+local.1')
   try {
     assert.equal(fixture.result.status, 0, fixture.result.stderr)
     assert.equal(fixture.result.stderr, '')
@@ -65,7 +65,7 @@ test('installer accepts the verified release and runs the complete gate before p
 })
 
 test('installer warns for an unverified version within the compatible line', async () => {
-  const fixture = await runInstaller('0.2.0-rc.3')
+  const fixture = await runInstaller('0.2.1-alpha.3')
   try {
     assert.equal(fixture.result.status, 0, fixture.result.stderr)
     assert.match(fixture.result.stderr, /尚未列入逐版本验证清单/u)
@@ -77,11 +77,11 @@ test('installer warns for an unverified version within the compatible line', asy
 })
 
 test('installer rejects lower prereleases and adjacent release lines before profile changes', async () => {
-  for (const version of ['0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-beta.4', '0.2.1']) {
+  for (const version of ['0.1.7-rc.2', '0.2.0-rc.2', '0.2.0', '0.2.1-alpha.1', '0.2.1-alpha.0', '0.2.2']) {
     const fixture = await runInstaller(version)
     try {
       assert.equal(fixture.result.status, 1)
-      assert.match(fixture.result.stderr, />=0\.2\.0-rc\.2 <0\.2\.1/u)
+      assert.match(fixture.result.stderr, />=0\.2\.1-alpha\.2 <0\.2\.2/u)
       assert.equal(fixture.invocations, '')
     } finally {
       await fixture.cleanup()

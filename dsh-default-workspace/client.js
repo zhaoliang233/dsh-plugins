@@ -291,7 +291,11 @@ window.__ModuleLoader__.load({
         operation = (async () => {
           try {
             const workspaceId = await resolveManagedWorkspaceId()
-            if (!disposed) uiWorkspace.startSession(workspaceId)
+            // 0.2.1 起 `startSession(id)` 的含义是「总是新建一个空白会话」，只有带
+            // `{ clearPreviousDraft: false }`（显式草稿语义）才会复用已有空白会话。
+            // 这里保持本入口「已存在空白会话则直接复用」的既有行为；旧线忽略第二个参数，
+            // 所以同一个调用在两条线上都是复用语义。
+            if (!disposed) uiWorkspace.startSession(workspaceId, { clearPreviousDraft: false })
           } catch (error) {
             if (!disposed) console.warn(`${PLUGIN_NAME} new session failed:`, error)
             throw error

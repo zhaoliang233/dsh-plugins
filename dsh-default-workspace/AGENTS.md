@@ -6,6 +6,15 @@
 
 ## 逐版本核对记录
 
+**`0.2.1-alpha.2`（2026-10-10，跨发布线：DSH 从 `0.2.0-rc.2` 升到 `0.2.1-alpha.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完（`@deepseek-ai/dsh@0.2.0-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）。契约面里**只有一处真的动了**：
+
+- `dsh-workspace`、`dsh-api-workspace-controller`（lib 逐字相同，只有 README 与 `package.json` 版本号变）、`dsh-host-webserver` 的 `register()`（重复路径抛错 + disposer 逐字相同）、`dsh-client-ui-sidebar/lib/client.js` 的 `sidebar.footer.action`/`footArea`/`footerActions` 声明、`dsh-client-connection` 的 `requestRejection` 判据**全部保持**。
+- `dsh-client-ui-workspace/lib/client.js` 的 `workspaces` 控制器面（`rename`/`delete`/`insertBefore`/`uiWorkspace` 关键词行、`reuseOrCreateBlank`/`reuseBlank` 辅助函数）逐字相同，但 **`uiWorkspace.startSession` 的语义变了**：0.2.1 起 `startSession(id)` = **总是新建一个空白会话**，只有 `startSession(id, { clearPreviousDraft: false })`（显式草稿语义）才复用已有空白会话——类型声明 `lib/types/client/navigation.d.ts` 与核心自己的两处调用（分组「新建会话」用单参数、选工作区用带 options）同口径。
+
+改动：`DSH_RELEASE_LINE='0.2.1'` / `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` / 清单 `['0.2.1-alpha.2']`，`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源换线；**业务代码只改了 `client.js` 里那一处 `startSession` 调用**（补 `{ clearPreviousDraft: false }` 以保住「已存在空白会话则直接复用」的文档化行为；旧线忽略第二个参数，两条线同一语义）。
+
+**未覆盖**：独立入口按钮与受管 Workspace 的创建/置顶/改名删除保护在 0.2.1-alpha.2 上的**实机点击**（隔离宿主验到状态接口 200，host/client 两组单测覆盖注册与补丁路径）。
+
 **`0.2.0-rc.2`（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完。逐包比对（全树逐文件 sha256）后，本插件依赖的面**全部保持**：
 
 - `dsh-workspace`（Host 侧 `workspaceRegistry` 与拦截器消费端）**逐字相同**——`create`/`createCanonical`/`delete`/`rename`/`insertBefore`/`initializeDefault` 的签名与语义都没动。
@@ -34,9 +43,9 @@
 - 只接纳受管路径上标题为“通用会话”或历史标题“最近聊天”的 Workspace；其他标题必须 fail closed——不覆盖标题、不调整顺序、不创建第二个 Workspace、不移动会话、不改 cwd。
 - 原生全局 New Session 保持 DSH 核心规则（显式 Workspace → 当前会话 Workspace → 最近活跃 Workspace）：**禁止**再拦截无参数 `startSession()`（曾用它接管原生入口，已移除）。
 - “新建通用会话”注册到 list slot `sidebar.footer.action`，稳定 ID `dsh-default-workspace.new-session`、order `100`；必须经 `ctx.slots.inject()` 等待 slot 声明，并同时适配 wide 与 56px rail；解析失败必须在按钮、rail Tooltip 和 aria-label 显示可重试错误状态，不能只写控制台。
-- 独立入口只用核心 `startSession(workspaceId)`，不发明第二套会话归属；导航不能用 `workspaces`（纯 Workspace Controller，不承载会话导航）。
+- 独立入口只用核心 `startSession(workspaceId, { clearPreviousDraft: false })`（0.2.1 起草稿语义才复用空白会话，**别**退化成单参数调用），不发明第二套会话归属；导航不能用 `workspaces`（纯 Workspace Controller，不承载会话导航）。
 - 核心把新 Workspace 插到列表首位，因此补丁 `workspaceRegistry.create` 后必须重新把默认 Workspace 置顶。
-- Host 保护覆盖当前 `>=0.2.0-rc.2 <0.2.1` 发布线的公开 Workspace RPC 路径；Host 在任何目录、Workspace 或路由副作用前从真实 CLI package 执行运行时版本门，范围外或来源不可验证时保持 inert。版本门由 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 派生（跨线只改这几个常量），与 `package.json`/`engines.dsh`/`install.sh` 四处同源，由 `test/manifest.test.js` 守卫。
+- Host 保护覆盖当前 `>=0.2.1-alpha.2 <0.2.2` 发布线的公开 Workspace RPC 路径；Host 在任何目录、Workspace 或路由副作用前从真实 CLI package 执行运行时版本门，范围外或来源不可验证时保持 inert。版本门由 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 派生（跨线只改这几个常量），与 `package.json`/`engines.dsh`/`install.sh` 四处同源，由 `test/manifest.test.js` 守卫。
 - Workspace 方法保护经 `Symbol.for('dsh.workspace-method-interceptors.v1')` 注册到可摘除 dispatcher；cleanup 只撤销本插件节点并恢复安装前的 own descriptor（原方法继承自 prototype 时必须 `delete` 实例 wrapper），避免遮蔽后续 HMR。
 - status route 必须先通过 `connection.requestRejection(req)` 的 trusted-host 与签名浏览器 cookie 认证；Client fetch 显式 `credentials: 'same-origin'`，不得向裸 loopback 请求暴露本机路径与运行时诊断。
 - `0.1.6-alpha.1` 没有行级 capabilities，受管行仍会显示核心菜单和拖动态；保护靠方法补丁，不靠隐藏 UI。
