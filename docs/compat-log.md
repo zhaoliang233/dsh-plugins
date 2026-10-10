@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| G2（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-mcp-console` 换到 `>=0.2.1-alpha.2 <0.2.2`：**「契约面逐字相同」这句话要拆开说**——`dsh-mcp-client` 的 `lib/index.js` 与 5 个 `.d.ts` 同哈希（835 行），但它运行时依赖的 `@modelcontextprotocol/client` 由 `2.0.0` 升到 **`2.2.0`**（这条用实测覆盖：动态挂载/工具发现/dispose 全通）；隔离宿主上单测 104/104、真机 GUI **52/52 连跑两轮**、鉴权/CSRF 12/12、volatile→对账、幂等、凭据链闭环，明文 0 次入载荷 |
 | H1（2026-10-10） | `0.2.1-alpha.2` | L2 两个插件 `dsh-auto-load-history` + `dsh-default-tuner` 换到 `>=0.2.1-alpha.2 <0.2.2`：28 个契约包两版逐文件 sha256 比对（new 侧与运行安装全树逐字一致）；`configEditor`/`eventSource`/`register()`/锚点标记等契约面全部成立；唯一实质修复是官方默认值漂移（`maxOutputTokens` 64→4096）与随之的两处文案；隔离宿主上 DDT 的 `/status` 由 404 变 401→200（ALH 无 Host 路由，另证） |
 | G1（2026-10-10） | `0.2.1-alpha.2` | L2 插件 `dsh-local-plugin-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：三处新结构（官方 `dependencySpec()`、`dsh-app-boot` 的运行时替换校验放宽、`dsh-hmr` 的 `package.json` 缓存失效）逐行有证据；业务逻辑只改了读侧 `link:` 记录形态归一；新增端到端脚本，隔离宿主上跑通「设置页摘除一个 `link:` 插件 → 官方插件页装回」**24 项全过** |
 | F1（2026-10-10） | `0.2.1-alpha.2` | L1 两个插件 `dsh-default-workspace` + `dsh-extra-context` 整体换到 `>=0.2.1-alpha.2 <0.2.2`（换线不是放宽上界）；逐包 diff 后契约面只有 `uiWorkspace.startSession` 变了（单参数=总是新建空白会话），已按 `{clearPreviousDraft:false}` 保住复用语义；换线前两条 `/status` 404、换线后 200 |
@@ -23,6 +24,85 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## G2：L3 跨线 `dsh-mcp-console`（2026-10-10）
+
+运行版本 `0.2.1-alpha.2`，上一验证线 `>=0.2.0-rc.2 <0.2.1`。插件**整体换线**到 `>=0.2.1-alpha.2 <0.2.2`（`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}`、清单 `['0.2.1-alpha.2']`）。**本轮不改版本号、不提交、不发版**（本包仍是未发布状态，`package.json#version` = `0.1.0`）。换线后工作区里还剩 `dsh-chat-archive-manager` / `dsh-sticky-user-bubble` / `dsh-mobile-compat` 三个 L3 停在 `0.2.0` 线。
+
+### 逐包 diff（`npm pack` 两版到 `/tmp/dsh-mcp-console-021/{old,new}`，逐文件 sha256）
+
+子包版本不是猜的：从**宿主与 `dsh-base` / `dsh-web-app` / `dsh-acp-app` 的 `dependencies`** 逐层解析（`dsh-credentials` 由 `dsh-credentials-local` 的 peerDependencies 钉住），再用本机运行安装逐个复核。
+
+| 包 | old → new | 代码差异 | 判定 |
+|---|---|---|---|
+| `dsh-mcp-client` | `0.2.0-rc.2 → 0.2.1-alpha.2` | **`lib/index.js` 与 5 个 `.d.ts` 同哈希（835 行 / 35041B / sha256 `758d8fc4…`）；11 个文件里 7 个同哈希** | 代码逐字相同；**`package.json` 不是「只变 version」**：运行时依赖 `@modelcontextprotocol/client` `2.0.0 → 2.2.0`，peerDependencies 整体重钉到 0.2.1-alpha.2 线 |
+| `dsh-settings` | 同上 | 代码 0 行（14 文件 / 10 同哈希） | 仅元数据 + README |
+| `dsh-config-editor` | 同上 | 代码 0 行（7 文件 / 3 同哈希） | 仅元数据 + README |
+| `dsh-credentials` | 同上 | `lib/index.js` 11 行 + 删 `lib/invariant.js` 与 2 个类型文件 | 真动 |
+| `dsh-credentials-local` | 同上 | `lib/index.js` 21 行 | 真动 |
+| `dsh-tools` | 同上 | `lib/index.js` 68 行 + 删 invariant 三件套 | 真动（不在本插件的契约面上） |
+| `dsh-system-prompt` | 同上 | `lib/index.js` 59 行 + 删 2 文件 | 真动 |
+| `dsh-host-webserver` | 同上 | `lib/index.js` **270 行** + 新增运行时依赖 `ipaddr.js ^2.5.0`、`negotiator ^1.0.0→^1.1.0` | 真动（本插件用它的路由注册） |
+| `dsh-plugin-manager` | 同上 | `lib/index.js` 228 行 + `typert.*` 92 行 + 新增 `lib/types/official-install-target.*` | 真动（本插件不消费） |
+| `dsh-acp` | 同上 | `lib/index.js` 76 行 | 真动（动态挂载**先例**所在包） |
+| `cordis-plugin-loader` | `1.0.5 → 1.0.6-alpha.1` | `lib/index.js` 9 行 | 真动（volatile 免重启链所在包） |
+
+**生态级统一动作**（不是本插件的问题）：`credentials` / `tools` / `system-prompt` 三个包整体移除 `./invariant` 伴生入口与 `lib/invariant.js`，README 相应删句。**没有任何一个包的 `package.json` 是「只有 version 字段不同」**——每个包都伴随发布线整体重钉（`0.2.0-rc.2 → 0.2.1-alpha.2`、`@deepseek-ai/cordis ~4.0.4 → ~4.0.5-alpha.1` 等）。
+
+### 契约面逐项复核（读的是实际安装包）
+
+| 事实（插件 AGENTS.md 点名） | 0.2.1-alpha.2 现状 |
+|---|---|
+| `dsh-mcp-client` 命名导出无 default、`inject = ['tools']` | `lib/index.js:835` 的 `export { Config, apply, createMcpToolDefinition, inject, name }`，全文无 `export default`；`:763` `const inject = ["tools"]` |
+| `serverName` 语法与注册作用域互斥 | `:767` `SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/`（`:782`/`:793` 两处复用）；`:811-821` `ctx.effect` 里 `scopeOf(ctx) ?? ctx.root` + `already in use` + `return () => names.delete(...)` |
+| `fiber.dispose()` 语义 | `:700-715` 停重连（`clearTimeout`）、关 transport 并回查、注销工具 disposers；`:830` 绑到 fiber；`:731-734` resource provider 经 `ctx.inject(['mcpResources'])` 注册（`dsh-mcp-resources` 内部是 `ctx.effect`） |
+| `toolCallTimeoutMs` 60000 / `failOnStartupError` false | `:765` `DEFAULT_TOOL_CALL_TIMEOUT_MS = 6e4`、`:788`/`:797` 两处 `.default(false)` |
+| 官方动态挂载先例 | `dsh-acp` 仍是 `import * as McpClient` + `agentCtx.plugin(McpClient, config)`（`:12`/`:218`） |
+| volatile 免重启链 | `cordis-plugin-loader@1.0.6-alpha.1` 的 `_commitVolatile` → `loader/volatile-update` 仍在（本插件实测触发，见下） |
+| 凭据 | `dsh-credentials-local` 的 `resolve/describe/set/unset` 全在；隔离宿主的 `.credentials.yaml`（mode **0600**）由官方服务写入 |
+| 设置写入 | `dsh-config-editor` 的 `withFileLock(package.json)` + `writeFileAtomic` + `reconcileProfilePatches` 未变；实测「手写注释与同文件其它条目都不被触碰」（见下） |
+| 设置条目 id / 客户端数据面 | `dsh-settings` 的 `ns: entry.options.id` 与 `dsh-client-ui-settings` 的 `configForms` **代码 0 行差异** |
+| 路由与安全 | `dsh-host-webserver` 改动 270 行，但**重复路由 throw 与 `requestRejection` 三段判据行为实测不变**（12/12 见下）——这条不是读代码得出的，是本轮实测的，因为它正是本轮改动最大的包 |
+| 设置分区 order | `settings.section` 内置仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（**上限 20 未变**）→ 本插件 110 仍在全部内置之后；`settings.general.item` 上限仍 100（该线新增一条 `dsh-cordis-client-runner` 的 `my-entry` 也是 100） |
+
+### 隔离宿主实测（`DSH_HOME=/tmp/dsh-mcp-console-021/home`、端口 **5922**、headless Chrome 155/CDP 9333；用户的 3080 全程未触碰）
+
+隔离 profile 的 `cordis.patch.yml` 手写两行 `dsh-mcp-client`（**第 1 行 = 服务器名 `patchy2` + URL 带 `token` + `Authorization` 请求头**，GUI 导入断言按它取锚点；第 2 行 = 本地 stdio fixture，20 个工具），另加 `- id: dsh-mcp-console` 的 `config.servers` 探针两条（`srv-volatile`、`srv-credprobe`）。
+
+| 判据 | 结果 |
+|---|---|
+| 启动装配 | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`versionSupported=true`、`dshVersion=0.2.1-alpha.2`、`compatibilityRange=>=0.2.1-alpha.2 <0.2.2`、`verifiedVersions=["0.2.1-alpha.2"]`、`actions=['reconcile','verify','import']` |
+| 脱敏（读侧） | `profileTargets` 给出 `include:mcp-patchy2` / `endpoint` 去掉查询串 / `headerKeys:["Authorization"]` / `hasSensitiveValues:true`；整份状态载荷里 `SHOULD-NOT-LEAK`、`Bearer`、`__jsExpr` 各出现 **0 次** |
+| **`loader/volatile-update` → 对账**（换线最易静默失效的一环） | 直接写 profile patch 的 `config.servers` → `reason=settings`、`mounted:["volprobe"]`、`live.state=mounted`、**20 个工具**（`spike_echo` + 19 个填充齐全） |
+| **对账幂等** | 手动 `reconcile`：`mounted:[] / unmounted:[] / unchanged:['srv-volatile']`，`live.mountedAt` **不变**（`1791617772623` 前后逐字一致，无偷偷重挂）；GUI 两轮结束后两条探针都在 `unchanged` 且 `live.state=mounted` |
+| **凭据占位符链路** | 条目带 `env: { VOLPROBE_TOKEN: 'credential:VOLPROBE_TOK' }` → 被拦且 `blockedReason` **指名缺 `VOLPROBE_TOK`**、`live.state=null`（同一轮 `mounted` 里仍有它——文档记过的形态）→ 值写进隔离 `.credentials.yaml` 后**无需手动对账**：`reason=credentials`、`mounted:["credprobe"]`、`blocked:[]`、20 个工具、`unchanged` 仍只含上一个条目；明文 `probe-value` 在状态载荷里出现 **0 次** |
+| **凭据写入走官方服务** | `import` 动作（`ctx.credentials.set`）把导入的敏感字段落到隔离 `.credentials.yaml`（mode **0600**）的 `refs` 段：`MCP_PATCHY2_HEADERS_AUTHORIZATION` / `MCP_PATCHY2_URL_URL`（回给浏览器的草稿里只有 `credential:<KEY>` 占位符，`notes=[]`）；插件自己**不解析 yaml** |
+| 真机 GUI（`scripts/gui-flow.mjs`：CDP + 无头 Chrome） | **52/52 连跑两轮全过**；浮层实测 `250x261` 在面板 `467x449` 内（`insidePanel=true`）；导入的敏感头表现为「名字 + 凭据键名」`MCP_PATCHY2_HEADERS_AUTHORIZATION`；凭据状态标签 `已配置 · file` |
+| 鉴权 / CSRF 边界 | **12/12**：缺自定义客户端头 403、头值非 1 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、同源头 200、缺 CSRF 403、错 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、动作路由 GET 405、非 JSON 415、正确 CSRF 200、状态路由 POST 405 |
+| **设置写入不触碰手写行与注释** | GUI 两轮写入后，隔离 profile patch 里**手写的分节注释、两条 `- insert:` 条目、`args` 列表格式逐字保留**；被改的只有 `dsh-mcp-console` 自己那条（官方 `configEditor` 还补上了 Config 的默认值字段） |
+| `npm run verify` | **104/104**（分文件：`store 13 / plan 10 / mount-manager 12 / targets 10 / host 14 / client 40 / manifest 5`） |
+| `npm run publish:check` | 104/104 + 打包白名单 **12 个文件 / 60803 字节** 全过 |
+| 导航图标 | `verify-nav-icon.js --measure` 六项全过（label 偏移 36/9 与壳层原生行一致、原 svg 被隐藏、mask 生效、`::before` 恰好 16×16、壳层行未被动过）；`tools/dsh-icons/check.js` 188 个图标无漂移（Medium 94 / Regular 94） |
+
+**结论：业务代码一字未改**，本轮改动只有 `lib/dsh.js` 与 `install.sh` 的版本门常量、`package.json` 的 range/engines/verifiedVersions、`test/manifest.test.js` 与 `test/host.test.js` 的版本门矩阵、README / CHANGELOG / AGENTS 与本文档。换线本身只改常量、判定逻辑不动；但下界从 `rc.2` 换成 `alpha.2` 后**矩阵两向都要改**（`0.2.1-beta.1`/`rc.1` 应放行、`0.2.0-*` 全线应拒绝、`0.2.1-alpha.1` 应拒绝）——旧的「只挡 alpha 低序号」写法在这条线上恰好也挡得住，所以矩阵不写全就发现不了。
+
+### 本轮新事实（跨轮有效）
+
+- **「契约包逐字相同」要拆成两层看**：`dsh-mcp-client` 的**代码**逐字相同，但它 `dependencies` 里的 `@modelcontextprotocol/client` 从 `2.0.0` 跳到 `2.2.0`——对 MCP 相关插件这意味着「同一份桥接代码跑在新版 SDK 上」，不能按零影响处理。破解方式不是读 CHANGELOG，而是**逐个 `package.json` 去掉 `version` 再比 JSON + 逐条比对依赖字段**。同理 `dsh-host-webserver` 新增了 `ipaddr.js` 运行时依赖。
+- **`findMcpEntryConfig` 要的是 loader 条目 id（`include:<rowId>`）**，不是 `entry.options.id`：给 `mcp-patchy2` 一律回「找不到这条配置」，给 `include:mcp-patchy2` 才对。这条只在 HTTP 层暴露，GUI 走它自己的路径所以从没踩到——写脚本直接打动作路由时必踩。
+- **「被拦」指的是托管条目**：往 profile 里插一条手写的 `dsh-mcp-client` 行、env 里写 `credential:KEY`，插件**不会**把它当托管条目管（它只出现在 `profileTargets` 只读视图里）；要验「缺凭据被拦」必须把探针写进**本插件自己那条 config 的 `servers`**。
+- **手写的 `- insert:` 条目在运行期删掉后不会立刻从 loader 消失**：本轮先加了同名手写行、再删掉，状态接口仍报 `serverName already in use`，直到下一次对账/进程重启才自洽。调试时别把它当成插件缺陷。
+- 隔离宿主进程没有 inspector（`ps` 里无 `--inspect`），所以「官方 `credentials.set` 是否触发 watcher」这条**分开验**：官方写入路径由 `import` 动作证明（值确实落进 `.credentials.yaml` 的 `refs` 段），watcher → 对账由直接写凭据文件证明（`reason=credentials` 且自动挂载）。两条各自有独立证据，合起来才是完整闭环。
+- **这台机器没有 `timeout` 命令**（BSD 环境），长命令靠工具层超时；GUI 脚本自带 5 分钟看门狗与步骤名，两轮都正常退出（退出码 0）。
+
+### 仍未覆盖 / 交接
+
+- **真实用户 3080 上的目视确认**：本轮全程隔离宿主；换线后真实 profile 里本插件条目会从「版本门 inert」变为生效，用户刷新页面后应能看到「MCP 服务器」分区——观感与手感请用户看一眼。
+- **`0.2.1` 正式版尚未发布**：下界是 `alpha.2`，正式版发布后按判据在门内但**未逐版本核对**（带警告运行）。届时把它加进四处清单即可（`package.json#dshCompatibility.verifiedVersions`、`lib/dsh.js` 的 `VERIFIED_DSH_VERSIONS`、`install.sh` 的 `DSH_VERIFIED_VERSIONS`、插件 AGENTS.md 的逐版本核对记录）。
+- **`0.2.1` 线的其它 prerelease**（`alpha.3+` / `beta.*` / `rc.*`）：门内放行但未逐条核对，能力探测仍是权威判定。
+- **本包仍未发布**：发布只差「用户授权 + 到 npmjs.com 给 `dsh-mcp-console` 配 trusted publisher」两步。
 
 ---
 
@@ -111,15 +191,18 @@ profile = `dsh-base` + `dsh-web-app` + 两个插件（`dsh plugin --profile web 
 - **提交**：`bf50a98 feat(dsh-auto-load-history): 跨到 0.2.1 发布线并发布 0.3.0`、`5d73d92 feat(dsh-default-tuner): 跨到 0.2.1 发布线并首发 0.2.0`、`627cc5e docs(repo): 记录两个插件跨到 0.2.1 发布线（H1）`。两个插件都没有运行时依赖、**没有 lockfile 需要同步**，因此跳过了 `npm install` 那一步。
 - **发版前查名**：`dsh-auto-load-history` 的 maintainer 是 `zhaoliang233`（已发布 0.2.0）；`dsh-default-tuner` 在 registry 上仍是 **404**（从未发布，新名可用）。
 - **`dsh-auto-load-history@0.3.0` 发布成功**（跨线走 minor：0.2.0 → 0.3.0）：tag `dsh-auto-load-history-v0.3.0` → workflow 全绿（1m41s）→ **三件发布后判据全过**：registry 可读到 `0.3.0`、`dist.attestations.provenance.predicateType = https://slsa.dev/provenance/v1`、GitHub Release `dsh-auto-load-history@0.3.0` 已创建（Latest）。
-- **`dsh-default-tuner@0.2.0` 首发被 npm 侧配置挡住**：tag `dsh-default-tuner-v0.2.0` 已推，workflow 在「发布到 npm」这一步以
+- **`dsh-default-tuner@0.2.0` 首发第一次被 npm 侧配置挡住**：tag `dsh-default-tuner-v0.2.0` 已推，workflow 在「发布到 npm」这一步以
   `npm error 404 Not Found - PUT https://registry.npmjs.org/dsh-default-tuner` /
-  `The requested resource 'dsh-default-tuner@0.2.0' could not be found or you do not have permission to access it.` 失败（provenance 签名本身已成功，是 registry PUT 被拒）。原因：**该包名的 trusted publisher 还没在 npmjs.com 配置**——这一步只能用浏览器登录后做，CLI/agent 无法代劳。**影响面为零**：失败点在 npm publish，后面的「回查 registry」与「创建 GitHub Release」都没执行，所以 registry 上没有任何半成品（仍是 404）、也没有空 release；publisher 配好后用 workflow 的 `workflow_dispatch`（输入 tag `dsh-default-tuner-v0.2.0`）重跑即可，不必动 tag。
+  `The requested resource 'dsh-default-tuner@0.2.0' could not be found or you do not have permission to access it.` 失败（provenance 签名本身已成功，是 registry PUT 被拒）。原因：**该包名的 trusted publisher 还没配，而它只能在已存在的包上配**——`npm help trust` 的 Prerequisites 明写 *Package must exist*（网站入口也挂在包页面的 Settings → Trusted Publisher 下），于是「包不存在 → 配不了 publisher → publish 被拒」成了死循环。**影响面为零**：失败点在 npm publish，后面的「回查 registry」与「创建 GitHub Release」都没执行，所以 registry 上没有任何半成品（仍是 404）、也没有空 release。
+- **破环三步（以后新包首发照抄，用户执行 ① ②、agent 执行 ③）**：① 用户 `npm login` 后在一个临时目录手动发**占位版本** `0.0.1`（只为让包名存在，不碰插件源码）；② 用户在 npmjs.com 包设置页配 trusted publisher（或 `npm trust github dsh-default-tuner --file release.yml --repository zhaoliang233/dsh-plugins --allow-publish`）；③ agent 触发 `gh workflow run release.yml -f tag=dsh-default-tuner-v0.2.0`。**注意别用"手动发正式版"代替 ③**：本地发布拿不到 provenance，且版本一旦被占，workflow 的 `npm publish` 会冲突失败、GitHub Release 也建不出来。
+- **结果（2026-10-15:49 起，约 3 分钟）**：workflow run `38035755070` 九个步骤全绿（发布 → 回查 registry → 创建 Release），**三件发布后判据全过**：registry 可读 `0.2.0`（`latest` 指向它）、`dist.attestations.provenance.predicateType = https://slsa.dev/provenance/v1`、GitHub Release `dsh-default-tuner@0.2.0` 已创建。registry 上该版本回读的 `dshCompatibility.range` / `engines.dsh` 都是 `>=0.2.1-alpha.2 <0.2.2`。**遗留**：占位版 `0.0.1` 仍在版本列表里（无害，可选 `npm unpublish dsh-default-tuner@0.0.1`）。
 - **真实宿主上的换线旁证**：用户在 15:08 前后重启了 `dsh web`（PID 68212 → 77003），因为 profile 用 `link:` 指向工作区源码，这次重启让本轮的换线**在真实环境生效**：`/dsh-default-tuner/status` 从 404 变 **401**（门内、路由已注册），而 `/dsh-local-plugin-manager/status`、`/dsh-extra-context/status` 仍是 401（前几轮 F1/G1 的基线），随机路径 404。
 - **用户 profile 的两步清理**（都不是插件代码改动）：① 把他 profile 补丁里 `session-title-llm` 的 `maxOutputTokens: 64` 改成 `4096`（= 继承层），`--dump-config` 退出码 0；② 随后按要求**清掉整块 config**（该条目的覆盖整段删除，手写的 `maxInputBytes: 5120` 一并回到官方 4096），`--dump-config` 确认该条目已完全来自 `@deepseek-ai/dsh-base`；备份文件按要求删除。
 
 ### 仍未覆盖 / 交接
 
-- **`dsh-default-tuner` 的首次发布**：只差用户在 npmjs.com 给 `dsh-default-tuner` 配 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流 `release.yml`）；配好后触发 `gh workflow run release.yml -f tag=dsh-default-tuner-v0.2.0`（或重推该 tag）即可，代码与 tag 都已就绪。
+- ~~**`dsh-default-tuner` 的首次发布**~~ → **2026-10-10 已完成**（占位版本 + 配 publisher + workflow 三步，见上面的「发布」小节）；占位版 `0.0.1` 可选清理。
+- **`dsh-mcp-console` 的首次发布**（唯一剩下的未发布插件）：照 H1 发布小节的三步走——① 临时目录发占位版本，② 配 trusted publisher，③ `gh workflow run release.yml -f tag=dsh-mcp-console-v<版本>`。它与 `dsh-default-tuner` 撞的是同一个「包不存在就配不了 publisher」的坑。
 - **ALH 的浏览器侧实机行为**（补齐到 `hasMore === false`、锚点稳定、defer 让位）本轮**没有重跑无头回归**——它在 0.2.0-rc.2 上跑过（见该插件 AGENTS 的实测表），本轮只做到"契约面逐行核对 + 版本门 + boot graph"。若要实机确认，按该插件 AGENTS 的「GUI 验证清单」在重启后的 3080 上目视即可。
 - **DDT 的客户端页面观感**（分区、折叠模块、Tag、按钮）本轮只做到"宿主路由 + 数据回执"，没开浏览器。
 - **其余 4 个插件仍在 `0.2.0` 线**（`dsh-chat-archive-manager`、`dsh-mcp-console`、`dsh-sticky-user-bubble`、`dsh-mobile-compat`）：在 `0.2.1-alpha.2` 上按版本门 inert，且都是 L3，各自需要独立会话。

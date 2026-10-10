@@ -57,13 +57,13 @@ test('声明一条兼容发布线与一个 Web 设置分区', () => {
 
 // 跨线时四处必须同时改：package.json 的 range 与 engines.dsh、install.sh 的五个版本门常量，
 // 以及 lib/dsh.js 的 DSH_RELEASE_LINE / DSH_RELEASE_FLOOR / VERIFIED_DSH_VERSIONS。
-// 这条守卫拦住"只换了 range 忘改下界"这类半改：下界是 rc 时 alpha/beta/更低 rc 必须仍在门外。
+// 这条守卫拦住"只换了 range 忘改下界"这类半改：下界是 alpha.N 时更低序号必须仍在门外。
 test('发布线、下界与验证清单在四处保持同源', () => {
   assert.equal(installScript.includes(`DSH_RELEASE_LINE="${DSH_RELEASE_LINE}"`), true)
   assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${DSH_RELEASE_FLOOR.channel}"`), true)
   assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${DSH_RELEASE_FLOOR.sequence}`), true)
   assert.deepEqual([...VERIFIED_DSH_VERSIONS], manifest.dshCompatibility.verifiedVersions)
-  // 上界由发布线自身派生：0.2.0 线只服务 <0.2.1。
+  // 上界由发布线自身派生：0.2.1 线只服务 <0.2.2。
   const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
   assert.equal(
     DSH_COMPATIBILITY_RANGE,
@@ -85,28 +85,29 @@ test('安装脚本的兼容范围与逐版本验证清单必须与宿主、manif
   assert.deepEqual(versions, [...VERIFIED_DSH_VERSIONS], 'install.sh、宿主与 package.json 的清单必须一致')
 })
 
-// 版本门的行为本身（跨线最容易错的一环：下界从 alpha 换成 rc 后必须比较 channel 优先级，
-// 旧的 `channel !== 'alpha' || seq >= N` 写法会把 0.2.0-alpha.9 判成兼容）。
+// 版本门的行为本身（跨线最容易错的一环：下界是 channel + 序号时，必须比较 channel 优先级
+// 再比序号，旧的 `channel !== 'alpha' || seq >= N` 写法会把更低的 alpha 判成兼容）。
 test('版本门把同线内低于下界的 prerelease 一律挡在门外', () => {
   const cases = [
-    ['0.2.0-rc.2', true],
-    ['0.2.0-rc.3', true],
-    ['0.2.0-rc.10', true],
-    ['0.2.0', true],
-    ['0.2.0+build.7', true],
-    ['0.2.0-rc.1', false],
-    ['0.2.0-rc.0', false],
-    ['0.2.0-beta.9', false],
-    ['0.2.0-alpha.9', false],
-    ['0.2.1', false],
-    ['0.2.0-rc.2-beta.1', false],
-    ['0.1.7-rc.2', false],
+    ['0.2.1-alpha.2', true],
+    ['0.2.1-alpha.3', true],
+    ['0.2.1-alpha.10', true],
+    ['0.2.1-beta.1', true],
+    ['0.2.1-rc.1', true],
+    ['0.2.1', true],
+    ['0.2.1+build.7', true],
+    ['0.2.1-alpha.1', false],
+    ['0.2.1-alpha.0', false],
+    ['0.2.0-rc.2', false],
+    ['0.2.0', false],
+    ['0.2.2-alpha.1', false],
+    ['0.2.1-alpha.2-beta.1', false],
     [undefined, false]
   ]
   for (const [version, supported] of cases) {
     assert.equal(classifyDshVersion(version).supported, supported, `classifyDshVersion(${String(version)}).supported`)
   }
-  assert.equal(classifyDshVersion('0.2.0-rc.2').verified, true)
-  assert.equal(classifyDshVersion('0.2.0-rc.3').verified, false, '同线内未逐条核对的版本只带警告运行')
-  assert.equal(classifyDshVersion('0.2.0').verified, false, '正式版尚未逐版本核对，按带警告处理')
+  assert.equal(classifyDshVersion('0.2.1-alpha.2').verified, true)
+  assert.equal(classifyDshVersion('0.2.1-alpha.3').verified, false, '同线内未逐条核对的版本只带警告运行')
+  assert.equal(classifyDshVersion('0.2.1').verified, false, '正式版尚未逐版本核对，按带警告处理')
 })

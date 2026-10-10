@@ -1,15 +1,20 @@
 # 变更记录
 
-## 未发布（改名 + 换线到 DSH 0.2.0）
+## 未发布（改名 + 换线到 DSH 0.2.1）
 
 本插件**还没有发布过**，因此没有版本号可写——这一节只记录已经落在源码里的变更。
 
+- 兼容线由 DSH `>=0.2.0-rc.2 <0.2.1` **整体换到** `>=0.2.1-alpha.2 <0.2.2`（逐版本验证 `0.2.1-alpha.2`）。上一线的用户留在上一线的插件版本，不维护分叉实现。
+- **业务代码一字未改**：0.2.1 的契约面（动态挂载与卸载、volatile 对账、凭据解析与写入、设置写入、只读投影、导航图标补丁）逐项复核后全部成立。隔离宿主上 104 项单测、52 条 GUI 验收（连跑两轮）、12 项鉴权/CSRF、对账幂等与凭据链闭环、导航图标六项几何全过。
+- 换线时值得记下的一条：`@deepseek-ai/dsh-mcp-client` 的**代码**与上一线逐字相同（`lib/index.js` 同 sha256），但它运行时依赖的 `@modelcontextprotocol/client` 由 `2.0.0` 升到 `2.2.0`——所以「逐字相同」只对代码成立，行为要实测。本插件在新 SDK 上实测行为不变（连接、工具发现、dispose 与对账全通）。
+
+### 改名 + 换线到 DSH 0.2.0（同一未发布周期内）
+
 - **改名**：包名从 `dsh-mcp-manager` 换成 `dsh-mcp-console`（旧名在 npm 上被第三方占用、发不了版；新名 2026-10-08 实测未被占用）。跟着一起改的还有：profile 条目 id 与模块名（`cordis.patch.yml`）、浏览器 bundle 注册名（`client.js`）、宿主与客户端的 `PLUGIN_NAME` / `SETTINGS_ENTRY` / `SECTION_ID`、两条 HTTP 路由与两个固定请求头名，以及内部短前缀（CSS 类名与导航补丁标记 `dmm` → `dmc`）。**功能一行未改**。
 
-- 兼容线由 DSH `>=0.1.7-alpha.1 <0.1.8` **整体换到** `>=0.2.0-rc.2 <0.2.1`（逐版本验证 `0.2.0-rc.2`）。上一线的用户留在上一线的插件版本，不维护分叉实现。
-- 版本门改为从 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 常量派生：同线内更低的 channel（alpha/beta）与更小的 rc 序列号一律挡在门外（旧的「只挡 alpha 低序号」写法会把 `0.2.0-alpha.9` 误判成兼容）；`install.sh` 有一份等价的 shell 版。
+- 兼容线曾由 DSH `>=0.1.7-alpha.1 <0.1.8` **整体换到** `>=0.2.0-rc.2 <0.2.1`（逐版本验证 `0.2.0-rc.2`）。
+- 版本门改为从 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 常量派生：同线内更低的 channel（alpha/beta）与更小的序列号一律挡在门外（旧的「只挡 alpha 低序号」写法会把 `0.2.0-alpha.9` 误判成兼容）；`install.sh` 有一份等价的 shell 版。
 - 新增 `test/manifest.test.js`：守卫「发布线 / 下界 / 验证清单」四处同源，以及**改名落点**（`package.json#name`、`cordis.patch.yml` 的 id/name、客户端 bundle 的 module id、`lib/store.js` 的 `PLUGIN_NAME` 与 `SETTINGS_ENTRY`）必须一致。
-- **业务代码一字未改**：0.2.0 的契约面（动态挂载与卸载、volatile 对账、凭据解析与写入、设置写入、只读投影、导航图标补丁）逐项复核后全部成立。隔离宿主上 104 项单测、52 条 GUI 验收（连跑两轮）、导航图标六项几何全过。
 
 ## 0.1.0
 
