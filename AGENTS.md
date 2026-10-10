@@ -160,6 +160,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 - 发布流程：改 `package.json#version` → 写 `CHANGELOG.md` 条目 → 跑该插件的 `npm run publish:check` → `git tag dsh-<插件>-v<版本>` → `git push origin HEAD && git push origin dsh-<插件>-v<版本>`。tag 必须与 `package.json#version` 完全一致；工作流还会拒绝 `private: true` 的包，并在发布后回查 registry。
 - 发版必须由用户明确授权：`commit`/`tag`/`push` 都属「提交规范」里的受限操作（只读检查不受限）。
 - **`release.yml` 在 `npm publish` 前必须安装依赖**：带运行时依赖的插件（现例 `dsh-local-plugin-manager` 的 `@deepseek-ai/dsh-atomic-write` 与 `yaml`）否则会在 `prepublishOnly` 门禁里以 `ERR_MODULE_NOT_FOUND` 失败——`dsh-local-plugin-manager@0.1.4` 就是这样没发出去的。也不要缩短 registry 回查窗口：可见性实测可达数分钟，曾经的 12×10s 把"发布成功"误判成失败，还跳过了 GitHub Release 创建。
+- **改了运行时依赖范围就必须 `npm install` 并提交 `package-lock.json`**：CI 与 release 在存在 lockfile 时跑 `npm ci`，范围与 lock 失配会以 `EUSAGE`（`lock file's X does not satisfy Y`）在**安装依赖**这一步直接失败，tag 已推、却什么都没发布。本机的 `npm run publish:check` **看不出这个问题**（它用已经装好的 `node_modules`）——所以"改依赖 → `npm install` → 跑闸门 → 看 `git status` 里 lockfile 有没有变"是一条固定动作。先例：`dsh-local-plugin-manager@0.4.0` 首次 tag（2026-10-10）因它失败过一次。
 - 认证：每个包在 npmjs.com 设置页配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`）。报 `ENEEDAUTH` / `Unable to authenticate` 时先核对这三个字段。
 - 有硬编码版本断言的 manifest 测试要同步（现例：`dsh-local-plugin-manager`、`dsh-mobile-compat`），否则发布门禁会失败。
 - 发布后核对三件事：registry 上的版本、该版本 `dist.attestations` 是否存在（证明是 OIDC 发布）、GitHub Release 是否创建。`gh` 已装在 `/usr/local/bin/gh`（brew 在这台 Intel Mac 上装不了 gh，用的是官方预编译二进制），已登录 `zhaoliang233`。

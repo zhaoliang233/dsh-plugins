@@ -66,6 +66,7 @@
 - **`dsh plugin add` 在依赖已存在时不重选 bundle**：pnpm 打 `Already up to date`，官方 CLI 也不会把名字补进 `dsh.profile.bundles`——补 bundle 得走官方 GUI 的 bundle 开关或先 remove 再 add。
 - **官方安装对话框的完成态按钮**：手动 spec 装完后给「立即启用」（`installEnableNow`），已带 selection 的目录安装才给「关闭」。
 - **本插件的卸载两条路都验证过**：GUI（内部跑 `dsh plugin remove` 子进程）与直接调 `dsh plugin remove`，manifest 结果一致（依赖 + bundle 都清）。
+- **升运行时依赖范围后忘了 `npm install`，会让 tag 推上去却什么都没发布**：`dsh-local-plugin-manager-v0.4.0` 首次推送时 CI 与 release 双双在「安装依赖」这一步以 `EUSAGE` 失败（`lock file's @deepseek-ai/dsh-atomic-write@0.2.0-rc.2 does not satisfy @deepseek-ai/dsh-atomic-write@0.2.1-alpha.2`，另有 `@deepseek-ai/cordis`、`cosmokit` 两条同因）。**本机 `npm run publish:check` 完全看不出**——它用已经装好的 `node_modules`。修法是补 `npm install` 并提交 `package-lock.json`，再把 tag 重新指向修复后的提交（本次 tag 下没有任何发布物，registry 上仍是 0.3.0、GitHub Release 也没建）。已写进根 `AGENTS.md` 的发布固定动作与插件 `AGENTS.md`。
 
 ### 真实宿主（3080）重启后的只读复核（2026-10-10）
 
