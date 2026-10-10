@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| G1（2026-10-10） | `0.2.1-alpha.2` | L2 插件 `dsh-local-plugin-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：三处新结构（官方 `dependencySpec()`、`dsh-app-boot` 的运行时替换校验放宽、`dsh-hmr` 的 `package.json` 缓存失效）逐行有证据；业务逻辑只改了读侧 `link:` 记录形态归一；新增端到端脚本，隔离宿主上跑通「设置页摘除一个 `link:` 插件 → 官方插件页装回」**24 项全过** |
 | F1（2026-10-10） | `0.2.1-alpha.2` | L1 两个插件 `dsh-default-workspace` + `dsh-extra-context` 整体换到 `>=0.2.1-alpha.2 <0.2.2`（换线不是放宽上界）；逐包 diff 后契约面只有 `uiWorkspace.startSession` 变了（单参数=总是新建空白会话），已按 `{clearPreviousDraft:false}` 保住复用语义；换线前两条 `/status` 404、换线后 200 |
 | E1（2026-10-08，改名） | `0.2.0-rc.2` | 两个未发布插件在 npm 上撞名，整体改名：`dsh-mcp-manager` → `dsh-mcp-console`、`dsh-default-overrides` → `dsh-default-tuner`（新名同日实测未被占用）；包名/条目 id/bundle 注册名/设置条目 id/路由与头名/内部前缀/文档同步，**功能与版本号未动**，两包 `publish:check` 全绿；本机 web profile 已切到新名 |
 | D1（2026-10-01） | `0.2.0-rc.2` | L2 插件 `dsh-default-tuner` 跨线完成（工作区最后一个停在旧线的插件）：契约面逐项有证据、门常量照基准形状改成从常量派生、13 档矩阵 + 四处同源全过；隔离宿主实测「范围外零注册（两种形态）」与「门内可写 profile 补丁」；顺带证伪了一条假守卫（文档腿 `includes` 判据）与一条错误取证方式（靠 cordis 日志） |
@@ -21,6 +22,69 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## G1：L2 跨线 `dsh-local-plugin-manager`（2026-10-10）
+
+运行版本 `0.2.1-alpha.2`，上一验证线 `>=0.2.0-rc.2 <0.2.1`。插件**整体换线**到 `>=0.2.1-alpha.2 <0.2.2`（`DSH_RELEASE_LINE='0.2.1'`、`DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}`、清单 `['0.2.1-alpha.2']`）。**本轮不改版本号、不提交、不发版**（留给用户授权的发布轮）。
+
+### 逐包 diff（`npm pack` 两版到 `/tmp/dsh-lpm-021/{old,new}`，逐文件比对）
+
+先自证取到的是同一份代码：**new 侧 11 个契约包的 `lib/` 与运行安装逐字一致**（`diff -rq` 0 差异），再开始比较。命中的包与规模：`dsh-plugin-manager` +200/−28、`dsh-app-boot` +199/−43、`dsh-hmr` +402/−37、`dsh-host-webserver` +207/−63、`dsh-client-connection` +94/−38、`dsh-client-modules` +9/−4、`cordis-plugin-loader` +6/−3（1.0.5→1.0.6-alpha.1）、`dsh-base` 的 `cordis.patch.yml`。**逐字相同**：`dsh-atomic-write`（lib 全同）、`cordis-plugin-include`（lib 全同）、`dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-ui-settings-plugin-inventory`、`dsh-client-ui-settings-general/lib/client.js`（唯一差异是版本号字面量）。
+
+### 三处新结构逐行核对（本轮重点）
+
+| 新结构 | 逐行证据（0.2.1-alpha.2 安装包） | 对本插件的处置 |
+|---|---|---|
+| **官方 `dependencySpec()`**（`dsh-plugin-manager`） | `lib/types/install-spec.js:104-115`：`/^(file|link):(.*)$/s` → 行首 `~` 换 home → `resolve(profileDir, path)`；`lib/index.js:135` 是内联副本，唯一消费点 `:1603` 的 `sourceOf` → DTO `source`（`typert.host.js:104`） | 本包不消费官方 DTO，但**读侧必须同样归一**：实测 pnpm 12.6.0 原样记录 `link:../src/foo` 与 `link:~/x`，本包原先只做 `resolve(profileDir, target)`，`~` 会判成「本地链接目标不可用」→ 新增 `resolveRecordedLocalPath(profileDir, target, home)`（含「`~` 后必须是结尾或分隔符」这条边界）并补单测 |
+| **运行时替换校验放宽**（`dsh-app-boot`） | 删：0.2.0-rc.2 的 `:1368`「removing local package … requires a process restart」整行；增：0.2.1 的 `:1446` `if (next === void 0 && current.scope === "profile") continue;`，并把 `:1447` 的 `declarer` 比较收窄为 installation scope；服务层注释写明新契约（`:3367-3371`）。配合官方 plugin-manager 新增的 `refreshPackages()`（`:1824`/`:1826`/`:1963`/`:2023`） | 这正是「摘掉一个 `link:` 插件能进程内生效」的前提。本包卸载走**外部 CLI**、进程内不发布 successor，所以不需要改代码；墓碑策略按新事实重新措辞并实测（见下） |
+| **`package.json` 缓存失效**（`dsh-hmr`） | 新增 `PackageManifests` 类（`:213`）：失效目录 → 清自己的缓存 → 删 CJS `_pathCache` 全部键 → `Map.prototype.clear` ESM `ResolveCache`（`:228`）；触发点 `:748` 判「非 node_modules 的 package.json」后 `invalidate`，`:752` 起对 manifest 直接 `continue`（不再当模块重载）；`:757` 多认 `loadCache.has(url, "json")` | 无需改代码，它是「重装后 manifest 立刻可读」的另一半保证。**但注意** profile manifest 那条路径（`:719` 的 `watchConfig(manifestPath, () => refresh(true))`）有 `:701` 的条件提前返回：`bundle` 列表没变时不会重组 loader |
+
+其余契约项逐条复核成立：写锁（`dsh-atomic-write` lib 逐字相同、官方 `lockWaitMs` 仍 `12e4`）、覆盖项四条语义（`writePluginEnabled` 逐字相同）、`include:<rowId>`（`EntryTree.sep === ':'`，`:127`/`:332`）、`reconcileProfilePatches` 与 `readProfileManifest`/`composeEntries` 逐字相同、`settings.section` 无 `icon` 且内置 order 上限仍 20、`webServer.register`（逐字相同）与 `requestRejection`（三段判据不变）、peerDependencies 预检仍在但不门禁本包。
+
+### 端到端：设置页摘除一个 `link:` 插件 → 官方侧装回（新脚本 `scripts/e2e-remove-reinstall.mjs`）
+
+隔离 `DSH_HOME=/tmp/dsh-lpm-021-home` + 端口 5911 + headless Chrome 155/CDP 9344（用户的 3080 全程未触碰）。profile 里装了三个 `link:` 插件，其中目标是**用 `link:~/Documents/...` 形态**装的——顺便实测了新增的读侧归一。**24 项断言全过**，关键链路：
+
+| 阶段 | 判据 |
+|---|---|
+| 摘除前 | manifest 有依赖 + bundle；面板列出且可卸载；boot graph 有它的 client bundle |
+| 设置页点卸载 | 确认弹窗出现且危险按钮可用 → 确认后 manifest 的依赖与 bundle **都消失**；patch 里该行覆盖项 `disabled: true`；state.json 留下当前进程墓碑；无残留 `package.json.lock` |
+| 摘除后 | 面板不再列出；**boot graph 里它的 client bundle 消失**（hmr 重组真的生效，这条在 0.2.0-rc.2 上做不到） |
+| 官方侧装回 | 侧边栏「插件」→「添加插件」→ 填 `link:<源码目录>` →「安装」→ 依赖写回 → 官方列表 bundle 开关选中 bundle → manifest 依赖与 bundle 齐了 |
+| 装回后 | 面板重新列出（此时「已禁用」：上一进程写的覆盖项仍在，fail-closed）；开关切回已启用 → 覆盖项写显式 `disabled: false`（不删条目）；boot graph 里 client bundle 回来 |
+
+### 两个「仪器问题」（都不是产品缺陷，但不修就把正确行为判成失败）
+
+- **`gui-check.mjs` 的 patch 断言只认块式 YAML**：隔离 profile 初始化写下的 patch 是「注释 + `[]`」，`yaml` 给**流式空序列**追加条目时会输出流式 YAML `[ { id: x, disabled: true } ]`，逐行正则读不到 → 两条断言恒红。用官方那份 `yaml@2.9.1` 复现，**两版输出逐字相同**（官方 `writePluginEnabled` 是同一段操作 + 同一份库），所以这是排版差异、不是分歧；脚本改成 `parseDocument` 真解析。**教训：断言要度量语义，别度量排版**（与 B2 的 order 断言同一类）。
+- **官方「安装」不等于「启用」**：`installBundle(spec, { enabled: subject.selection ?? false })`（UI `client.js:1496`）只把**依赖**写进 profile；选中 bundle 是第二步——对话框完成态的「立即启用」（`setPluginEnabled`）或列表卡片的 bundle 开关（`setBundleEnabled`）。而且 profile 一变客户端会重挂、对话框可能直接消失（实测 `{"open":false}`），脚本因此按「依赖先落地 → 再用官方入口选中 bundle」两步走。
+
+### 踩坑与可复用技巧
+
+- **侧边栏默认折叠**：`button[aria-label="插件"]` 是稳定入口（文本为空、`nav.hHd-Xa_panelList` 里只有 glyph）；按文本找永远找不到。
+- **`dsh plugin add` 在依赖已存在时不重选 bundle**：pnpm 打 `Already up to date`，官方 CLI 也不会把名字补进 `dsh.profile.bundles`——补 bundle 得走官方 GUI 的 bundle 开关或先 remove 再 add。
+- **官方安装对话框的完成态按钮**：手动 spec 装完后给「立即启用」（`installEnableNow`），已带 selection 的目录安装才给「关闭」。
+- **本插件的卸载两条路都验证过**：GUI（内部跑 `dsh plugin remove` 子进程）与直接调 `dsh plugin remove`，manifest 结果一致（依赖 + bundle 都清）。
+
+### 真实宿主（3080）重启后的只读复核（2026-10-10）
+
+用户在 Warp 里重启 `dsh web --no-open`（新 PID 68212，13:47:56 启动；旧宿主 PID 59588 已退出，全程未由 agent 触碰）。用**路由判别码**取证——`dsh-host-webserver.register()` 对重复 (kind,path) 抛错，所以未认证请求的 401/404 直接区分「路由已注册（门内）」与「版本门拒载（门外）」：
+
+| 路径 | 结果 | 含义 |
+|---|---|---|
+| `/dsh-local-plugin-manager/status`、`/action` | **401** | 本插件在本轮换线后已注册（旧范围内这条会 404） |
+| `/dsh-extra-context/status`（F1 已换线，对照） | 401 | 基线一致 |
+| `/dsh-auto-load-history/status`、`/dsh-default-tuner/status`（仍在 0.2.0 线，对照） | 404 | 门外的插件确实 inert，与「当前归属」表一致 |
+| 随机路径 / 本插件下的未注册路径 | 404 | 判别码本身有效 |
+
+真实 profile 的落盘状态也一并只读核对：9 条依赖全是绝对 `link:`（`~`/相对形态的读侧归一在本机 profile 上不会改变任何既有行为）、无本插件相关覆盖项、`state.json` 无墓碑、无残留 `package.json.lock`。
+
+### 仍未覆盖 / 交接
+
+- **设置页「插件开发」分区的实机观感**（行、说明、图标、开关/弹窗外观与手感）：命令行只能拿到 401 判别码，页面观感请用户目视确认。
+- **不再向下兼容 0.2.0 线**：range 整体换掉，`0.2.0-rc.2` 判 unsupported——这是换线的定义，不是缺陷；旧线用户留在 0.3.0。
+- 其余 6 个插件仍在 `0.2.0` 线、在 `0.2.1-alpha.2` 上按版本门 inert（本次 404 判别码再次确认），要逐插件另开一轮。
 
 ---
 

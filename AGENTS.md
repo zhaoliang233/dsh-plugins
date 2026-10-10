@@ -72,7 +72,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-10 起 `dsh-default-workspace` 与 `dsh-extra-context` 已换到 `>=0.2.1-alpha.2 <0.2.2`（见 `docs/compat-log.md` 的 F1），其余 7 个仍在 `>=0.2.0-rc.2 <0.2.1`：当前运行的 `0.2.1-alpha.2` 在前两个的门内，**在其余 7 个的门外（那 7 个眼下按版本门 inert）**——跨线必须逐插件单独开一轮，别一次全动。
+- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 2026-10-10 起 `dsh-default-workspace`、`dsh-extra-context`（见 `docs/compat-log.md` 的 F1）与 `dsh-local-plugin-manager`（G1）已换到 `>=0.2.1-alpha.2 <0.2.2`，其余 6 个仍在 `>=0.2.0-rc.2 <0.2.1`：当前运行的 `0.2.1-alpha.2` 在前三个的门内，**在其余 6 个的门外（那 6 个眼下按版本门 inert）**——跨线必须逐插件单独开一轮，别一次全动。
 - 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-tuner` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。**但版本门只作用于 Host 半体**：纯客户端插件的 client bundle 由 `dsh-client-modules` 按 `package.json#dsh.client` 直接进启动图（不看你 `apply()` 注册了什么），范围外照样在浏览器里跑——这类插件范围外的兜底只有客户端自己的能力检查（fail closed）与让用户先从 profile 移除；改版本门时别以为它顺手把 UI 也关掉了。`dsh-mobile-compat` 就是这类：宿主半体只有状态路由，门在 client bundle + `install.sh`。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
@@ -109,7 +109,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 | L1 | `dsh-default-workspace` | `0.2.1` | 公开 `workspaceRegistry` + 一个 slot；唯一私有触碰是客户端 `workspaces` 的 `rename/delete/insertBefore` 补丁（fail closed、可摘除） |
 | L1 | `dsh-extra-context` | `0.2.1` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
 | L2 | `dsh-auto-load-history` | `0.2.0` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
-| L2 | `dsh-local-plugin-manager` | `0.2.0` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
+| L2 | `dsh-local-plugin-manager` | `0.2.1` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
 | L2 | `dsh-default-tuner` | `0.2.0` | 1588 行本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到（原名 `dsh-default-overrides`） |
 | L3 | `dsh-chat-archive-manager` | `0.2.0` | 3056 行 + 3856 行测试，依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
 | L3 | `dsh-mcp-console` | `0.2.0` | 4108 行 / 8 模块，动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收（原名 `dsh-mcp-manager`） |
