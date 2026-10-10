@@ -144,13 +144,23 @@
 - **别假设旧隔离 home 还能用**：B4 的 `/tmp/dsh-020-home` 会话目录已被清空、profile 清单也不在；新 home = 拷 `storages/` + `workspaces/` + 目标会话目录，再 `DSH_HOME=… dsh plugin --profile web add link:<插件目录>` 自动初始化。
 - **侧边栏展开要点 chevron**：工作区行（`[role=treeitem]`）里的两个 `button` 是「操作」与「新建会话」，点行本身或这两个按钮都不会展开，必须点 `row.querySelector('[class*=chevron]')`（本轮两轮探针才定位）。
 - **量测脚本要自带收敛与稳态等待**：`dsh-auto-load-history`（已跨线）会真的补齐历史，落点定位仍须收敛式；本轮收敛上限 8 次 / 420ms、落点误差 ≤0.2px，且行数「连续 3 次不变」才开测。
-- **并行会话会同时改同一份 `docs/compat-log.md`**：本轮写档案时撞上另一会话正在追加 B8（`dsh-chat-archive-manager`），`edit` 连续两次因「文件已变」失败——重读一次再改即可，别用整文件覆盖写。
+- **并行会话会同时改同一份 `docs/compat-log.md`**：本轮写档案时撞上另一会话正在追加 B8（`dsh-chat-archive-manager`），`edit` 连续两次因「文件已变」失败——重读一次再改即可，别用整文件覆盖写。同一段时间根 `AGENTS.md` 也被对方连续改写：我的 `git add` 因此带上了对方刚写的最新线清单（内容正确，但提交信息里「7 个在门内 / 2 个仍在 0.2.0 线」与内容里的「8 个 / 1 个」对不上）——**在并发工作区提交前先看一眼暂存内容，别只信自己写下的提交信息**。
+
+### 发布（2026-10-10，用户授权）
+
+用户在本轮末尾明确授权「提交并且发布」，于是追加：
+
+- **提交**：`af1aed1 feat(dsh-sticky-user-bubble): 跨到 0.2.1 发布线并发布 0.3.0`、`0adb854 docs(repo): 记录 dsh-sticky-user-bubble 跨到 0.2.1 发布线（B7）`；`docs/compat-log.md` 的 B7 段先前已被并发会话的 `d016726` 一并提交。
+- **发版前查名**：`dsh-sticky-user-bubble` maintainer 仍是 `zhaoliang233`、registry 上最新为 `0.2.0`；本包早已发布过，trusted publisher 不需要重配（与「新包首发三步走」无关）。
+- **跨线走 minor**：`0.2.0 → 0.3.0`，`CHANGELOG.md` 新增 `0.3.0` 条目、`PUBLISHING.md` 的 tag/tarball 示例版本同步；tag `dsh-sticky-user-bubble-v0.3.0` 与 `package.json#version` 一致，`publish:check` 在改版本后重跑仍全绿（28 项 + tarball 8 文件）。
+- **workflow**：`gh run watch 38038271640` → **success**（约 1m44s）。三件发布后判据全过：registry 可读到 `0.3.0`、`dist.attestations` 的 `predicateType = https://slsa.dev/provenance/v1`、GitHub Release `dsh-sticky-user-bubble@0.3.0` 已创建并标为 **Latest**。
+- **registry 安装自检**：全新 `DSH_HOME=/tmp/dsh-sub-021/verify-home` 里跑 `dsh plugin --profile web add dsh-sticky-user-bubble@0.3.0` → 解析到 `0.3.0` 并写入 profile（2.3s），用户路线可用。
 
 ### 仍未覆盖（交给用户或后续会话）
 
 - **目视观感**：滚动流畅度、真实鼠标 hover 的手感、非 1 缩放与自定义字号下的观感；含 `@` 引用 chip 的用户消息（本会话该类为 0，仍只有静态核对）。
 - **折行动画进行中的那一瞬**（0.2.1 新系统）：需要真实运行中的 turn 或能触发 fold 的场景，静态回放覆盖不到。
-- 发布相关（版本号、CHANGELOG 条目、tag、npm）本轮按用户指示全部未做。
+- 发布相关：**本轮已按用户授权完成**（见上面的「发布」小节）：提交两次、tag `dsh-sticky-user-bubble-v0.3.0` 已推，registry / GitHub Release / provenance 三件判据全过，registry 安装自检通过。
 
 ---
 
