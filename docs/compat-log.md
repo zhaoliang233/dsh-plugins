@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| I1（2026-10-10，发布审计） | `0.2.1-alpha.2` | 8 个已发布包换线后的独立收口校验：四处同源、458 项单测、图标网、8 个 `publish:check`、registry/provenance、`npm ci` 锁一致性全过；真实运行态由「路由 404」变「401/200」证明 8 个宿主半体都活了。**修掉 `release.yml` 一个看不见的 bug**（创建 Release 用 `github.ref_name` 而非校验过的 tag，手动派发时会产出 `main` 这种分支名 tag），并清理两个发布流程残骸 |
 | B8（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-chat-archive-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：296 个包两版逐文件 sha256 比对，删除事务路径上「逐字相同」与「改了但够不着」两类都逐行有证据（`dsh-agent-loop` 的 factory dispose 只把 `scope.dispose()` 挪进独立 `try/catch`；`dsh-session-persistence-jsonl` 的 4 个 hunk 只包装返回值 / 新增附加键；`dsh-workspace`+`dsh-agent`+`dsh-session-format*`+`dsh-session-persistence` 整包逐字相同）；隔离宿主**基线 5 + 轮次 A 68 + 轮次 B 65 全过**（含中途中断与可恢复性闭环）；`publish:check` 78 项 + tarball 9 文件全绿 |
 | B7（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-sticky-user-bubble` 换到 `>=0.2.1-alpha.2 <0.2.2`：chat 包 11.5k 行 diff 逐行分类为「位置搬移 + CSS 4 处无值级几何变化 + opt-in 折行动画」；六个几何常量在隔离宿主上重新量出且与 0.2.0 全线一致（含 push 上限 102 与候选交接帧）；业务代码一字未改 |
 | G2（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-mcp-console` 换到 `>=0.2.1-alpha.2 <0.2.2`：**「契约面逐字相同」这句话要拆开说**——`dsh-mcp-client` 的 `lib/index.js` 与 5 个 `.d.ts` 同哈希（835 行），但它运行时依赖的 `@modelcontextprotocol/client` 由 `2.0.0` 升到 **`2.2.0`**（这条用实测覆盖：动态挂载/工具发现/dispose 全通）；隔离宿主上单测 104/104、真机 GUI **52/52 连跑两轮**、鉴权/CSRF 12/12、volatile→对账、幂等、凭据链闭环，明文 0 次入载荷 |
@@ -26,6 +27,74 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## I1：跨线后的发布审计 + 修 `release.yml` + 清理 tag 命名空间（2026-10-10）
+
+8 个插件（除 `dsh-mobile-compat`）跨到 `0.2.1-alpha.2` 线、各自发布之后，做的一轮**独立收口校验**（不看各轮自述，只验四处同源、离线网、真实运行态）。本轮**不改任何插件源码**，只修工作流的发布收尾逻辑与 tag 命名空间。
+
+### 校验结果（8 项，全过）
+
+| 校验 | 结果 |
+|---|---|
+| 四处同源（`package.json` + `engines.dsh` + lib 五常量 + `install.sh` 五常量） | 8 个全一致，1 个故意例外（`dsh-mobile-compat` 仍在 `0.2.0` 线） |
+| 单测 | 458/458 |
+| 图标网 `check.js` | 无漂移（188 图标、Medium/Regular 各 94） |
+| `npm run publish:check` × 8 | 全过 |
+| registry 版本 vs 本地 | 8 个逐一相符 |
+| SLSA provenance | 7 个新版本全部有 |
+| `npm ci` 锁一致性 | `dsh-local-plugin-manager` 通过（那个曾让 0.4.0 首发失败的坑已堵） |
+| **真实运行态** | 同一组状态路由：**换线前全部 404 → 换线后全部 401/200** |
+
+最后一条是本轮最有价值的取证方式：**401 不是失败，是"路由已注册、只拒无浏览器 cookie 的 curl"**（对照组：不存在的路径仍 404）。想确认一批宿主半体有没有真的注册，这比读日志可靠——D1 轮记过的「靠 cordis 日志取证」是错误的取证方式，而路由状态码不会骗人。注意 `dsh-mobile-compat` 的宿主路由**照样在答**：它没有宿主门，门在 client bundle + `install.sh`（B4 轮实测过的那条）。
+
+### `release.yml` 的 bug（本轮唯一的实质修复）
+
+```yaml
+# 解析并校验 tag
+RAW_TAG: ${{ github.event.inputs.tag || github.ref_name }}   # ← 这个值被正确校验
+# 但校验通过的 tag 没有被写出成 output
+
+# 创建 GitHub Release（原样）
+TAG: ${{ github.ref_name }}                                  # ← 用的是 ref_name，绕过了校验值
+gh release create "$TAG" ...
+```
+
+`push` 触发时 `github.ref_name` 恰好等于 tag 本身，所以**这个错一直没暴露**；一旦走手动 `workflow_dispatch`（新包首发的第 ③ 步正是它），`github.ref_name` 变成分支名 `main`，于是：
+
+- Release 的 **tag 名变成 `main`**、标题仍是 `dsh-default-tuner@0.2.0`
+- **并且真的创建了一个名为 `main` 的 tag**（`gh release create` 对不存在的 ref 会顺手建 tag），固定在那次派发的 `head_sha`（`4a5b239`）
+- 后果不只是"多一个 tag"：`main` 同时是分支名与 tag 名，**此后每条引用 `main` 的 git 命令都打印 `warning: refname 'main' is ambiguous`**
+- 这也是「发布后核对三件事」第三件**查不到**的原因——按 `dsh-default-tuner-v0.2.0` 去查会得到"不存在"，而它其实存在，只是挂在别的 tag 上
+
+修法（提交 `1e5f890`）：解析步骤加 `echo "tag=$TAG" >> "$GITHUB_OUTPUT"`，创建步骤改用 `${{ steps.target.outputs.tag }}`。这样两种触发路径都只用**被校验过的那个 tag**，顺带解决"手动触发时 `credentials` 依赖 `github.ref` 仍指向分支"的隐患。
+
+取证时的两个弯路，记下来省得重走：
+
+1. **别在 `gh release list` 里按标题找**：列表显示的是**标题**（`<包名>@<版本>`），可能看着完全正确却挂在错 tag 上。只用 `gh release view <tag>` / `gh api .../releases/tags/<tag>` 按 tag 名查。
+2. **`npm view <包> dist.attestations` 只证明是 OIDC 发布，不证明挂在哪个 tag 上**。两者证据链是分开的：产物对不对看 npm，tag 挂得对不对只能看 git refs。
+
+### 清理的两个残骸
+
+| 残骸 | 成因 | 处置 |
+|---|---|---|
+| `refs/tags/main` → `4a5b239` | 上面那个 bug 的产物 | 远端 + 本地都删。**远端删了不会同步到本地**（`git push` 不做这件事）——本地那份是靠用户提醒才发现的，只验远端会漏 |
+| `dsh-local-plugin-manager-v0.1.4` → `df6cab4` | 发布**失败**后留在本地的 tag，从未推送（npm 上 0.1.3 → 0.1.5 跳过 0.1.4，无 Release） | 删本地 tag。留档完整 SHA：`df6cab4d56352e420e3a700e42e7cb655379a278`，2026-09-17 |
+
+清理后：本地 / 远端 tag 集合 **51 = 51 完全一致**，且 51 个全部符合 `<插件名>-v<版本>` 形式。
+
+### 顺带修好的一处系统性瑕疵
+
+横向看 7 个 Release 的自动生成说明，**2 个**的 `Full Changelog` 比较链接指向 `main`（不只有 tuner）：`dsh-default-tuner-v0.2.0`（`...dsh-auto-load-history-v0.3.0...main`）与 `dsh-chat-archive-manager-v0.3.0`（`...compare/main...`）。用显式 `gh release edit --notes-file` 改成真实 tag 之间的比较（基线 tag 用远端 tag 列表核实过，没有凭推测编版本号）。**这处值得修的原因**：正文带 `main` 时，用 `gh release view` 读到的就是 `main`——本轮排查一开始正是被它误导的。
+
+一处如实说明：本想重新生成自动说明让 GitHub 自己算基线，但用错了端点（`gh api -X POST .../releases/tags/<tag>` 返回 404），于是改成手工替换。所以这两条基线是按"上一个已发布 tag"定的，**指向的 tag 都真实存在、语义正确**，但与 GitHub 自己会选的不一定相同。
+
+### 可复用结论
+
+- **发布收尾 = 三件事 + 一条**：registry 版本、provenance、**按 tag 名查** Release，再加 **tag 命名空间一致性**（`comm -3` 比本地与远端）。前三件事查不出 tag 污染。
+- **删 Release 是破坏性的**（连带删掉那个 tag），但**不丢包**——npm 上的版本独立存在，tag 只是提示。所以修挂错的 Release = 先 `--json body` 备份说明，再按正确 tag 重建。
+- **隔离宿主 + 真实路由状态码**是验证"一批宿主半体是否真的注册了"的最省事手段，比读日志可靠。
 
 ---
 

@@ -165,6 +165,12 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 - 认证：每个包在 npmjs.com 设置页配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`）。报 `ENEEDAUTH` / `Unable to authenticate` 时先核对这三个字段。
 - 有硬编码版本断言的 manifest 测试要同步（现例：`dsh-local-plugin-manager`、`dsh-mobile-compat`），否则发布门禁会失败。
 - 发布后核对三件事：registry 上的版本、该版本 `dist.attestations` 是否存在（证明是 OIDC 发布）、GitHub Release 是否创建。`gh` 已装在 `/usr/local/bin/gh`（brew 在这台 Intel Mac 上装不了 gh，用的是官方预编译二进制），已登录 `zhaoliang233`。
+  - **Release 要按 tag 名直接查，别在 `gh release list` 里找标题**：`gh release view <tag>` 才反映真实 tag 名，列表里的标题（`<包名>@<版本>`）看着对也可能挂在错 tag 上（I1 先例：标题 `dsh-default-tuner@0.2.0` 而 tag 是 `main`）。
+- **发布后还要核 tag 命名空间**（上面三件事查不出污染）：本地与远端 tag 集合必须一致，且全部是 `<插件名>-v<版本>` 形式。
+  ```bash
+  comm -3 <(git tag -l|sort) <(git ls-remote --tags origin|grep -v '\^{}'|sed 's|.*/||'|sort)   # 空=一致
+  ```
+  两类真实残骸：`main` 这类**分支名 tag**（手动 `workflow_dispatch` 触发发布时 `release.yml` 拿 `github.ref_name` 建 Release 的产物），与发布失败留下的**未推送本地 tag**（如 `dsh-local-plugin-manager-v0.1.4`，版本从未上 registry）。两者都属于发布流程残骸，发现即清；**删 Release 是破坏性操作**——它会连带删掉那个 tag，而 npm 上的包不会跟着消失（tag 是提示，不是真相），所以修挂错的 Release = 先备份 `--json body`，再按正确 tag 重建。
 - 升级语义：profile 依赖是 caret 范围，`dsh plugin --profile web add <包名>` **不会**自动升到新版本，必须显式写 `@<版本>`。
 
 ## 当前 DSH Web 进程（重要）
