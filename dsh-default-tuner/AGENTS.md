@@ -58,6 +58,8 @@
 
 **结果**：workflow run `38035755070` 九个步骤全绿（发布 → 回查 → 创建 Release），**三件发布后判据全过**：registry 可读 `0.2.0`（`latest` 指向它）、`dist.attestations.provenance.predicateType = https://slsa.dev/provenance/v1`、GitHub Release `dsh-default-tuner@0.2.0` 已创建。registry 上该版本的 `dshCompatibility.range` / `engines.dsh` 回读同为 `>=0.2.1-alpha.2 <0.2.2`。**遗留**：占位版本 `0.0.1` 仍在版本列表里（无害，`latest` 已是 0.2.0），可选清理 `npm unpublish dsh-default-tuner@0.0.1`。
 
+**发布 `0.3.0`（2026-10-12，用户授权）**：`package.json` bump 到 `0.3.0`——同一发布线内**向后兼容的功能新增**（候选条目跟随 + 失效覆盖诊断），不跨线，`dshCompatibility` 一字未改；CHANGELOG 的 `[未发布]` 转正为 `[0.3.0] - 2026-10-12`，README 的安装命令同步版本号；`publish:check` 54 用例 + tarball 8 文件全绿。commit `c129443`、tag `dsh-default-tuner-v0.3.0`，workflow run `38223111183` 九步全绿（解析并校验 tag → 安装依赖 → 发布 → 回查 registry → 创建 Release）。**三件发布后判据全过**：registry `latest` = `0.3.0`（该版本 `dshCompatibility.range` / `engines.dsh` 回读同为 `>=0.2.1-alpha.2 <0.2.2`）、`dist.attestations.provenance.predicateType = https://slsa.dev/provenance/v1`、GitHub Release `dsh-default-tuner@0.3.0` 挂在 tag `dsh-default-tuner-v0.3.0` 上（非 draft）；本地与远端 tag 命名空间一致（`comm -3` 差集为空）。**这是本插件首次走"trusted publisher 已就位"的一步式发布**（0.2.0 首发需要"占位版本 + 配 trusted publisher + workflow_dispatch"那三步），没有任何手工前置。
+
 **`0.2.0-rc.2`（2026-10-01 跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，跨线是立项而不是例行检查。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装）后，本插件点名的契约面**逐条在 0.2.0-rc.2 的实际安装包里重读**（行号取自 0.2.0-rc.2）：
 
 | 契约项 | 0.2.0-rc.2 现状（读的是实际安装包，不是 CHANGELOG） |
@@ -262,6 +264,6 @@
 ## 待办
 
 - ~~发版前必须先改名~~ → **2026-10-08 已改名**：旧名 `dsh-default-overrides` 在 npm registry 上被第三方占用（当时是 0.3.6、维护者 `chenwei116057`、描述 "Configurable Bash and PowerShell overrides for the DSH standard preset"，与本插件无关），新名 `dsh-default-tuner` 同日实测未被占用。改名同步了 `package.json#name`、`cordis.patch.yml` 的行 id/name、客户端 bundle 注册名、`lib/overrides.js` 的 `PLUGIN_NAME` / `SECTION_ID` / 两条 HTTP 路由 / 两个固定头名，以及内部短前缀（CSS 类名 `ddo-*` → `ddt-*`）；**功能一行未改**。~~发版前仍要配 trusted publisher~~ → **2026-10-10 已配好并完成首发**（见「逐版本核对记录」的发布段；首发的三步做法也在那里）。
-- ~~registry 上残留的占位版本 `0.0.1`~~ → 可选清理：`npm unpublish dsh-default-tuner@0.0.1`（72 小时窗口内可撤；留着也无害，`latest` 已是 `0.2.0`）。
+- ~~registry 上残留的占位版本 `0.0.1`~~ → 可选清理：`npm unpublish dsh-default-tuner@0.0.1`（72 小时窗口内可撤；留着也无害，`latest` 已是 `0.3.0`）。
 - 白名单扩展（压缩阈值、subagent 并发、Web 搜索等），按同一张表加。
 - 高级模式目前只支持"清除整块覆盖"；若以后要支持任意字段编辑，需要先解决"非白名单字段写坏组合"的风险（二次确认 + 组合校验 + 一键回滚）。
