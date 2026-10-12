@@ -96,11 +96,72 @@
 | 更高层覆盖 | 该条目被 home patch 或命令行 `--patch` 覆盖时抛 `Configuration for "X" is overridden by a home patch or command-line overlay`，文件不被改动。 |
 | 就绪时机 | 等 Loader 用 `ctx.root.loader.await()`；`edit()` 要求目标条目 `fiber.state === 2`，且**每次都要重新从 `entries()` 取 entry**（旧对象会因条目重建而失效）。 |
 
+## 条目被别的 bundle 替换：候选跟随（2026-10-12）
+
+**现象**：用户开启 DSH 自带的 `@deepseek-ai/dsh-experimental-session-titles-bundle` 后，「会话标题命名模型」模块整块不可写（标签「暂时不可写」、输入框全禁用），页面提示"条目没有活动的 fiber，暂时不能写入"。
+
+**根因**：该实验 bundle 的 `cordis.patch.yml` 只做两件事——把 `session-title-llm` 设成 `disabled: true`，并插入 `optional-session-title-all-prompts`（`@deepseek-ai/dsh-session-title-all-prompts-llm`，字段面与首选同为 `targetWords`/`targetCjkCharacters`/`maxInputBytes`/`maxOutputTokens`/`timeoutMs`，另加可选的 `provider`/`model`）。`session-title-llm` 因此没有 fiber，而白名单按条目标题写死，于是模块永久不可写，实际生效的 provider 却已经换成替代条目。隔离实例取证（`GET /dsh-default-tuner/status`）：`session-title-llm` → `{writable:false, reason:'inactive', message:'条目没有活动的 fiber，暂时不能写入'}`。全仓只有这一个 bundle 会碰标题条目（其余 `dsh-experimental-*` 的 patch 里没有 `session-title`）。
+
+**机制**：白名单条目新增可选字段 `fallbacks: [...]`（候选条目 id，按优先级排在首选之后），`entryIdCandidates()` 派生完整候选列表。选择规则由 `resolveEntry()`（`configEditor.entries()`）/ `resolveEntryRow()`（`configuration()` 的行）实现：**按优先级取第一个可写的**；都不可写时取第一个存在的（这样页面能给出"为什么不可写"的诊断）；一个都不存在返回 `undefined`（走原有的 missing 降级）。首选可写时仍然用首选——两个 provider 同时在组合里时不会被实验条目抢走。
+
+**改动面**（`lib/overrides.js` + `lib/index.js`）：
+
+| 位置 | 变化 |
+|---|---|
+| `ENTRIES[0]` | 加 `fallbacks: ['optional-session-title-all-prompts']`；`title` 去掉写死的条目 id（改为「会话标题命名模型」），hint 去掉硬编码的"默认 4096"（实验条目与官方条目的默认值不同，实际默认值以输入框占位符为准） |
+| `describeEntryFields(row, definition)` | **必须显式传 definition**：跟随替代条目时 `row.entry.options.id ≠ definition.id`，按行反查定义会落空。回执新增 `activeId`（实际写入的条目 id）与 `followed`（是否已跟随替代条目） |
+| `describeWhitelist` | 用 `resolveEntryRow` 选行；候选全不存在时把候选写进 missing 文案 |
+| `describeAdvanced` | `managed` 改用 `isManagedEntryId()`，替代条目也标「可在上方调整」（此前会显示成「只能整块清除」） |
+| `applyField`/`resetField`/`resetEntry` | 统一走新的 `resolveWritableEntry(ctx, entryId)`：解析候选 + **写入前显式检查可写**，不可写时抛 `entry-failed`(409) 并带上条目 id 与原因，不再把 configEditor 的原生 `"Configuration plugin is no longer active"` 丢给页面。**错误码集合没有扩张** |
+| `readTitleInputLimit` | 同样用 `resolveEntryRow`，否则预检读的是被禁用条目的旧上限，会误报/漏报"输入超限" |
+| `client.js` | 模块多一个 `跟随 <activeId>` 标签 + 一句说明（"首选条目 X 在当前 profile 里不可写（常见原因是被实验性插件禁用了），本模块的读写已落到仍生效的 Y）"） |
+
+**验证（2026-10-12，隔离 `DSH_HOME=/tmp/ddt-fix/home` + 端口 3099 + 受管后台任务 + 本会话专属无头 Chrome，用户 3080 全程未触碰）**：
+
+- **宿主走查（最小组合 base + web-app + 实验 session-titles bundle + 本插件）**：修复前 `session-title-llm` 为 `inactive`；修复后回执 `activeId:'optional-session-title-all-prompts'` / `followed:true` / `writable:true`，字段默认值来自替代条目（`maxOutputTokens` 显示 **64**，正是实验 bundle 写的值，与官方首选的 4096 不同）。
+- **写路径**：`POST apply`（逻辑 id `session-title-llm`，`maxInputBytes=12288`）→ 补丁文件追加的是 `- id: optional-session-title-all-prompts` 的**整块 config**（5 个 required 字段齐全，`maxOutputTokens: 64` 随块写入），`effective` 变 12288；`dsh --profile web --dump-config` 独立核对一致。
+- **恢复默认**：`POST reset` → 覆盖整块删除、`effective` 回到 4096，补丁文件与写入前**逐字节一致**（该次补丁里另有 3 个条目，都未被触碰）。
+- **反向场景**：把实验 bundle 从组合里去掉后重启，同一模块回到 `activeId:'session-title-llm'` / `followed:false` / 可写，`maxOutputTokens` 默认回到 4096——跟随只在首选真的不可用时发生。
+- **浏览器端（CDP 驱动无头 Chrome，缓存禁用）**：设置 → 默认设置覆盖 → 首个模块 summary 渲染出 `默认值` + `跟随 optional-session-title-all-prompts` 两个标签，正文给出完整说明；模块内 **5 个输入框全部可用**，占位符为替代条目的真实默认值 `4096/64/60000/5/10`；控制台**零错误**。
+- **单测**：`test/overrides.test.js` 新增 7 个用例（候选列表与 managed 判定、`resolveEntry` 的四种选择分支、`resolveEntryRow`、跟随时的 `activeId`/`followed`/字段值、全都不可写、全都不存在的候选文案、高级模式 managed），合计 **51 个用例全绿**；`npm run publish:check`（check + test + pack:check）通过。
+
+**反过来：关掉实验插件之后会怎样（2026-10-12 补测，用户提问驱动）**
+
+补测结论：**不会崩，但会留下一个静默的坑**，所以本轮又补了一处。
+
+| 问题 | 实测结果 |
+|---|---|
+| 模块还能用吗 | **能**。关掉实验 bundle 重启后模块回落到官方条目：`activeId:'session-title-llm'` / `followed:false` / `writable:true`，写 `maxInputBytes=8192` 也正常（200，落在官方条目上） |
+| 之前写在实验条目上的覆盖 | **静默失效**。dsh 组合时只打一条 `patch: entry "optional-session-title-all-prompts" not found`（实测 `--dump-config` 输出到 stderr；`dsh web` 界面完全无感），随后**忽略**这条覆盖——页面上生效值直接回到官方默认，用户会以为"我的设置丢了" |
+| 设置页能清掉它吗 | **不能**。configEditor 只认组合里的条目，`reset-entry` 实测返回 **404 `entry-missing`**；高级模式此前也列不出它（`advanced` 只来自 `configuration()`） |
+
+**修复**：新增"失效覆盖"诊断，只读、不写。
+
+| 位置 | 变化 |
+|---|---|
+| `lib/overrides.js` | `topLevelPatchEntryIds(text)`：取补丁文本里**顶层**的 `- id:`（`insert:` 下的缩进条目与注释行不算，YAML 引号会去掉）。`staleOverrideIds(text, liveIds)`：顶层有、组合里没有的条目 id（去重、保序） |
+| `lib/index.js` | `readStaleOverrides(documentPath, rows)`：读一次补丁文件算出失效条目；读不到（不存在/权限/竞态）返回 `[]`——辅助信息绝不能让整页报错。status 与 action 回执新增 `staleOverrides: [{ id }]`（status handler 因此改成 async） |
+| `client.js` | 高级模式在原清单后追加 warn 段：`N 条失效覆盖` 标签 + 说明（dsh 已忽略、设置页清不掉、请手动编辑补丁文件）+ 逐行 `已失效` 标签；跟随状态的说明里补一句"关掉提供该条目的实验性插件后覆盖会被忽略，关闭前先点「恢复默认」" |
+
+**不做的事**：插件**不替用户删**这些失效条目——写入只走官方 `configEditor.edit()`（事务 + 文件锁 + 校验），自己改 profile 补丁会绕过这一层。诊断范围也只有 `configEditor.documentPath` 那份补丁（home patch / 命令行 overlay 里的孤儿不在范围内）。
+
+**验证（同一隔离环境）**：
+
+- 写 `maxInputBytes=24576` 到实验条目 → 关掉实验 bundle 重启 → status `staleOverrides:[{id:'optional-session-title-all-prompts'}]`，`advanced` 仍只列组合内条目，主模块回落官方条目、生效值 4096（覆盖被忽略）。
+- 浏览器端：高级模式 summary 变成「…1 个带有配置覆盖」+ `1 条失效覆盖` 标签，正文给出"已被 dsh 忽略 / 设置页清不掉 / 请手动编辑补丁文件"的完整说明与 `optional-session-title-all-prompts` 行（`已失效`），控制台零错误。
+- 手动删掉补丁里的孤儿段后重新打开：该段完全消失、无残留标签。
+- **两个 provider 同时活动**（用 `--patch` 把实验 bundle 关掉的官方 provider 重新打开）：官方条目优先被选中（`activeId:'session-title-llm'` / `followed:false`），而重复注册的实验条目自身加载失败（`dsh: warning: 1 entry did not activate` / provider already registered）——这种情况下 tuner 仍正常工作，因为选择规则优先"可写"的那个候选。
+- 新增单测两组（顶层条目解析、失效覆盖去重），并把"首选 `fiber.state=3`、次选可写"这条分支补进候选用例；合计 **54 个用例全绿**，`npm run publish:check` 通过。
+
+**边界（未覆盖）**：真机（用户 3080）要等用户重启 `dsh web` 并刷新页面才切到新代码；若某个 DSH 版本把替代条目也改名为第三个 id，需要在 `fallbacks` 里补——这是数据而不是逻辑，改一处即可。
+
 ## HTTP 契约
 
 两个同源端点，路径常量在 `lib/overrides.js`：
 
-- `GET /dsh-default-tuner/status` → `{ ok, available, csrfToken, documentPath, groups, entries, advanced, totalEntries, managedEntries, sessions, sessionsAvailable, sessionsReason, sessionsTotal, sessionsNeedRetitle }`
+- `GET /dsh-default-tuner/status` → `{ ok, available, csrfToken, documentPath, groups, entries, advanced, staleOverrides, totalEntries, managedEntries, sessions, sessionsAvailable, sessionsReason, sessionsTotal, sessionsNeedRetitle }`
+  - `staleOverrides` = 补丁顶层有、当前组合里没有的条目（`[{ id }]`，只读诊断，见「反过来：关掉实验插件之后会怎样」）。
+  - `entries[].id` 是**白名单的逻辑 id**（页面展示与 action 提交都用它）；`entries[].activeId` 是这次读写实际落到的条目 id（首选不可用时是替代条目），`followed: true` 表示已跟随替代条目。
   - `entries[].fields[]` 每项给 `default`（继承层）、`override`（补丁覆盖）、`effective`（生效值）；`undefined` 的键在 JSON 里会被省略，客户端按缺键处理。
   - `entries[].availability` = `{ writable, reason: active|missing|inactive|failed, message }`。
   - `sessions[]` **只列需要重算标题的活跃会话**：`{ id, shortId, cwd, title, sourceKind, sourceLabel, overwritesManual, updatedAt, inputBytes, inputLimit, overLimit, suggestedLimit }`，按最近活动排序、最多 20 行；`sessionsTotal` / `sessionsNeedRetitle` / `sessionsOverLimit` 是完整口径（活跃总数 / 需要重算数 / 其中首条消息已超限数），页面用它解释"为什么只看到这些"。标题快照只存在于内存，所以列不出没打开的会话。
@@ -162,7 +223,7 @@
 
 已验证（隔离 `DSH_HOME` + 独立端口 + 本会话专属无头 Chrome，2026-09-28）：
 
-- `npm run check` + `npm test`（当前 44 个用例：白名单、候选配置计算、可用性、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状、13 档版本矩阵与发布线派生、入口定位失败 inert、四处同源（含文档腿逐行解析））。
+- `npm run check` + `npm test`（当前 54 个用例：白名单、候选配置计算、可用性、**候选条目跟随（2026-10-12 新增 8 个）与失效覆盖诊断（新增 2 个）**、标题来源标签、会话行整理与排序、冻结标记、重算候选过滤与统计、JSON 回执形状、13 档版本矩阵与发布线派生、入口定位失败 inert、四处同源（含文档腿逐行解析））。
 - 发布闸门 `npm run publish:check`（= `check` + `test` + `pack:check`）：`scripts/check-pack.js` 断言发布物恰好 8 个文件（`CHANGELOG.md` / `LICENSE` / `README.md` / `client.js` / `cordis.patch.yml` / `lib/index.js` / `lib/overrides.js` / `package.json`），`prepublishOnly` 与 `install.sh` 都跑它。**它不随发布物出去**（`files` 白名单里没有 `scripts/`）。
 - 宿主端到端（curl 走真实路由，带 cookie 认证 + CSRF）：status 读取、apply 写 8192、reset 还原——reset 后补丁文件与原始配置**逐字节一致**（该次补丁里另有其它条目，顶部注释挂在第一个条目上、不受影响；**补丁里只有这一个条目时，reset 会把顶部注释一起删掉**，见「机制契约」的「注释与 `!!js`」行，2026-10-10 实测补记）。
 - 错误路径：非法值（400 `invalid-value`）、白名单外字段（400）、缺 CSRF（403）、无覆盖时恢复默认、重算未知会话（404 `session-not-live`）。

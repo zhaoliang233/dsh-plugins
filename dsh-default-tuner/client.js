@@ -297,6 +297,7 @@ window.__ModuleLoader__.load({
             ...previous,
             entries: payload.entries,
             advanced: payload.advanced,
+            staleOverrides: payload.staleOverrides ?? previous.staleOverrides,
             sessions: payload.sessions ?? previous.sessions,
             sessionsTotal: payload.sessionsTotal ?? previous.sessionsTotal,
             sessionsNeedRetitle: payload.sessionsNeedRetitle ?? previous.sessionsNeedRetitle,
@@ -378,10 +379,24 @@ window.__ModuleLoader__.load({
         } else {
           tags.push(React.createElement(Tag, { key: 'default', kind: 'muted' }, '默认值'))
         }
+        // 首选条目被别的 bundle 禁用时（实验性插件替换了官方默认 provider），宿主会自动
+        // 跟随仍然生效的替代条目；这里必须说出来，否则用户看到的 id 与设置页对不上。
+        if (entry.followed === true) {
+          tags.push(React.createElement(Tag, {
+            key: 'followed',
+            kind: 'muted',
+            title: `首选条目 ${entry.id} 在当前 profile 里不可写，已跟随仍生效的 ${entry.activeId}`
+          }, `跟随 ${String(entry.activeId)}`))
+        }
 
         const body = []
         if (typeof entry.description === 'string' && entry.description !== '') {
           body.push(React.createElement('div', { className: 'ddt-card-desc', key: 'desc' }, entry.description))
+        }
+        if (entry.followed === true) {
+          body.push(React.createElement('div', { className: 'ddt-hint', key: 'followed-hint' },
+            `首选条目 ${String(entry.id)} 在当前 profile 里不可写（常见原因是被实验性插件禁用了），本模块的读写已落到仍生效的 ${String(entry.activeId)} 上。`
+            + `注意：如果你之后关掉提供它的实验性插件，写在它上面的覆盖会被 dsh 忽略（组合时只打一条 warning），补丁里会留下需要手动清理的失效条目——关闭前先在这里点「恢复默认」可避免。`))
         }
         if (!entry.availability.writable) {
           body.push(React.createElement('div', {
@@ -493,11 +508,21 @@ window.__ModuleLoader__.load({
 
       // 高级模式同样走 Module：手写 details 会漏掉官方折叠图标（2026-09-28 踩过一次）。
       const advancedRows = state.advanced ?? []
+      // 失效覆盖：补丁里存在、组合里没有的条目（最常见的是"覆盖写在实验性条目上，
+      // 之后关掉了提供它的实验性插件"）。dsh 会忽略它们，configEditor 也清不掉，
+      // 所以这里只做诊断与指引，不给按钮。
+      const staleRows = state.staleOverrides ?? []
       children.push(React.createElement(Module, {
         key: 'advanced',
         id: 'advanced',
         title: `高级模式：当前 profile 共 ${String(state.totalEntries ?? 0)} 个条目，其中 ${String(advancedRows.length)} 个带有配置覆盖`,
-        tags: []
+        tags: staleRows.length === 0
+          ? []
+          : [React.createElement(Tag, {
+            key: 'stale',
+            kind: 'warn',
+            title: '这些覆盖指向当前 profile 里不存在的条目，已被 dsh 忽略'
+          }, `${String(staleRows.length)} 条失效覆盖`)]
       }, [
         React.createElement('div', { className: 'ddt-details-body', key: 'body' }, [
           React.createElement('div', { className: 'ddt-hint', key: 'hint' },
@@ -537,7 +562,20 @@ window.__ModuleLoader__.load({
                 act({ action: 'reset-entry', entryId: row.id }, `已清除 ${row.id} 的配置覆盖。`)
               }
             }, '清除覆盖')
-          ].filter(Boolean)))
+          ].filter(Boolean))),
+          staleRows.length === 0
+            ? null
+            : React.createElement('div', { className: 'ddt-notice ddt-notice-warn', key: 'stale' },
+              `检测到 ${String(staleRows.length)} 条覆盖指向当前 profile 里不存在的条目：dsh 已经忽略它们（组合时只打一条 warning），设置页也清不掉（configEditor 只认组合里的条目）。`
+              + '最常见的原因是这些覆盖写在实验性条目上、而提供它们的实验性插件后来被关掉了。要清掉它们，请手动编辑上面的补丁文件，删掉这些条目的整段配置。'),
+          ...staleRows.map((row) => React.createElement('div', { className: 'ddt-item-row', key: `stale-${row.id}` }, [
+            React.createElement('div', { className: 'ddt-item-text', key: 'text' }, row.id),
+            React.createElement(Tag, {
+              key: 'tag',
+              kind: 'warn',
+              title: '当前 profile 里没有这个条目，这条覆盖不会生效'
+            }, '已失效')
+          ]))
         ].filter(Boolean))
       ]))
 

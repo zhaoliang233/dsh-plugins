@@ -9,12 +9,18 @@ import {
   describeTitleSource,
   describeWhitelist,
   entryAvailability,
+  entryIdCandidates,
+  isManagedEntryId,
   normalizeFieldValue,
   planFieldReset,
   planFieldWrite,
+  resolveEntry,
+  resolveEntryRow,
   selectRetitleCandidates,
+  staleOverrideIds,
   suggestedMaxInputBytes,
   titleInputBytes,
+  topLevelPatchEntryIds,
   sortAndLimitSessions,
   summarizeSessions
 } from '../lib/overrides.js'
@@ -245,4 +251,171 @@ test('baseName 取路径最后一段，行内只显示工作区名', () => {
   const row = describeSessionEntry({ id: 's', header: { cwd: '/Users/zhaoliang/Documents/dsh-plugins' } }, undefined)
   assert.equal(row.cwd, '/Users/zhaoliang/Documents/dsh-plugins')
   assert.equal(row.cwdName, 'dsh-plugins')
+})
+
+// -- 候选条目（首选被别的 bundle 禁用时跟随替代条目）------------------------------------------
+// 2026-10-12 实测场景：用户开启 `@deepseek-ai/dsh-experimental-session-titles-bundle`，它的补丁把
+// `session-title-llm` 设成 `disabled: true` 并插入 `optional-session-title-all-prompts`。
+// 首选条目因此没有 fiber → 白名单模块永久不可写；修复后自动跟随仍然生效的替代条目。
+
+const LLM_ENTRY = ENTRIES.find((entry) => entry.id === 'session-title-llm')
+
+test('候选条目：白名单声明了官方条目 + 替代条目，且替代条目算被管理', () => {
+  assert.deepEqual(entryIdCandidates(LLM_ENTRY), ['session-title-llm', 'optional-session-title-all-prompts'])
+  assert.equal(isManagedEntryId('session-title-llm'), true)
+  assert.equal(isManagedEntryId('optional-session-title-all-prompts'), true)
+  assert.equal(isManagedEntryId('some-other-entry'), false)
+  // 没有配替代条目的条目：候选就是它自己
+  const sessionTitle = ENTRIES.find((entry) => entry.id === 'session-title')
+  assert.deepEqual(entryIdCandidates(sessionTitle), ['session-title'])
+})
+
+test('resolveEntry 优先选可写的候选，都不可写时回落到首个存在的（供诊断）', () => {
+  const disabledFirst = [
+    { options: { id: 'session-title-llm', config: {} } },
+    { options: { id: 'optional-session-title-all-prompts', config: {} }, fiber: { runtime: {}, state: 2 } }
+  ]
+  assert.equal(resolveEntry(disabledFirst, LLM_ENTRY).options.id, 'optional-session-title-all-prompts')
+
+  const bothWritable = [
+    { options: { id: 'session-title-llm', config: {} }, fiber: { runtime: {}, state: 2 } },
+    { options: { id: 'optional-session-title-all-prompts', config: {} }, fiber: { runtime: {}, state: 2 } }
+  ]
+  assert.equal(resolveEntry(bothWritable, LLM_ENTRY).options.id, 'session-title-llm', '首选可写时必须用首选')
+
+  const noneWritable = [
+    { options: { id: 'session-title-llm', config: {} } },
+    { options: { id: 'optional-session-title-all-prompts', config: {} }, fiber: { runtime: {}, state: 3 } }
+  ]
+  assert.equal(resolveEntry(noneWritable, LLM_ENTRY).options.id, 'session-title-llm', '都不可写时给首个存在的，页面才能说清原因')
+
+  const fallbackOnly = [{ options: { id: 'optional-session-title-all-prompts', config: {} }, fiber: { runtime: {}, state: 2 } }]
+  assert.equal(resolveEntry(fallbackOnly, LLM_ENTRY).options.id, 'optional-session-title-all-prompts')
+
+  assert.equal(resolveEntry([], LLM_ENTRY), undefined)
+})
+
+test('resolveEntryRow 与 resolveEntry 同规则（configuration() 的行形态）', () => {
+  const rows = [
+    row('session-title-llm', { fiber: false, config: { maxInputBytes: 4096 } }),
+    row('optional-session-title-all-prompts', { config: { maxInputBytes: 8192 } })
+  ]
+  assert.equal(resolveEntryRow(rows, LLM_ENTRY).entry.options.id, 'optional-session-title-all-prompts')
+  assert.equal(resolveEntryRow([rows[0]], LLM_ENTRY).entry.options.id, 'session-title-llm')
+  assert.equal(resolveEntryRow([], LLM_ENTRY), undefined)
+})
+
+test('describeWhitelist 在首选被禁用时跟随替代条目，并标出 activeId/followed', () => {
+  const described = describeWhitelist([
+    row('session-title-llm', { fiber: false, config: { maxInputBytes: 4096 } }),
+    row('optional-session-title-all-prompts', {
+      inherited: { targetWords: 5, maxInputBytes: 4096 },
+      override: { targetWords: 5, maxInputBytes: 8192 },
+      config: { targetWords: 5, maxInputBytes: 8192 }
+    })
+  ])
+  const llm = described.find((entry) => entry.id === 'session-title-llm')
+  assert.equal(llm.activeId, 'optional-session-title-all-prompts')
+  assert.equal(llm.followed, true)
+  assert.equal(llm.availability.writable, true, '跟随替代条目后模块必须可写')
+  const changed = llm.fields.find((field) => field.path === 'maxInputBytes')
+  assert.equal(changed.override, 8192)
+  assert.equal(changed.effective, 8192)
+  assert.equal(changed.frozenSameAsDefault, false)
+  // 首选可写时不跟随
+  const normal = describeWhitelist([row('session-title-llm', { config: { maxInputBytes: 4096 } })])
+  const normalLlm = normal.find((entry) => entry.id === 'session-title-llm')
+  assert.equal(normalLlm.followed, false)
+  assert.equal(normalLlm.activeId, 'session-title-llm')
+})
+
+test('describeWhitelist 在候选全都不可写时保持不可写并给出首个候选的状态', () => {
+  const described = describeWhitelist([row('session-title-llm', { fiber: false })])
+  const llm = described.find((entry) => entry.id === 'session-title-llm')
+  assert.equal(llm.availability.writable, false)
+  assert.equal(llm.availability.reason, 'inactive')
+  assert.match(llm.availability.message, /被别的 bundle 禁用|没有活动的 fiber/u)
+  assert.equal(llm.followed, false)
+})
+
+test('describeWhitelist 在一个候选都不存在时把候选写进提示', () => {
+  const described = describeWhitelist([])
+  const llm = described.find((entry) => entry.id === 'session-title-llm')
+  assert.equal(llm.availability.reason, 'missing')
+  assert.match(llm.availability.message, /optional-session-title-all-prompts/u)
+  assert.equal(llm.activeId, undefined)
+  assert.equal(llm.followed, false)
+  // 没配替代条目的那条只说"没有这个条目"，不提替代
+  const sessionTitle = described.find((entry) => entry.id === 'session-title')
+  assert.equal(sessionTitle.availability.message, '当前 profile 里没有这个条目')
+})
+
+test('候选条目：首选加载失败（fiber.state=3）时同样让位给可用的替代条目', () => {
+  // 2026-10-12 实测的第三种形态：两个 provider 同时注册时后者直接加载失败
+  // （session-title provider 重复注册 → 1 entry did not activate）。
+  const rows = [
+    row('session-title-llm', { state: 3, config: {} }),
+    row('optional-session-title-all-prompts', { config: { maxInputBytes: 4096 } })
+  ]
+  assert.equal(resolveEntryRow(rows, LLM_ENTRY).entry.options.id, 'optional-session-title-all-prompts')
+  const llm = describeWhitelist(rows).find((entry) => entry.id === 'session-title-llm')
+  assert.equal(llm.followed, true)
+  assert.equal(llm.availability.writable, true)
+  // 两个都失败时取首个存在的，页面才能说明是首选出了问题
+  const bothFailed = [
+    row('session-title-llm', { state: 3, config: {} }),
+    row('optional-session-title-all-prompts', { state: 3, config: {} })
+  ]
+  const degraded = describeWhitelist(bothFailed).find((entry) => entry.id === 'session-title-llm')
+  assert.equal(degraded.availability.reason, 'failed')
+  assert.equal(degraded.followed, false)
+})
+
+test('describeAdvanced 把替代条目标成"可在上方调整"', () => {
+  const advanced = describeAdvanced([
+    row('optional-session-title-all-prompts', { override: { maxInputBytes: 8192 } }),
+    row('some-other-entry', { override: { a: 1 } })
+  ])
+  assert.equal(advanced.find((item) => item.id === 'optional-session-title-all-prompts').managed, true)
+  assert.equal(advanced.find((item) => item.id === 'some-other-entry').managed, false)
+})
+
+// -- 失效覆盖（补丁顶层存在、组合里没有的条目）------------------------------------------------
+// 2026-10-12 实测场景：覆盖写在实验性条目 optional-session-title-all-prompts 上之后，用户关掉了
+// 提供该条目的实验性插件 → dsh 忽略该覆盖（只打一条 warning），configEditor 也清不掉。
+
+test('topLevelPatchEntryIds 只取顶层条目：忽略 insert 列表、注释与缩进', () => {
+  const text = [
+    '# 顶部注释',
+    '- id: a',
+    '  name: "@x/a"',
+    '  config:',
+    '    x: 1',
+    '- id: "quoted-id"',
+    '- insert:',
+    '    - id: inserted-entry',
+    '      name: "@x/inserted"',
+    '# - id: commented-out',
+    '- id:   spaced   ',
+    ''
+  ].join('\n')
+  assert.deepEqual(topLevelPatchEntryIds(text), ['a', 'quoted-id', 'spaced'])
+  assert.deepEqual(topLevelPatchEntryIds(''), [])
+  assert.deepEqual(topLevelPatchEntryIds(undefined), [])
+})
+
+test('staleOverrideIds 找出指向不存在条目的覆盖，并去重', () => {
+  const text = [
+    '- id: optional-session-title-all-prompts',
+    '  name: "@deepseek-ai/dsh-session-title-all-prompts-llm"',
+    '- id: session-title-llm',
+    '  name: "@deepseek-ai/dsh-session-title-first-prompt-llm"',
+    '- id: optional-session-title-all-prompts',
+    ''
+  ].join('\n')
+  // 实验性条目已随插件关闭而消失 → 只有它是失效的
+  assert.deepEqual(staleOverrideIds(text, ['session-title-llm', 'session-title']), ['optional-session-title-all-prompts'])
+  // 组合里还有它（实验插件开着）→ 没有失效覆盖
+  assert.deepEqual(staleOverrideIds(text, ['session-title-llm', 'optional-session-title-all-prompts']), [])
+  assert.deepEqual(staleOverrideIds('', ['a']), [])
 })

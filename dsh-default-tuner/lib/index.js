@@ -21,12 +21,16 @@ import {
   describeAdvanced,
   describeSessionEntry,
   describeWhitelist,
+  entryAvailability,
   entryDefinition,
   normalizeFieldValue,
   planFieldReset,
   planFieldWrite,
+  resolveEntry,
+  resolveEntryRow,
   selectRetitleCandidates,
   sortAndLimitSessions,
+  staleOverrideIds,
   suggestedMaxInputBytes,
   summarizeSessions,
   titleInputBytes
@@ -153,6 +157,30 @@ function readConfiguration(ctx) {
 }
 
 /**
+ * 列出补丁里**已经失效**的覆盖：补丁顶层写了 `- id: X`，但当前组合里没有 X。
+ *
+ * 最常见的来源就是本插件自己的写入：覆盖落在实验性条目上（例如
+ * `optional-session-title-all-prompts`），用户之后又关掉了那个实验性插件。此时 dsh 只在
+ * 组合时打一条 `patch: "X" not found` 警告并忽略这条覆盖，configEditor 也只认组合里的条目
+ * ——设置页此前对它完全无感。这里**只读**补丁文件做一次诊断，写入仍只走 configEditor。
+ *
+ * 读不到文件（不存在 / 权限 / 竞态）时返回空数组：这是辅助信息，绝不能让整页报错。
+ *
+ * @param documentPath - `configEditor.documentPath`，当前 profile 的补丁文件。
+ * @param rows - `configEditor.configuration()` 的结果（组合里的条目）。
+ */
+async function readStaleOverrides(documentPath, rows) {
+  if (typeof documentPath !== 'string' || documentPath === '') return []
+  let text
+  try {
+    text = await readFile(documentPath, 'utf8')
+  } catch {
+    return []
+  }
+  return staleOverrideIds(text, rows.map((row) => row.entry.options.id)).map((id) => ({ id }))
+}
+
+/**
  * 列出当前进程里**需要重算标题**的活跃会话。
  *
  * 只收"兜底截断"那一类（模型命名失败 / 输入超限 / 无凭证）：模型已成功命名或用户手动命名的
@@ -182,11 +210,13 @@ function describeLiveSessions(ctx) {
   }
 }
 
-/** 读当前生效的标题输入上限（session-title-llm 的 maxInputBytes）。 */
+/** 读当前生效的标题输入上限（官方默认 provider 条目，或它的替代条目）。 */
 function readTitleInputLimit(ctx) {
   const editor = ctx.get('configEditor')
   if (editor === undefined || typeof editor.configuration !== 'function') return undefined
-  const row = editor.configuration().find((item) => item.entry.options.id === 'session-title-llm')
+  const definition = entryDefinition('session-title-llm')
+  if (definition === undefined) return undefined
+  const row = resolveEntryRow(editor.configuration(), definition)
   const limit = row?.entry?.options?.config?.maxInputBytes
   return typeof limit === 'number' ? limit : undefined
 }
@@ -281,6 +311,30 @@ async function retitleSession(ctx, sessionId, raiseLimit = false) {
   }
 }
 
+/**
+ * 解析一个条目当前该被写入的对象，并确认它可写。
+ *
+ * 首选条目被别的 bundle 禁用时（`disabled: true` → 条目没有 fiber）自动落到白名单里
+ * 声明的替代条目上；候选一个都不存在、或都存在但不可写时，抛可读错误，而不是把
+ * configEditor 的原生报错（"Configuration plugin is no longer active"）丢给页面。
+ * @param ctx - 宿主插件上下文。
+ * @param entryId - 白名单条目的逻辑 id（替代条目也按它提交）。
+ */
+function resolveWritableEntry(ctx, entryId) {
+  const editor = ctx.get('configEditor')
+  if (editor === undefined) throw new OverrideError('editor-missing', '当前 profile 没有挂载 config-editor。', 503)
+  const definition = entryDefinition(entryId)
+  const entry = definition === undefined
+    ? editor.entries().find((row) => row.options.id === entryId)
+    : resolveEntry(editor.entries(), definition)
+  if (entry === undefined) throw new OverrideError('entry-missing', `当前 profile 里没有条目 "${entryId}"。`, 404)
+  const availability = entryAvailability(entry)
+  if (!availability.writable) {
+    throw new OverrideError('entry-failed', `${entry.options.id}：${availability.message}`, 409)
+  }
+  return { editor, entry }
+}
+
 /** 写入一个白名单字段（写完整配置块）。 */
 async function applyField(ctx, entryId, path, rawValue) {
   let value
@@ -289,10 +343,7 @@ async function applyField(ctx, entryId, path, rawValue) {
   } catch (error) {
     throw new OverrideError('invalid-value', error instanceof Error ? error.message : String(error), 400)
   }
-  const editor = ctx.get('configEditor')
-  if (editor === undefined) throw new OverrideError('editor-missing', '当前 profile 没有挂载 config-editor。', 503)
-  const entry = editor.entries().find((row) => row.options.id === entryId)
-  if (entry === undefined) throw new OverrideError('entry-missing', `当前 profile 里没有条目 "${entryId}"。`, 404)
+  const { editor, entry } = resolveWritableEntry(ctx, entryId)
   try {
     await editor.edit(entry, (current) => planFieldWrite(current, path, value))
   } catch (error) {
@@ -304,10 +355,7 @@ async function applyField(ctx, entryId, path, rawValue) {
 /** 把一个白名单字段还原成继承层的值（整块相等时官方会自动删掉覆盖）。 */
 async function resetField(ctx, entryId, path) {
   if (entryDefinition(entryId) === undefined) throw new OverrideError('entry-not-managed', `条目 "${entryId}" 不在可覆盖白名单里。`, 400)
-  const editor = ctx.get('configEditor')
-  if (editor === undefined) throw new OverrideError('editor-missing', '当前 profile 没有挂载 config-editor。', 503)
-  const entry = editor.entries().find((row) => row.options.id === entryId)
-  if (entry === undefined) throw new OverrideError('entry-missing', `当前 profile 里没有条目 "${entryId}"。`, 404)
+  const { editor, entry } = resolveWritableEntry(ctx, entryId)
   try {
     await editor.edit(entry, (current, inherited) => planFieldReset(current, inherited, path))
   } catch (error) {
@@ -318,10 +366,7 @@ async function resetField(ctx, entryId, path) {
 
 /** 高级模式：把某个条目的整块覆盖退回继承层（会删掉该条目在 patch 里的 config）。 */
 async function resetEntry(ctx, entryId) {
-  const editor = ctx.get('configEditor')
-  if (editor === undefined) throw new OverrideError('editor-missing', '当前 profile 没有挂载 config-editor。', 503)
-  const entry = editor.entries().find((row) => row.options.id === entryId)
-  if (entry === undefined) throw new OverrideError('entry-missing', `当前 profile 里没有条目 "${entryId}"。`, 404)
+  const { editor, entry } = resolveWritableEntry(ctx, entryId)
   try {
     await editor.edit(entry, (_current, inherited) => ({ ...inherited }))
   } catch (error) {
@@ -360,7 +405,7 @@ function registerRoutes(ctx) {
   const statusRoute = {
     kind: 'exact',
     path: STATUS_PATH,
-    handler: (req, res) => {
+    handler: async (req, res) => {
       if (!guardOrigin(req, res)) return
       if (req.method !== 'GET') {
         sendJson(res, 405, { ok: false, error: '只支持 GET' })
@@ -391,6 +436,7 @@ function registerRoutes(ctx) {
           documentPath: snapshot.documentPath,
           entries: describeWhitelist(snapshot.rows),
           advanced: describeAdvanced(snapshot.rows),
+          staleOverrides: await readStaleOverrides(snapshot.documentPath, snapshot.rows),
           totalEntries: snapshot.rows.length,
           managedEntries: ENTRIES.length,
           sessions: sessions.rows,
@@ -437,6 +483,7 @@ function registerRoutes(ctx) {
           result,
           entries: snapshot.available ? describeWhitelist(snapshot.rows) : [],
           advanced: snapshot.available ? describeAdvanced(snapshot.rows) : [],
+          staleOverrides: snapshot.available ? await readStaleOverrides(snapshot.documentPath, snapshot.rows) : [],
           sessions: sessions.rows,
           sessionsTotal: sessions.total,
           sessionsNeedRetitle: sessions.needRetitle,

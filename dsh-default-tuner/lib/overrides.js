@@ -31,8 +31,13 @@ export const CSRF_HEADER = 'x-dsh-default-tuner-csrf'
 export const ENTRIES = [
   {
     id: 'session-title-llm',
+    // 承载同一组字段的**替代条目**，按优先级排在首选之后。官方 bundle 里的默认
+    // provider 被别的 bundle 禁用时（实测：`@deepseek-ai/dsh-experimental-session-titles-bundle`
+    // 把 `session-title-llm` 设成 `disabled: true`，改用 `optional-session-title-all-prompts`），
+    // 首选条目会失去 fiber、永远不可写；此时跟随仍然生效的替代条目，页面才能继续工作。
+    fallbacks: ['optional-session-title-all-prompts'],
     name: '@deepseek-ai/dsh-session-title-first-prompt-llm',
-    title: '模型命名（session-title-llm）',
+    title: '会话标题命名模型',
     description: '模型命名用的路由与长度策略。输入上限是"静默失败"的主要来源：超过上限时不会调用模型，只有兜底标题。',
     fields: [
       {
@@ -40,35 +45,35 @@ export const ENTRIES = [
         label: '输入上限',
         unit: '字节',
         min: 1,
-        hint: '首条消息（含 JSON 框架）超过这个字节数就不调用模型，直接留兜底标题。默认 4096。'
+        hint: '首条消息（含 JSON 框架）超过这个字节数就不调用模型，直接留兜底标题。默认值见输入框占位符（官方随版本会调）。'
       },
       {
         path: 'maxOutputTokens',
         label: '输出上限',
         unit: 'token',
         min: 1,
-        hint: '标题输出通常很短，这个上限防的是模型跑飞。默认 4096。'
+        hint: '标题输出通常很短，这个上限防的是模型跑飞；推理模型关不掉的思考也算输出。默认值见输入框占位符（官方随版本会调）。'
       },
       {
         path: 'timeoutMs',
         label: '生成超时',
         unit: '毫秒',
         min: 1,
-        hint: '超过这个时间就放弃模型命名。默认 60000。'
+        hint: '超过这个时间就放弃模型命名。默认值见输入框占位符。'
       },
       {
         path: 'targetWords',
         label: '目标词数',
         unit: '词',
         min: 1,
-        hint: '非中文标题的目标长度。默认 5。'
+        hint: '非中文标题的目标长度。默认值见输入框占位符。'
       },
       {
         path: 'targetCjkCharacters',
         label: '目标字数',
         unit: '字',
         min: 1,
-        hint: '中文标题的目标长度。默认 10。'
+        hint: '中文标题的目标长度。默认值见输入框占位符。'
       }
     ]
   },
@@ -83,21 +88,21 @@ export const ENTRIES = [
         label: '标题最大字节',
         unit: '字节',
         min: 1,
-        hint: '任何来源的标题都会被截到这个字节数以内。默认 80。'
+        hint: '任何来源的标题都会被截到这个字节数以内。默认值见输入框占位符。'
       },
       {
         path: 'fallbackMaxWords',
         label: '兜底词数',
         unit: '词',
         min: 1,
-        hint: '模型命名失败时取首条消息的前若干个词。默认 5。'
+        hint: '模型命名失败时取首条消息的前若干个词。默认值见输入框占位符。'
       },
       {
         path: 'fallbackMaxBytes',
         label: '兜底字节',
         unit: '字节',
         min: 1,
-        hint: '兜底标题的字节上限，不能超过标题最大字节。默认 40。'
+        hint: '兜底标题的字节上限，不能超过标题最大字节。默认值见输入框占位符。'
       }
     ]
   }
@@ -111,6 +116,50 @@ export function entryDefinition(entryId) {
 /** 按条目 id + 字段名取字段定义。 */
 export function fieldDefinition(entryId, path) {
   return entryDefinition(entryId)?.fields.find((field) => field.path === path)
+}
+
+/** 一个白名单条目的候选条目 id：首选在前，替代（`fallbacks`）在后。 */
+export function entryIdCandidates(definition) {
+  return [definition.id, ...(definition.fallbacks ?? [])]
+}
+
+/** 这个条目 id 是否受白名单管理（含替代条目）。 */
+export function isManagedEntryId(entryId) {
+  return ENTRIES.some((definition) => entryIdCandidates(definition).includes(entryId))
+}
+
+/**
+ * 从 `configEditor.entries()` 的条目数组里挑出当前该操作的那个：
+ * 按候选优先级取第一个**可写**的；都不可写时取第一个存在的（供可用性诊断，
+ * 页面才能说清"为什么不可写"）；一个都不存在时返回 undefined。
+ * @param entries - `configEditor.entries()` 的结果。
+ * @param definition - 白名单条目定义。
+ */
+export function resolveEntry(entries, definition) {
+  let firstExisting
+  for (const id of entryIdCandidates(definition)) {
+    const entry = entries.find((item) => item?.options?.id === id)
+    if (entry === undefined) continue
+    if (firstExisting === undefined) firstExisting = entry
+    if (entryAvailability(entry).writable) return entry
+  }
+  return firstExisting
+}
+
+/**
+ * 同 `resolveEntry`，但输入是 `configEditor.configuration()` 的行（每行包着 `entry`）。
+ * @param rows - `configEditor.configuration()` 的结果。
+ * @param definition - 白名单条目定义。
+ */
+export function resolveEntryRow(rows, definition) {
+  let firstExisting
+  for (const id of entryIdCandidates(definition)) {
+    const row = rows.find((item) => item?.entry?.options?.id === id)
+    if (row === undefined) continue
+    if (firstExisting === undefined) firstExisting = row
+    if (entryAvailability(row.entry).writable) return row
+  }
+  return firstExisting
 }
 
 /** 是不是纯对象（配置块判定用）。 */
@@ -166,7 +215,11 @@ export function normalizeFieldValue(entryId, path, raw) {
 export function entryAvailability(entry) {
   if (entry === undefined) return { writable: false, reason: 'missing', message: '当前 profile 里没有这个条目' }
   if (entry.fiber === undefined || entry.fiber.runtime === null || entry.fiber.runtime === undefined) {
-    return { writable: false, reason: 'inactive', message: '条目没有活动的 fiber，暂时不能写入' }
+    return {
+      writable: false,
+      reason: 'inactive',
+      message: '这个条目在当前 profile 里没有活动的 fiber：常见原因是它被别的 bundle 禁用了（例如实验性插件替换了官方默认 provider），或者正在重载。'
+    }
   }
   if (entry.fiber.state !== 2) {
     return {
@@ -178,15 +231,24 @@ export function entryAvailability(entry) {
   return { writable: true, reason: 'active', message: '' }
 }
 
-/** 从 configEditor.configuration() 的一行里抽出客户端要的字段状态。 */
-export function describeEntryFields(row) {
-  const definition = entryDefinition(row.entry.options.id)
+/**
+ * 从 `configEditor.configuration()` 的一行里抽出客户端要的字段状态。
+ * @param row - configuration() 的一行。
+ * @param definition - 该行对应的白名单条目定义；白名单条目被替代条目顶替时，
+ *   `row` 的 id 不等于 `definition.id`，所以不能靠行自己反查定义。
+ */
+export function describeEntryFields(row, definition = entryDefinition(row.entry.options.id)) {
   if (definition === undefined) return undefined
   const inherited = isPlainObject(row.inherited) ? row.inherited : {}
   const override = isPlainObject(row.override) ? row.override : {}
   const current = isPlainObject(row.entry.options.config) ? row.entry.options.config : {}
+  const activeId = row.entry.options.id
   return {
     id: definition.id,
+    /** 覆盖实际写入的条目 id：首选条目不可用时是它的替代条目。 */
+    activeId,
+    /** 是否已跟随替代条目（首选条目不存在或不可写）。 */
+    followed: activeId !== definition.id,
     name: definition.name,
     title: definition.title,
     description: definition.description,
@@ -216,14 +278,21 @@ export function describeEntryFields(row) {
  */
 export function describeWhitelist(rows) {
   return ENTRIES.map((definition) => {
-    const row = rows.find((item) => item.entry.options.id === definition.id)
+    const row = resolveEntryRow(rows, definition)
     if (row === undefined) {
+      // 一个候选都不存在：把候选说清楚，否则用户不知道插件在找什么。
+      const candidates = entryIdCandidates(definition)
+      const missing = entryAvailability(undefined)
       return {
         id: definition.id,
+        activeId: undefined,
+        followed: false,
         name: definition.name,
-            title: definition.title,
+        title: definition.title,
         description: definition.description,
-        availability: entryAvailability(undefined),
+        availability: candidates.length === 1
+          ? missing
+          : { ...missing, message: `当前 profile 里没有这个条目，也没有找到可替代的 ${candidates.slice(1).join(' / ')}` },
         fields: definition.fields.map((field) => ({
           path: field.path,
           label: field.label,
@@ -237,7 +306,7 @@ export function describeWhitelist(rows) {
         }))
       }
     }
-    return describeEntryFields(row)
+    return describeEntryFields(row, definition)
   })
 }
 
@@ -252,13 +321,56 @@ export function describeAdvanced(rows) {
       return {
         id: row.entry.options.id,
         name: row.entry.options.name ?? '',
-        managed: entryDefinition(row.entry.options.id) !== undefined,
+        // 替代条目也在白名单管理之下：它能逐字段改，不能只贴「只能整块清除」。
+        managed: isManagedEntryId(row.entry.options.id),
         paths,
         availability
       }
     })
     .filter((item) => item !== undefined)
     .sort((left, right) => (left.id < right.id ? -1 : 1))
+}
+
+/**
+ * 从补丁文件文本里取**顶层**条目的 id。
+ *
+ * 只看行首的 `- id:`：`insert:` 列表里的条目是缩进的（它们是在"新增条目"，
+ * 不是覆盖既有条目），注释行也不匹配。YAML 允许给 id 加引号，这里一并去掉。
+ * @param text - 补丁文件的原始文本。
+ */
+export function topLevelPatchEntryIds(text) {
+  if (typeof text !== 'string' || text === '') return []
+  const ids = []
+  for (const line of text.split('\n')) {
+    const matched = /^- id:\s*(.+?)\s*$/u.exec(line)
+    if (matched === null) continue
+    ids.push(matched[1].replace(/^["']|["']$/gu, ''))
+  }
+  return ids
+}
+
+/**
+ * 找出补丁里**失效的覆盖**：顶层列了 `- id: X`，但当前组合里没有 X。
+ *
+ * 典型来源（2026-10-12 实测）：覆盖写在实验性条目（如
+ * `optional-session-title-all-prompts`）上之后，用户又关掉了提供该条目的实验性插件。
+ * 此时 dsh 只在组合时打一条 `patch: entry "X" not found` 警告并**忽略**这条覆盖，
+ * 而 configEditor 只认组合里的条目——设置页既显示不到、也就清不掉它。
+ *
+ * @param patchText - 补丁文件文本。
+ * @param liveIds - 当前组合里的条目 id（`configuration()` 的 `entry.options.id`）。
+ * @returns 去重后的失效条目 id，按在文件里出现的顺序。
+ */
+export function staleOverrideIds(patchText, liveIds) {
+  const live = new Set(liveIds)
+  const seen = new Set()
+  const stale = []
+  for (const id of topLevelPatchEntryIds(patchText)) {
+    if (live.has(id) || seen.has(id)) continue
+    seen.add(id)
+    stale.push(id)
+  }
+  return stale
 }
 
 /**
