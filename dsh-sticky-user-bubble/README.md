@@ -25,7 +25,7 @@
 
 ```bash
 dsh plugin --profile web add dsh-sticky-user-bubble        # 安装
-dsh plugin --profile web add dsh-sticky-user-bubble@0.1.4  # 升级到指定版本
+dsh plugin --profile web add dsh-sticky-user-bubble@0.3.1  # 升级到指定版本
 dsh plugin --profile web remove dsh-sticky-user-bubble     # 卸载
 ```
 

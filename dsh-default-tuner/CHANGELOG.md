@@ -1,5 +1,11 @@
 # 变更记录
 
+## [0.3.1] - 2026-10-19
+
+### 修复
+
+- **修正设置分区 order 并列**：`SECTION_ORDER` 由 `110` 调到 `120`。此前本包与 `dsh-mcp-console` 都用 `110`，构成同一 slot 内的并列——壳层是 `sort((a, b) => a.order - b.order)` 的稳定排序，并列时只能靠注册顺序决胜，属于「同一个 slot 里多个插件不要复用同一档 order」的违反。现在五个插件的分区是 100/110/120/130/140 连续分配（`extra-context` 100 / `local-plugin-manager` 110 / 本包 120 / `mcp-console` 130 / `chat-archive-manager` 140），权威表在根 `AGENTS.md`。**业务代码与全部契约行为未变。**
+
 ## [0.3.0] - 2026-10-12
 
 ### 修复与新增

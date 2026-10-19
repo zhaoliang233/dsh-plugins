@@ -24,7 +24,7 @@
 
 ```bash
 dsh plugin --profile web add dsh-chat-archive-manager       # 安装
-dsh plugin --profile web add dsh-chat-archive-manager@0.1.4 # 升级到指定版本
+dsh plugin --profile web add dsh-chat-archive-manager@0.3.1 # 升级到指定版本
 dsh plugin --profile web remove dsh-chat-archive-manager    # 卸载
 ```
 
