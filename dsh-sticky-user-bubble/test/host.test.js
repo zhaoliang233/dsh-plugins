@@ -13,6 +13,8 @@ test('keeps the Host half inert outside the audited release line', () => {
   assert.equal(classifyDshVersion('0.2.1-beta.1').supported, true, 'beta sits above the alpha floor')
   assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true)
   assert.equal(classifyDshVersion('0.2.1-rc.1').verified, false, 'a higher channel on the line runs with a warning')
+  assert.equal(classifyDshVersion('0.2.1-rc.2').supported, true)
+  assert.equal(classifyDshVersion('0.2.1-rc.2').verified, true, 'rc.2 is audited (four-viewport geometry re-measurement)')
   assert.equal(classifyDshVersion('0.2.1').supported, true, 'the stable release of the line stays inside')
   assert.equal(classifyDshVersion('0.2.1').verified, false, 'the stable release is still unlisted until audited')
   assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false, 'a smaller alpha sequence sits below the floor')
@@ -29,6 +31,9 @@ test('keeps the Host half inert outside the audited release line', () => {
   warnings = 0
   applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.1-alpha.2')
   assert.equal(warnings, 0, 'the verified version must be silent')
+  warnings = 0
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.1-rc.2')
+  assert.equal(warnings, 0, 'every listed version must be silent')
 })
 
 test('exports an inert Host half for the client-only feature', () => {

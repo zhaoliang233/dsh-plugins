@@ -2,6 +2,19 @@
 
 本文件记录本项目的所有重要变更。
 
+## [Unreleased]
+
+> 本节尚未发布到 npm。registry 上的最新版本仍是 `0.3.0`，其 `verifiedVersions` 只有 `0.2.1-alpha.2`。
+
+### 变更
+
+- **把 `0.2.1-rc.2` 加进逐版本验证清单**（`package.json` / `lib/index.js` / `install.sh` 三处同源）：该版本已在隔离宿主 + 无头 Chrome 155 上按**四档视口（320×568 / 390×844 / 900×900 / 1024×768）× 两种场景（多附件气泡 / `@` 引用 token 气泡）**完成六个几何常量的复核，数值与 `0.2.1-alpha.2` 逐数一致（抖动 0）。`verified` 只影响启动时那条「未逐条核对」的日志，不影响功能；`supported` 判定与兼容范围完全不变。
+- 顺带复核 `0.2.1-rc.2` 的用户文本投影重构（`projectUserText` 被删除，改走 `conversation.user.text` 链式槽位）：React 槽位不产生 DOM 盒，`Sixlwa_userRow > [userStack, actions]` 结构与 `data-ref-chip` + `title` 全部不变，clone 里原样保留 chip 与原文。**业务代码一字未改。**
+
+### 文档
+
+- `AGENTS.md` 增加 `0.2.1-rc.2` 的四档视口量测记录与三条注入会话的踩坑结论。
+
 ## [0.3.0] - 2026-10-10
 
 ### 变更

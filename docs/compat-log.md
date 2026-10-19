@@ -90,9 +90,15 @@ J1 把「用户气泡文本投影改成 `conversation.user.text` 链式槽位」
 
 ### 本轮没做什么
 
-- **没改任何插件源码**，`verifiedVersions` 仍是 `["0.2.1-alpha.2"]`（把 rc.2 写进验证清单属发布动作，需用户授权）。
+- **复核阶段没改任何插件代码**，量测与结论都在这一步完成；清单更新见下一节。
 - **没覆盖目视部分**：滚动流畅度、真实鼠标 hover 手感、非 1 缩放/自定义字号，以及折行动画进行中的那一瞬（`[data-chat-motion]` 静态计数 0，脚本化回放够不到）。
 - 未提交任何 git 操作。
+
+### 后续：把 rc.2 写入验证清单（同日，未发版）
+
+落地结论时修正了一个判断：**把 rc.2 写进 `verifiedVersions` 并不等于发布动作**。`verified` 在 `classifyDshVersion()` 里只驱动 `applyForVersion()` 那行「未逐条核对」警告，`supported` 才是决定插件是否 inert 的判据——写入前后判定矩阵里 `supported` 一个都没变（rc.2 由 `verified=false` 翻成 `true`，仅此一项）。真正的发布动作是 `package.json#version` 加 git tag；版本号仍是 `0.3.0`、registry 上已存在，`npm publish` 会被直接拒绝，天然闸门。
+
+于是按「文档会漂移、常量和测试不会」的理由写入：四处同源（`package.json` / `lib/index.js` / `install.sh` / `manifest.test.js` 逐字断言）外加 `host.test.js` 两条守卫（rc.2 判 `verified=true`、`applyForVersion` 静默），`npm run publish:check` 28/28。`[Unreleased]` 段是本轮新引入的 CHANGELOG 惯例，仓库其余 8 个包都没用过。
 
 ### 可复用技巧
 
