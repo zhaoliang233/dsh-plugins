@@ -105,6 +105,16 @@
 - 本轮顺带核对：`settings.section` 内置 order 与 0.2.0-rc.2 完全一致（account −10 / general 0 / models 10 / plugins 15 / agent-presets 20），`client.js` 里那句版本号已同步成 `0.2.1-alpha.2`。
 - **造隔离数据的第三条硬约束（本轮实测补上）**：历史 generation 的 header 还必须带 `delegationDepth`——它自 v2 起是必需字段，缺了会让 `readHeader()` 返回 `malformed`（`released v2 physical header lacks delegationDepth`），而 `readGenerationHeader()` 对 `malformed` 返回 `undefined` → 该 artifact 同样在 `list()` 阶段被静默跳过、测出 404 而不是 501。另外 **macOS 上必须用 canonical 路径**：`/tmp/...` 与 `/private/tmp/...` 混用会让 `WorkspaceRegistry` 的席位校验（id + canonical cwd membership）把 `sessionIds` prune 掉，`bootstrap()` 也会另建一个 `/private/tmp/...` 的工作区——造数据与断言都要用 `realpath` 形式。
 
+### DSH `0.2.1-rc.2` 逐版本核对记录（2026-10-19，`verifiedVersions` 已含该版本）
+
+同线 prerelease 提升（`alpha.2 → rc.2`）。J1 做过离线核对（逐包规范化 diff：`dsh-workspace` 的 `candidateMatches`/`missingSessionPaths` 改动**不在**删除事务路径、`dsh-session-persistence-jsonl` 只把 dispose 改成 `ctx.effect` 生成器包装、6 个私有类名与 `detachEntered` 计数两版一致），但用户指出「它带永久删除事务，需要实跑」——本轮照做，并且**把"中途中断 + 可恢复性闭环"作为必测项**。
+
+- **隔离宿主**：`DSH_HOME=/private/tmp/dsh-cam-021rc2/home`、端口 **5947**（非 3080；按端口 + 命令行核对归属后停止）。数据是**自造**的（零用户会话）：`prep-data.mjs` 复刻 `projectKey()`/`encodeSegment()`/`sessionFormatLogFilename()` 写出合法 artifact。
+- **轮次 A 38 项全过**：status（未认证 401 / 认证 200，三布尔全 true，`dshVersion` 精确等于 `0.2.1-rc.2`）；`POST /delete` 与 `POST /restore` 缺客户端头 / 跨源 → 403、`GET /delete` → 405、坏 JSON 与缺 id → 400；未归档 → 409、归档但存储缺失 → 404、仅 v3 → 501（文案里是运行期派生的 v4）、v0 legacy → 501，两者都**零副作用**（目录仍在、无未完成事务、不 quarantine）；`POST /restore` → 200 且归档集合 6→5、目录未被搬走，重复 → 409 `session-not-archived`；**实删**：纯 v4 zstd → 200（目录消失、trash 清空、journal 归 `transaction: null`、归档集合与 W1 席位同步收缩）、**v3+v4 并存目录整段消失** → 200。
+- **轮次 B 20 项全过（本轮重点）**：用 `chflags uchg` 让 `rename()` **真实失败**制造中断（journal 由插件自己写出，不是手搓假事务）→ 运行期 `POST /delete` **500 `archive-delete-quarantined`**、journal `phase: "prepared"`、trash 0 项 → **冷启动 quarantine**：`deletionSupported=false`、`deletionCode=deletion-recovery-required`、quiescence 与 restore 一并 false、delete 与 restore 都回落 503 → **零自动处理**：目录 inode 未变（`154492970`）、artifact 原封不动、journal 未被改写、`phase` 仍 `prepared`、trash 未被清 → **人工清理** journal 后重启：三布尔恢复 true、**中断的会话仍在原位**（证明前一步确实没动过）、此时 `delete` → 200 且目录真的消失。
+- **结论：业务代码无需适配**，本轮改动只有四处同源清单（`package.json#verifiedVersions`、`lib/index.js`、`install.sh`、本文档）+ `test/manifest.test.js` 的硬编码清单。`npm run publish:check` **78/78** + 打包 9 文件。
+- **造隔离数据又踩到两条（跨轮有效，已并入上面的硬约束）**：① 「v3+v4 并存」目录里的 v3 兄弟文件也**必须**压成 `.jsonl.zstd`——混入明文 `.jsonl` 会让 backend 在 open 时抛 `encodingMismatch`，整个 workspace domain 打不开、本插件停在 **pending**（症状是 `/status` 根本没有路由，而不是报错）；② workspace 记录的 `createdAt`/`updatedAt` 必须是 **ISO-8601 字符串**（写成数字同样让 domain 打不开、插件 pending）。
+
 ### Host
 
 - `lib/index.js` 入口；`lib/archive-deletion.js` 删除事务；`lib/archive-restoration.js` 恢复事务。

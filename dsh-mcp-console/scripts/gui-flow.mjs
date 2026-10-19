@@ -334,8 +334,23 @@ const layersLeft = await evaluate(`document.querySelectorAll('[role="dialog"]').
 check('首启弹层已关闭（否则真实鼠标事件全落在它身上）', layersLeft === 0, `dismissed=${dismissedLayers} left=${layersLeft}`)
 
 enterStep('打开设置分区')
-// 打开设置 → MCP 服务器
-await evaluate(`__gui.click('button', '设置')`)
+// 打开设置 → MCP 服务器。
+// 设置入口在**账号菜单**里（`AccountMenu` 的 items 首项，`settings-account` 的 `openSettings`），
+// 菜单未展开时 DOM 里根本没有这个按钮——所以要先展开菜单再点。
+// 早先这里直接 `click('button', '设置')`，只有在"设置按钮已经常驻在页面上"的环境里才成立；
+// 2026-10-19 在 rc.2 的隔离宿主上实跑时它整段失败（后面的断言因此全红），根因就在这一步。
+// 保留"先直接点一次"是为了兼容入口常驻的形态：点不到再展开菜单，两条路都不写死。
+{
+  const direct = await evaluate(`__gui.click('button', '设置')`)
+  if (direct?.ok !== true) {
+    await evaluate(`__gui.click('button', '账号菜单')`)
+    await sleep(800)
+    const viaMenu = await evaluate(`__gui.click('button', '设置')`)
+    if (viaMenu?.ok !== true) {
+      fail(`账号菜单里也点不到「设置」：${JSON.stringify(viaMenu)}`)
+    }
+  }
+}
 await sleep(1500)
 const nav = await evaluate(`__gui.nav()`)
 const managed = nav.find((row) => row.label === 'MCP 服务器')

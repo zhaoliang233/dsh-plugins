@@ -23,7 +23,7 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  */
 export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
 
 /**
  * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.1`、`0.2.1-<channel>.N`）。

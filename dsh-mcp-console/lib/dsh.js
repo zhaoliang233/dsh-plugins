@@ -33,7 +33,7 @@ export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
 /** prerelease channel 的先后顺序；下标即优先级。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /** 逐版本核对过的 DSH 版本（其它同线版本带警告运行）。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
 
 /**
  * 判定 DSH 版本是否落在已核对契约的兼容线内。

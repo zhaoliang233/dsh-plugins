@@ -108,6 +108,100 @@ J1 把「用户气泡文本投影改成 `conversation.user.text` 链式槽位」
 - **四档视口的量测脚本要把「先宽后窄」写死**：窄视口用抽屉导航，脚本化的工作区展开不可靠。
 
 ---
+
+## J3：两个 L3 插件的 rc.2 实跑（2026-10-19，`0.2.1-rc.2`）
+
+J1 对这两个插件只做了**离线核对**（源码逐行 + 符号探针）。用户当时的判断是对的，也点明了原因：
+
+> 「chat-archive-manager 依赖的 6 个类名与 detachEntered 计数两版一致，dsh-workspace 的 candidateMatches/missingSessionPaths 改动不在删除事务路径；mcp-console 的 dsh-mcp-client 逐字相同。但一个带永久删除事务、一个带动态挂载 + 凭据链，都需要实跑。」
+
+这两个插件的失效代价不是「功能不可用」而是**不可逆数据操作**或**静默失效的挂载链**，所以本轮按「隔离宿主 + 既有验收脚本」实跑。**结论：两个插件的业务代码零改动、全部通过；另有一个验收脚本的兼容缺口被这次实跑暴露并修掉。**
+
+### 隔离环境
+
+| 项 | chat-archive-manager | mcp-console |
+|---|---|---|
+| `DSH_HOME` | `/private/tmp/dsh-cam-021rc2/home` | `/private/tmp/dsh-mcp-021rc2/home` |
+| 端口 | **5947** | **5922** |
+| profile 来源 | `dsh --profile web` 首次初始化（自动生成 web 模板） | 同左 |
+| 插件安装 | `dsh plugin --profile web add link:…` | 同左 |
+| 数据 | **自造**（零用户会话）：`prep-data.mjs` 按 `projectKey()`/`encodeSegment()`/`sessionFormatLogFilename()` 写合法 artifact | **手写两行** `dsh-mcp-client`（patchy2 + stdio fixture 20 个工具） |
+| 浏览器 | 无（纯 HTTP） | 无头 Chrome 155 + CDP 9333 |
+
+用户自己的 `127.0.0.1:3080`（PID 95049）全程未触碰；隔离进程按「端口 → `lsof -t` → 核对命令行含 `--port <端口>`」证明归属后停止，最后删掉两个隔离目录。
+
+### dsh-chat-archive-manager：轮次 A 38/38 + 轮次 B 20/20
+
+**轮次 A（宿主路由与边界，38 项全过）**：
+
+- status：未认证 401 / 认证 200；`deletionSupported` / `restorationSupported` / `sessionQuiescenceSupported` **三布尔全 true**；`dshVersion` 精确等于 `0.2.1-rc.2`。
+- 鉴权与 CSRF：`POST /delete` 与 `POST /restore` 缺 `x-dsh-chat-archive-manager-client` → 403；跨源 `Origin` → 403；`GET /delete` → 405；坏 JSON → 400；缺 id → 400。
+- 拒绝路径（**零副作用**）：未归档 → 409；归档但存储缺失 → 404；仅 v3 → 501 且文案里是运行期派生出的 v4；v0 legacy → 501；两次拒绝后目录仍在、journal 无事务、`deletionSupported` 仍 true、不 quarantine。
+- 恢复：`POST /restore` → 200 且归档集合 6→5、会话目录未被搬走；重复 → 409 `session-not-archived`。
+- **实删**：纯 v4 zstd → 200、目录消失、trash 清空、journal 归 `transaction: null`、归档集合与 Workspace 席位同步收缩；**v3+v4 并存 → 200，整段目录连同 v3 兄弟文件一起消失**。
+
+**轮次 B（中途中断 + 可恢复性闭环，20 项全过）**——用户点名要覆盖的一条，用 `chflags uchg` 让 `rename()` 真实失败来制造中断（**不是手搓假 journal**，journal 由插件自己写出）：
+
+| 阶段 | 实测 |
+|---|---|
+| 运行期中途失败 | `POST /delete` → **500 `archive-delete-quarantined`**；journal 落成 `phase: prepared`；trash 0 条目；会话目录 inode `154492970` 保持 |
+| 冷启动 quarantine | `deletionSupported=false`、`deletionCode=**deletion-recovery-required**`、`sessionQuiescenceSupported=false`、`restorationSupported=false`；`delete` 与 `restore` 都回落 **503** |
+| **零自动处理** | 目录 inode **未变**（154492970）、artifact 原封不动、journal 未被改写、`phase` 仍 `prepared`、trash 未被清 |
+| 人工清理后恢复 | 把 journal 置 `transaction: null` + 重启：`deletionSupported=true`、无 quarantine code、quiescence 与 restore 都恢复 true；**中断的会话仍在原位**（证明前一步确实没动过），此时 `delete` → 200、目录真的消失 |
+
+> 两个 quarantine code **不一样是设计**，不是缺陷：冷启动发现非空事务走 `assertNoPendingTransaction()` → `deletion-recovery-required`；运行期删除中途失败走 `deleteOne()` 的 catch → `archive-delete-quarantined`。两者都让 `deletionSupported=false` 并拒绝后续操作。
+
+### dsh-mcp-console：宿主侧 22/22 + 真机 GUI 52/52
+
+**宿主侧 22 项全过**，覆盖用户点名的三项：
+
+- **① 动态挂载 / 工具发现 / dispose**：`runtime=ready`、`versionSupported=true`、`mcpModule.ok=true`（`loader-import`）、`settingsAvailable=true`；手写行被读成只读 `profileTargets`；停用后 `live.state` 不再是 `mounted`（dispose 生效）。
+- **② 凭据链**：写入一条 `env: { RC2_CRED_PROBE_TOKEN: 'credential:RC2_CRED_PROBE_TOKEN' }` → 设置写入被接收、**缺凭据时被拦下并指名键名**；把值写进 `.credentials.yaml` 的 `refs:` 段后**无需手动对账即挂载**（`credentials/reference-updated` → 对账闭环）。
+- **③ 明文 0 次入载荷**：凭据明文在**全部 13 份响应载荷**里出现 **0 次**；URL 里的 token 明文同样 0 次；隔离 `.credentials.yaml` 权限 0600。
+- 另加鉴权/CSRF 8 项：缺自定义客户端头 / 头值非 1 / 跨源 Origin / `sec-fetch-site: cross-site` → 403；缺 CSRF / 错 CSRF → 403；未知动作 → 400；方法不符 → 405。
+
+**真机 GUI 52/52 全过**（脚本修好后连跑两轮）：分区渲染、只读块文案无实现细节、`+` 打开弹窗且不落盘、错命令验证失败并就地显示、fixture 验证通过后挂载并列出 **20 个工具**、官方浮层 `279x205` 在面板 `472x335` 内（`insidePanel=true`）、清单溢出提示可滚动且 `scrollTop` 从 0 变 232、移开鼠标浮层消失、编辑预填、停用即卸载、删除后宿主清单为空、**配置文件里的两行手写条目全程未被触碰**。
+
+### 本轮唯一修复：GUI 脚本打开设置的兼容缺口
+
+**症状**：GUI 验收首跑 **39 项红**，第一条 `设置导航出现「MCP 服务器」` 就失败，后面全线崩（分区没渲染，所有依赖分区内容的断言都拿不到东西）。
+
+**定位过程**（关键是**不要**先怀疑被测插件）：
+
+1. 宿主侧 22/22 全过 → 插件宿主半体没问题。
+2. 解析 `__DSH_BOOT__`：插件条目在启动图里（`url: plugins/??dsh-mcp-console/client.js`，`inject: ['@deepseek-ai/dsh-client-ui-settings']`，壳层 settings 包齐全）→ 客户端 bundle 也进来了。
+3. CDP 打页面：**0 条控制台错误**，页面正常，但**按钮清单里没有文本或 `aria-label` 为「设置」的按钮**——甚至宽视口 1440×900 也没有。
+4. 点开账号菜单（`aria-label="账号菜单"`）后，「设置」出现，`role=menuitem` 的 `BUTTON`，`textContent` 是 `设置⌥⌘,`；点它设置面板正常打开，导航行 `["通用设置","模型","内置插件","Agent 预设","MCP 服务器"]` 齐全。
+5. 读实现确认：设置入口是 `dsh-client-ui-settings-account` 的 `AccountMenu` 的 `items` 首项（`id: "settings"` → `openSettings()`），**全仓只有这一处**提供它（`layout` / `settings` / `settings-shell` / `sidebar` 都没有常驻入口）。
+
+**是不是 rc.2 的回归？——不是**。`npm pack` 拉回 alpha.2 的 `dsh-client-ui-settings-account`，规范化掉版本号后比对该段：`id: "settings"` 的菜单项定义与 `onSelect` 触发逻辑 **逐字相同**（整个文件唯一的实质差异是 rc.2 的 `AccountMenu` 多一个 `avatarFailed` 形参，与入口无关）；alpha.2 的 `layout` / `settings-shell` 里同样没有常驻设置入口。**也就是说这个脚本假设在 alpha.2 上一样不成立**——它是脚本一直带着的缺口，只是被此前的环境形态掩盖了。
+
+**修复**（`scripts/gui-flow.mjs`，+17/−2）：先直接点一次（兼容入口常驻的形态），点不到就展开账号菜单再点，两条都失败才带候选清单报死：
+
+```js
+const direct = await evaluate(`__gui.click('button', '设置')`)
+if (direct?.ok !== true) {
+  await evaluate(`__gui.click('button', '账号菜单')`)
+  await sleep(800)
+  const viaMenu = await evaluate(`__gui.click('button', '设置')`)
+  if (viaMenu?.ok !== true) fail(`账号菜单里也点不到「设置」：${JSON.stringify(viaMenu)}`)
+}
+```
+
+> 这改的是 `scripts/gui-flow.mjs`，**不在 `files` 白名单里**（不进发布物），所以**不需要发版**。
+
+### 本轮踩到的三个坑（都可复用）
+
+1. **隔离环境必须能进「已配置」状态，否则设置页根本进不去**。全新 `DSH_HOME` 初始化后页面停在欢迎页（只有「添加 API Key / 登录」），**连设置按钮都没有**。补一个占位 `DEEPSEEK_API_KEY`（写进 `.credentials.yaml` 的 `refs:` 段 + `.env`）后，模型选择器出现，页面才进入正常主界面。GUI 验收不调模型，占位值足够。
+2. **`.credentials.yaml` 是结构化 YAML，普通凭据在 `refs:` 下**，不是顶层裸键。写成 `${KEY}: value` 会被 `dsh-credentials-local` 读不到，表现为「凭据写进文件了但插件仍报缺键」——这条会让人误判成插件的凭据链坏了。
+3. **造会话 artifact 有两个硬约束**（踩了很久才定位）：① 压缩方式必须与 profile 的 backend 一致，**连「v3+v4 并存」目录里的 v3 兄弟文件也要压成 `.jsonl.zstd`**，混入明文 `.jsonl` 会让 backend 在 open 时抛 `encodingMismatch`，整个 workspace domain 打不开、插件停在 pending；② **v0 的物理 header 不接受 `isSeeded`**（它用 `seedLength` 表示 seeded），带上会被 `assertReleasedV0Keys()` 判成未知键并抛错，于是 backend 的 `readGenerationHeader()` 把它读成 `undefined`、会话从 `list()` 里整个消失，插件只能回 **404** 而不是期望的 501。另外 workspace 记录的 `createdAt`/`updatedAt` 必须是 **ISO-8601 字符串**（写成数字会让 domain 打不开、插件停在 pending）。
+
+### 两个插件都没有改动的原因
+
+- `dsh-chat-archive-manager`：删除事务依赖的私有 ABI（`AgentRegistry`、`detachEntered` 计数、`JsonlSessionPersistence` 的字段形状）在 J1 已逐包核对与 alpha.2 一致，本轮所有实跑路径（含 quarantine 与恢复）都在 rc.2 上按预期工作，没有需要适配的行为差异。
+- `dsh-mcp-console`：`dsh-mcp-client` 代码同哈希、MCP SDK 依赖未再变；动态挂载 → `loader/volatile-update` → 对账 → dispose 整条链在 rc.2 上逐项通过，凭据链与脱敏也没有回归。
+
+---
 ## J1：同线 prerelease 例行核对（2026-10-19，`0.2.1-alpha.2 → 0.2.1-rc.2`）
 
 一次**例行**检查，不是跨线：运行版本从 `0.2.1-alpha.2` 升到 `0.2.1-rc.2`，两者同属 `0.2.1` 线（通道由 alpha 提到 rc）。工作区 8 个插件的门是 `>=0.2.1-alpha.2 <0.2.2`，按判据这属于「同线内未逐条核对的 prerelease，允许带警告运行」，所以本轮把每个插件的契约面重过一遍。
