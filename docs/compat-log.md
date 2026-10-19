@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| J6（2026-10-19，L2 实跑） | `0.2.1-rc.2` | `dsh-auto-load-history` 补上实跑（隔离宿主 3911 + headless Chrome 155/CDP 9391）：补齐到 `hasMore === false`（773→70510px / 4350 行，4.2–4.6s）、总开关关后回到默认分页（30s 稳在 200 行）、开关再开无需刷新即补齐，三项判据全过、控制台 0 报错。**顺带量出并修掉一个真实缺陷**：锚点补偿晚两帧，首个 prepend 会把读者位置推开 19173px 并保持 29–31ms（3/3 命中）；改成「落地当帧先补一次 + 随后两帧复验」后跨度 0.5px、偏差帧 0，帧间隔无退化 |
 | J5（2026-10-19，收尾） | `0.2.1-rc.2` | 把 J1 遗留的「5 个插件尚未把 rc.2 列入验证清单」补齐：`auto-load-history` / `default-tuner` / `default-workspace` / `extra-context` / `local-plugin-manager` 的四处声明（`package.json`、lib 的 `VERIFIED_DSH_VERSIONS`、`install.sh`、插件文档）全部加上 `0.2.1-rc.2`，测试里的硬编码断言同步。**不采信 J1 的历史结论**：每个插件点名的契约符号重新在全仓探针一遍，再逐个写进各自 `AGENTS.md` 的新 rc.2 小节。五个插件 `classifyDshVersion('0.2.1-rc.2')` 由 `{supported:true, verified:false}` 变为 `verified:true`（启动时不再打「未逐条核对」警告），`evaluatePluginCompatibility()` 全返回 `undefined`，`publish:check` 全绿（37/54/19/75/47）。**业务代码一字未改，未提交、未发版** |
 | J4（2026-10-19，修正） | 不涉及版本 | 修掉 J1 查出的两处 `settings.section` order 并列（**违反根 `AGENTS.md`「同一 slot 不复用同一档」**）：五个插件改成 100/110/120/130/140 连续分配（`extra-context` 100 / `local-plugin-manager` 110 / `default-tuner` 120 / `mcp-console` 130 / `chat-archive-manager` 140，后者的 `NAV_ICON_ORDER` 跟随），测试里的硬编码断言与文档同步；五个插件 `publish:check` 全绿。**改动触及 5 个 `client.js`，必须在用户机器生效就得按 minor 发版——发版待用户授权** |
 | J3（2026-10-19，L3 专项） | `0.2.1-rc.2` | 两个带**不可逆 / 高耦合**契约的 L3 插件在 rc.2 上**实跑**（J1 只做了离线核对）：`dsh-chat-archive-manager` 隔离宿主 **轮次 A 38/38 + 轮次 B 20/20**（真实 rename 失败注入 → 冷启动 quarantine → 人工清理 → 功能恢复的完整闭环；目录 inode 全程未变、trash 未被清、journal 未被改写）；`dsh-mcp-console` 宿主侧 **22/22**（动态挂载 / 工具发现 / dispose + 凭据链闭环 + 明文 0 次入载荷 + 手写行未被触碰）+ 真机 GUI **52/52**。**一个真实失败点已定位并修复**：`gui-flow.mjs` 打开设置写的 `click('button','设置')` 假设入口常驻页面上，而它实际在**账号菜单**里（未展开时 DOM 里根本不存在）；逐包核对 `settings-account` 的菜单项实现，alpha.2 与 rc.2 **逐字相同**，故这**不是 rc.2 回归**，而是脚本一直存在的兼容缺口——补「先直接点、点不到再展开菜单」兜底后 52/52 全过。两插件业务代码**零改动** |
@@ -35,6 +36,54 @@
 
 ---
 
+## J6：`dsh-auto-load-history` 的实跑验证 + 锚点补偿的量化修复（2026-10-19，`0.2.1-rc.2`）
+
+J1 对本插件只留了静态证据：`loadThrough`/`loadOlder`/`SessionSnapshot` 在 `dsh-api-session-controller` 里逐字相同，**一次真实加载都没跑过**。同批另外三个 L3 插件（sticky / archive / mcp-console）都做过隔离宿主实跑，它是这批里唯一只有静态证据的。本轮补上实跑，并把唯一的几何假设（`scrollTop` 锚点补偿）量出具体数值。
+
+### 环境与归属证明
+
+| 项 | 值 |
+|---|---|
+| 宿主 | `DSH_HOME=/tmp/dsh-alh-j6/home` + `dsh --profile web --port 3911 --no-open`（受管 background job） |
+| 隔离 home 的构造 | 从真实 `~/.dsh` **只读**拷 `storages/`、`workspaces/` 与目标会话 `session-f8e6ec6b`（含 v3/v4 两个数据文件）；`.credentials.yaml` 只写占位 `DEEPSEEK_API_KEY` |
+| 插件 | `dsh plugin --profile web add link:<插件目录>`（切换「工作区源码 / 实验副本」就是重跑这一条） |
+| 浏览器 | headless Chrome 155 + CDP 9391，独立 `--user-data-dir=/tmp/dsh-alh-j6/chrome`，视口 1512×813 |
+| 会话 | `session-f8e6ec6b`，补齐后 **4350 行 / 70510px**，一次运行 3 批（+19173 / +27812 / +13031 px） |
+| 用户的 3080 | 全程未触碰：验证前后都是 PID 95049 的 `dsh web --no-open` |
+| 收尾 | 3911 的监听进程按「端口 → `lsof -t` → 命令行含 `--port 3911` → `ps -Eww` 的 `DSH_HOME=/tmp/dsh-alh-j6/home`」三重核对后 `kill -TERM`；Chrome 按 `--user-data-dir` 证明归属后停止；未按进程名杀 |
+
+### 三项判据的实测数据
+
+| 判据 | 结果 |
+|---|---|
+| ① 补齐完成后「加载更早」不再常驻 | 从底部打开长会话 3 轮：773px → 70510px（+69737px），按钮消失 = `hasMore === false`；耗时 4217 / 4593 / 4292 ms |
+| ② 补齐过程中 `scrollTop` 锚点不跳动 | **改前**：首个 prepend 后 2 帧（29–31 ms）锚点偏 19173px，3/3 命中；**改后**：锚点跨度 0.5px、相邻帧位移 0.5px、偏差帧 0，改后 6 轮（实验副本 3 + 工作区源码 3）全一致 |
+| ③ 总开关关闭后回到默认分页 | 开关是 `settings.general.item` 13 个兄弟行里的**最后一行**（`order: 110`）；关后 `aria-checked` 与 `localStorage` 同步为 `false`，重开同一会话 **30 秒内稳在 200 行 / 5259px**、按钮常驻（40 次采样无一次消失），手动点原生按钮仍能分页（1678 行 / 11176px）；再打开开关**无需刷新**即补齐到 4350 行 |
+| 额外：加载期帧间隔 | 改前 p50 16.7 / p95 32.7–39.3ms / 最差 440–791ms、7–10 个 longtask；改后 p50 16.6–16.7 / p95 42–49.5ms / 最差 434–550ms、8–10 个 longtask——**同步多一次测量没有带来可测的额外卡顿** |
+| 额外：控制台 | 全程 0 个 error / warning / exception |
+
+### 量出问题：补偿晚了两帧，`afterLayout` 改成「先同步补一次再复验两帧」
+
+旧实现是 `afterLayout` 排两个 rAF 才补第一次。逐帧采样显示：**每次补齐的首个 prepend**（DSH 在这个时机还会折叠已关闭回合）落地后，锚点行被推开 **19173px 并保持 2 帧（29–31 ms）**，第三次 prepend 之前才归位；后续 prepend 都在落地当帧内到位。也就是说读者能看到的唯一一次跳变，恰好出现在第一批历史落地时。
+
+改成先 `callback()` 同步补一次，再用两个 rAF 各复验一次（`restoreAnchor` 本来就只在行真的移动了才写 `scrollTop`，所以复验在行没动时是空操作、不会二次修正）。改后同一会话同一路径，三次 prepend 全部**落地当帧归位**，锚点跨度与相邻帧位移都是 0.5px。
+
+### 仪器自身的两个坑（跨轮有效）
+
+1. **读锚点与开始逐帧采样必须在同一个 CDP 求值里**。分两次求值时，补齐途中的滚动已经在两次往返之间发生，采到的基准带一个恒定偏移（本轮实测 400px），表现为「锚点整体偏了 400px」这种假漂移。第一版仪器就是这样，白跑了三轮。
+2. **「每帧把视口强推回同一比例」会把 DSH 的 follow-tail 与补偿合成在一起**，测出来的是合成结果。要测补偿本身，就用**真实滚轮**（`Input.dispatchMouseEvent` 的 `mouseWheel`）接管视口一次，让 DSH 自己退出 follow-tail，之后不要再动视口。
+
+另外两条踩坑：Chrome 的 `Log.entryAdded` 在宿主被 kill 后会持续报 `ERR_CONNECTION_REFUSED`，判定「本插件 0 报错」要按插件前缀过滤，不能直接数事件条数；`dsh plugin add link:` 换目录后必须重启宿主，否则 boot graph 里还是旧副本（本轮有一次 `EADDRINUSE` 就是旧宿主没退干净，按端口+命令行+`DSH_HOME` 三重核对后才 `kill`）。
+
+### 改了什么
+
+| 文件 | 改动 |
+|---|---|
+| `dsh-auto-load-history/client.js` | `afterLayout` 先同步调用一次回调，再排两个 rAF 复验（附实测依据的注释） |
+| `dsh-auto-load-history/test/client.test.js` | 假行改为「流动位置 − `scrollTop`」的模型（原来固定 `rect`，补偿写入后不会跟着动，无法验证复验是空操作）；新增一条「补偿落在落地当帧」的用例 |
+| `dsh-auto-load-history/AGENTS.md` | 锚点补偿段写明「必须落在落地当帧」与实测数值；「已知限制」加一条测量纪律；新增 `0.2.1-rc.2` 实机验证表；单测数 37 → 38 |
+
+`npm test` 38/38、`npm run publish:check` 全绿。**未提交、未发版**（按根 `AGENTS.md`，提交与发版都要用户明确授权）。
 ## J5：把 `0.2.1-rc.2` 补进 5 个插件的验证清单（2026-10-19，`0.2.1-rc.2`）
 
 J1 定级时说得很清楚：8 个插件在门内是 `supported:true, verified:false`——**能跑，但每次启动都打一条「未逐条核对」的警告**。J2/J3 把三个 L3 插件（sticky / chat-archive-manager / mcp-console）的真机验证做完并写进了清单，剩下 5 个 L1/L2 插件一直没补。本轮就是补齐这 5 个：`auto-load-history`、`default-tuner`、`default-workspace`、`extra-context`、`local-plugin-manager`。

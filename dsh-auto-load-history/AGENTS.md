@@ -57,7 +57,9 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 - **进度**：用事件窗口头 seq（`eventSource.getSnapshot().entries[0].event.seq`）判断一次运行有没有真的把窗口往前推；连续 `MAX_STALLED_PAGES = 3` 次运行没推进就停止本次补齐，把控制权还给原生按钮，避免请求失败时无限重试。reject 与同步抛错都会重新调度一次（否则没有后续快照可响应），仍受同一停滞预算约束。
 - **让位阅读**：`readerAtBottom(metrics, 64)` 用 scrollport 的 `scrollHeight - scrollTop - clientHeight` 判断，但**只有读者自己驱动过视口**（`USER_INTENT_EVENTS` = `wheel`/`touchstart`/`touchmove`/`pointerdown`/`keydown`，document 捕获阶段）**且不在底部**时才 `defer`；读者意图带 `READER_IDLE_MS = 1000` 的存活期，停手后自动过期并恢复运行——读者不会因为"顺手翻了两下"就把功能停死。defer 期间挂捕获阶段 `scroll` 监听（scroll 不冒泡但捕获阶段到得了 document），回到底部立即恢复；监听不缓存元素，Chat ↔ Trajectory 切换、scrollport 被替换都不需要重挂。
-- **锚点补偿**：prepend 会让视口上方的内容变高，读者的阅读位置会被推下去。`ANCHOR_ATTRIBUTES = ['chatAnchorKey', 'turnTail']` 取**视口内第一个可见行**作为锚点；每批只在**发起前读一次**（`readAnchor`），**落地后在两个 rAF 之后**按该行的位移反向修正 `scrollTop`（`afterLayout` + `restoreAnchor`）。这与 DSH 为「加载更早」按钮做的补偿同构（它记 `row.dataset.chatAnchorKey` + `flowTop`）；读者在底部时不干预（DSH 的 follow-scroll 负责跟住流尾）。
+- **锚点补偿**：prepend 会让视口上方的内容变高，读者的阅读位置会被推下去。`ANCHOR_ATTRIBUTES = ['chatAnchorKey', 'turnTail']` 取**视口内第一个可见行**作为锚点；每批只在**发起前读一次**（`readAnchor`），落地后按该行的位移反向修正 `scrollTop`（`afterLayout` + `restoreAnchor`）。这与 DSH 为「加载更早」按钮做的补偿同构（它记 `row.dataset.chatAnchorKey` + `flowTop`）；读者在底部时不干预（DSH 的 follow-scroll 负责跟住流尾）。
+
+  **修正必须落在落地当帧，不能等两个 rAF**（2026-10-19 实测定的）：旧实现是「等两帧再补」，在 rc.2 上**每次补齐的首个 prepend** 都会把读者位置推开 19173px 并**持续 2 帧（29–31ms）**，三次重跑全命中；后续 prepend 都在落地当帧内到位。现在 `afterLayout` 先**同步补一次**，再在随后两帧各补一次（每次都是「行真的移动了才写 `scrollTop`」，所以后两次在行没动时是空操作）。改后六轮实测锚点跨度 **0.5px**、相邻帧位移 **0.5px**、偏差帧 **0**。
 
   **测量纪律**（直接决定流畅度）：`getBoundingClientRect` 会强制同步布局，所以**绝不在每步、更不在每个滚动帧测量**——每帧测量正是实测最差帧间隔 ~3100ms 的元凶，改成每批两次后降到 ~700ms。找可见行用**二分查找**（行按位置有序，`O(log n)` 次测量），恢复时用属性选择器 + `CSS.escape` 直接命中该行（拿不到 `CSS.escape` 才回退遍历）。
 - **清理**：会话/偏好订阅、滚动与意图监听、两个定时器、style 标签全部归 `ctx.effect` 与 `loader.dispose()`；`drive()` 外层 try/catch，任何异常都不会漏进会话来通知链。
@@ -93,6 +95,7 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 - 不读 `ui-chat.transcriptView`：行为与排版无关（普通排版下把历史带起来也无害），避免跨插件读私有设置命名空间。
 - 身份依赖 `conversation.session.header.actions` 这一 slot 声明：DSH 若删掉该 slot 或改其 scope，`slots.inject` 回调不再触发、驱动组件永不挂载，插件会**静默失效**（不报错）——这是加载能力检查之外唯一的硬依赖，升级时必须连同上表一起复核。
 - 补齐完成瞬间 DSH 会折叠所有已关闭回合，内容高度骤降（实测 `130794px → 56250px`），读者在中部阅读时仍会感到一次收缩；这是 DSH 的渲染行为，插件只能保证折叠后回到同一个锚点行。
+- 锚点补偿的测量方式会影响结论：**读锚点与开始逐帧采样必须在同一个任务里**。分两次 CDP 求值（中间隔一帧）时，补齐途中的滚动已经在两次往返之间发生，采到的基准会带一个恒定偏移（实测 400px），看起来像"补偿漂移"，其实是被测对象的正常滚动。另外「每帧把视口强推回同一比例」会把 DSH 的 follow-tail 与补偿合成在一起（详见 0.2.0-rc.2 那节的测量说明）。
 - 极大会话（数万像素、上千条消息）在每批落地时仍可能有几百毫秒顿挫：实测最差帧间隔 **~700ms（alpha.1）/ ~831ms（rc.2，会话 7.3 万 px 更大）**（对照：插件每帧测量版 ~3100ms、一次拉完不分批版 ~3000ms；把批缩到 400 条没有进一步改善，说明剩下的是 DSH 渲染历史的成本，插件侧已无每帧工作）。
 - DSH 升级后必须重新核对上表每个契约（紧凑折叠判断、`SessionSnapshot` 四字段、`loadThrough`/`loadOlder` 语义与页大小、会话作用域 slot 的声明与 props、`settings.general.item` 注册契约、scrollport 与锚点行标记），再声明兼容。
 
@@ -146,7 +149,7 @@ npm run publish:check     # check + test + pack:check
 ./install.sh
 ```
 
-单元测试覆盖（37 个；跨线时新增一条四处同源守卫）：偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
+单元测试覆盖（38 个；跨线时新增一条四处同源守卫，2026-10-19 新增一条「补偿落在落地当帧」）；偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、**补偿先同步落一次再在随后两帧复验（且复验是空操作，不会二次修正）**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
 
 真实浏览器验证（`0.1.6-alpha.2`，`--port 0` 隔离服务器 + headless CDP，2026-09-18）：
 
@@ -187,6 +190,18 @@ npm run publish:check     # check + test + pack:check
 | Chat ↔ Trajectory 切换 | `[data-slot="conversation.session.header.actions"]` 全程 4167 帧不重挂，切回后 4350 行保持 |
 | 全程 console | 本插件 **0** 个 error / warning / exception（仅 2 条来自其他插件：archive-manager 的 `/dsh-chat-archive-manager/status` 404 与 mobile-compat 的版本门告警） |
 | 分页页大小 | 断言全部基于「按钮消失 / 行数 / 锚点 top」，**不写死页大小**（页大小是 turn 对齐区间） |
+
+真实浏览器验证（`0.2.1-rc.2`，隔离宿主 `DSH_HOME=/tmp/dsh-alh-j6/home` + 端口 3911 + headless Chrome 155/CDP 9391（独立 `--user-data-dir`），2026-10-19，全程未触碰用户自己的 3080（PID 95049，`dsh web --no-open`，验证前后同一 PID）；脚本在 `/tmp/dsh-alh-j6/`，非发布物）：
+
+| 场景 | 结果 |
+|---|---|
+| 长会话 `f8e6ec6b`（4350 行 / 70510px）打开后自动补齐（从底部打开，3 轮） | 773px → 70510px（+69737px），「加载更早」消失 = `hasMore === false`；耗时 **4217 / 4593 / 4292 ms** |
+| 锚点补偿（读者在中部，真实滚轮接管过视口）——**改前 3 轮** | 3 次 prepend（+19173 / +27812 / +13031 px）全部落位，但**首个 prepend 后 2 帧（29–31ms）锚点仍偏 19173px**，3/3 命中；全程锚点跨度 19173.5px |
+| 同上——**改后 6 轮**（实验副本 3 轮 + 工作区源码 3 轮） | 同一会话 3 次 prepend 全部**落地当帧归位**，锚点跨度 **0.5px**、相邻帧位移 **0.5px**、偏差帧 **0**（阈值 2px）、终值偏差 −0.5px |
+| 加载期帧间隔（rAF 逐帧 + longtask） | 改前 p50 16.7 / p95 32.7–39.3ms / 最差 440–791ms、7–10 个 longtask；改后 p50 16.6–16.7 / p95 42–49.5ms / 最差 434–550ms、8–10 个 longtask（**同步多一次测量没有带来可测的额外卡顿**） |
+| 设置 → 通用末尾总开关关闭（开关是 13 个兄弟行里的最后一行，`aria-checked` 与 `localStorage` 同步翻转） | 关后重新打开同一会话：**30 秒内 200 行 / 5259px 不变**，「加载更早」始终存在（40 次采样无一次消失）——回到默认分页；手动点原生按钮仍能加载（1678 行 / 11176px，按钮仍在） |
+| 再打开开关 | 无需刷新即恢复运行，补齐到 **4350 行 / 70510px**、按钮消失 |
+| 全程 console | **0** 个 error / warning / exception |
 
 **一条测量方式上的差别**：上面的锚点数据来自「只钉一次视口」（读者不干预）。若把视口**每帧**强推回同一比例（对抗 DSH 的 follow-scroll，defer 场景必须这样做），锚点行的 top 会在 −482…−465 之间摆动（跨度 17px）——那是「插件补偿」与「外部每帧重新定位」的合成结果，不是补偿漂移。两种测法都在 `/tmp/dsh-alh-020/probe.mjs`（`MODE=anchor` / `MODE=defer`）。
 

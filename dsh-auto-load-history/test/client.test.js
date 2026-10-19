@@ -138,9 +138,17 @@ function createFakeDocument(metrics = { scrollHeight: 1000, scrollTop: 0, client
  */
 function createAnchorDocument() {
   const element = { scrollHeight: 1000, scrollTop: 400, clientHeight: 500 }
+  // The row sits at a fixed place in the flow, so its viewport offset follows the
+  // scrollport. Modelling that matters: a correction moves scrollTop, which in the
+  // real DOM moves the row back, so a re-asserted correction must be a no-op
+  // instead of correcting twice.
   const row = {
     dataset: { chatAnchorKey: 'row-1' },
-    rect: { top: 100, bottom: 160 },
+    flowTop: 500,
+    height: 60,
+    get rect() {
+      return { top: row.flowTop - element.scrollTop, bottom: row.flowTop - element.scrollTop + row.height }
+    },
     getBoundingClientRect: () => row.rect
   }
   const document = {
@@ -573,10 +581,49 @@ test('holds the reader anchor across a prepend', async () => {
   loader.attach('session-1')
   // A prepend lands: the flow grows above the viewport and the anchored row slides
   // down. DSH corrects this for its own paging button; automatic paging must too.
-  row.rect = { top: 400, bottom: 460 }
+  row.flowTop += 300
   element.scrollHeight = 1300
   assert.equal(await waitFor(() => element.scrollTop === 700, 300), true)
   assert.equal(state.runs > 0, true)
+  loader.dispose()
+})
+
+test('corrects the reader anchor on the landing task and re-asserts it on the next frames', async () => {
+  // Measured on 0.2.1-rc.2: waiting two frames before the first correction painted the
+  // reader's viewport 19173px away from their anchor for ~29-31ms on the first prepend.
+  // The correction must therefore land on the same task as the prepend, and the frame
+  // re-assertions must still repair a row that a late layout pass moves again.
+  const { sessions, state } = createHarness({ startHead: 20, pageSize: 10 })
+  const { element, document, row } = createAnchorDocument()
+  const frames = []
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => document,
+    requestAnimationFrame: (callback) => {
+      frames.push(callback)
+      return frames.length
+    }
+  })
+  const flushFrame = () => {
+    for (const callback of frames.splice(0)) callback()
+  }
+  loader.start()
+  loader.attach('session-1')
+  // The prepend commits above the viewport: the flow grows and the row slides down.
+  row.flowTop += 300
+  element.scrollHeight = 1300
+  assert.equal(await waitFor(() => state.pages > 0 && state.loadingOlder === false), true)
+  // No frame has run yet, and the anchor is already back where the reader had it.
+  assert.equal(frames.length > 0, true)
+  assert.equal(element.scrollTop, 700)
+  // The frame re-assertions are no-ops while the row stayed put.
+  flushFrame()
+  assert.equal(element.scrollTop, 700)
+  // A late layout pass pushes the row down again: the next frame repairs it.
+  row.flowTop += 60
+  flushFrame()
+  assert.equal(element.scrollTop, 760)
   loader.dispose()
 })
 

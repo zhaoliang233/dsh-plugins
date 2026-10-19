@@ -507,15 +507,25 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Run once the prepend is laid out, so the correction measures real geometry.
+       * Run the anchor correction on the landing task, then re-assert it on the next
+       * two frames.
+       *
+       * Waiting two frames before the first attempt paints the reader's viewport in
+       * the pushed-down position for that whole window: measured on 0.2.1-rc.2 with a
+       * 1512x813 headless Chromium, the first prepend of a 4350-row Session left the
+       * anchor 19173px away for 2 frames (~29-31ms) in three runs out of three, while
+       * later prepends were corrected inside the landing frame. Correcting first is
+       * safe because a prepend that has already committed its DOM height is measured
+       * correctly on the landing task, and the frame re-assertions still win when a
+       * late layout pass moves the row again (each call is a no-op unless the row
+       * actually moved).
        * @param callback - work to run after layout.
        */
       function afterLayout(callback) {
-        if (requestFrameFn === null) {
-          callback()
-          return
-        }
+        callback()
+        if (requestFrameFn === null) return
         requestFrameFn(() => {
+          callback()
           requestFrameFn(callback)
         })
       }
