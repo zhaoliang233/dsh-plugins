@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| J2（2026-10-19，L3 专项） | `0.2.1-rc.2` | L3 插件 `dsh-sticky-user-bubble` 承接 J1 的「建议真机复核」：在**四档视口（320×568 / 390×844 / 900×900 / 1024×768）× 两种场景（多附件气泡 / `@` 引用 token 气泡）**下重测六个几何常量，全部与 `0.2.1-alpha.2` **逐数一致、抖动 0**（出现边界 76 / 阅读线 92 / 让位清距 16 / push 上限 102 / `clip-path = inset(push−16)` / 折叠高 86 / 展开高 `incomingTop−16−92` / seat 限高）、控制台 0 error；rc.2 的 `conversation.user.text` 链式槽位只改变首帧渲染时机，**未移动任何 owner 层级**，无需修复。顺带查实注入会话的三个必要做法（同改 `spliced` 与 `user/message` 事件；按 header+批次分帧而非整包重压；清 `session_projcache`） |
 | J1（2026-10-19，例行） | `0.2.1-alpha.2 → 0.2.1-rc.2` | 同线内 prerelease 例行核对（**不跨线、不改源码、刷新了图标快照**）。alpha→rc 是通道提升不是换线，但 82 个契约包版本整体上抬，逐包规范化 diff 后**三处实质变化**：① `dsh-app-boot` 把 `evaluatePluginCompatibility` 从「只查 peerDependencies」改成「`engines.dsh` 优先且单方面决定」——**不满足时进 `skippedBundles`（跳过）而非阻断启动**，别误判成启动拦截；② 用户气泡文本投影整体重构：primitives 的 `projectUserText` 被删除，改成 `conversation.user.text` 链式槽位 + `UserTextRun`/`ReferenceChip`（跨 7 个包，alpha.2 中出现 0 次），但**最终 DOM 与 CSS 与 alpha.2 一致**（只多一层不产生 DOM 的 React 槽位），`data-ref-chip`+`title` 保留；③ `dsh-api-workspace-controller` 的 `follow()` 变 async generator 并加 `remoteAccess` 过滤与 `replace` 帧。离线网全绿：9 插件 468 项单测、图标无漂移、4 个导航图标插件六项全过、9 个 `publish:check` 全过。**未做任何插件代码改动**；`dsh-mobile-compat` 按用户决定只记录（仍在门外 inert）。顺带查出两处**既有** order 并列违规 |
 | I1（2026-10-10，发布审计） | `0.2.1-alpha.2` | 8 个已发布包换线后的独立收口校验：四处同源、458 项单测、图标网、8 个 `publish:check`、registry/provenance、`npm ci` 锁一致性全过；真实运行态由「路由 404」变「401/200」证明 8 个宿主半体都活了。**修掉 `release.yml` 一个看不见的 bug**（创建 Release 用 `github.ref_name` 而非校验过的 tag，手动派发时会产出 `main` 这种分支名 tag），并清理两个发布流程残骸 |
 | B8（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-chat-archive-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：296 个包两版逐文件 sha256 比对，删除事务路径上「逐字相同」与「改了但够不着」两类都逐行有证据（`dsh-agent-loop` 的 factory dispose 只把 `scope.dispose()` 挪进独立 `try/catch`；`dsh-session-persistence-jsonl` 的 4 个 hunk 只包装返回值 / 新增附加键；`dsh-workspace`+`dsh-agent`+`dsh-session-format*`+`dsh-session-persistence` 整包逐字相同）；隔离宿主**基线 5 + 轮次 A 68 + 轮次 B 65 全过**（含中途中断与可恢复性闭环）；`publish:check` 78 项 + tarball 9 文件全绿 |
@@ -31,6 +32,76 @@
 
 ---
 
+## J2：`dsh-sticky-user-bubble` 四档视口几何复核（2026-10-19，`0.2.1-rc.2`）
+
+J1 把「用户气泡文本投影改成 `conversation.user.text` 链式槽位」列为 `dsh-sticky-user-bubble` 的最大风险点，并明确建议真机复核——理由是插件的气泡克隆吃的是 `getBoundingClientRect()` 而不是选择器，而槽位委托会改变首帧渲染时机，静态读码看不出来。本轮就是那次复核。**结论：结构等价成立，六个几何常量全线一致，未发现新的 owner 层级，无需修复。**
+
+### 环境与隔离
+
+`DSH_HOME=/tmp/dsh-sub-021rc2/home`（从真实 `~/.dsh` **只读**拷 `storages/`、`workspaces/`、目标会话 `session-f8e6ec6b-…` 与 11 个被引用的附件对象）+ `dsh web --port 50953 --no-open` + 无头 Chrome 155 / CDP 9381（独立 `--user-data-dir`）。**全程未触碰用户的 3080**：收尾复查时 3080 仍是用户自己的 `dsh web --no-open`（同一 PID），隔离宿主按 `lsof -nP -iTCP:50953 -sTCP:LISTEN -t` 取 PID 并**先核对命令行再 kill**，Chrome 按 `--user-data-dir` 证明归属后停止，未按进程名杀。
+
+### 两个场景是怎么造出来的
+
+目标会话 `f8e6ec6b` 里原本既没有多附件气泡也没有 `@` 引用气泡（`data-ref-chip` 活体计数 0），所以本轮**在隔离副本里注入**了两条消息：
+
+- **多附件气泡**（`34d6bd91…`）：3 张真实附件（对象从真实附件库只读复制）+ 8 段正文。
+- **`@` 引用气泡**（`4a68ec41…`）：同一段正文，首行含 `@docs/compat-log.md` 与 `@dsh-sticky-user-bubble/client.js` 两个 token。
+
+**三个必须知道的坑**（这次各踩了一遍，合计排查近四十分钟）：
+
+1. **注入必须同时改 `agent/inbox/spliced` 和 `user/message` 两类事件**。同一段用户消息在会话文件里有两个事件：前者是 inbox 队列（`data.inserted[]`），后者是真正渲染的那条（`data.content`）。只改前者会出现「`zstd -dc` 里明明改了、页面上纹丝不动」的假象。
+2. **会话文件不能整包重压成单帧**。DSH 的 zstd 容器是「header 帧 + 事件批次帧」，用 `zstd -3` 整包压成一个帧会让会话**直接从侧边栏消失**（内容一字未改也一样，本轮用变体 D 证伪了「是内容写坏」的猜测）。正确做法：`zstdCompress` 分帧，第一帧只放 header（`session` 行），其后每 100 行一帧，参数 `{ params: { [ZSTD_c_checksumFlag]: 1 } }`。
+3. **改完会话文件必须删 `storages/session_projcache`**。投影缓存会复用既有投影，导致新内容不生效、甚至会话不显示。
+
+另有一条量测口径的经验：**窄视口不要用「先窄后宽」的方式打开会话**——320/390 下侧边栏是抽屉形态，脚本化的工作区展开会失败。本轮改成先在 1280×900 打开会话，再用 `Emulation.setDeviceMetricsOverride` 切到目标视口，四档都稳定。
+
+### 六常量 × 四档 × 两场景
+
+每档都在两个场景下各自跑完整六项，**两场景结果逐数相同**：
+
+| 常量 | 320×568 | 390×844 | 900×900 | 1024×768 |
+|---|---|---|---|---|
+| 绘制边界 / 阅读线 | 76 / 92 | 76 / 92 | 76 / 92 | 76 / 92 |
+| 出现翻转点 | 底边 77 隐藏 → 76 就绪（`边界 + EPSILON 0.75`） | 同左 | 同左 | 同左 |
+| 让位清距 | 16 | 16 | 16 | 16 |
+| push 上限 | 102（最后 ready 帧 101） | 同左 | 同左 | 同左 |
+| `clip-path` | `inset(push−16)`，push ≤ 16 为 `none` | 同左 | 同左 | 同左 |
+| 三行折叠 | 86px（源 790px） | 86px（源 548px） | 86px（源 306px） | 86px（源 306px） |
+| 展开高（入卡 332/292/252/212/172/132） | 300/260/220/180/140/100 | 同左 | 同左 | 同左 |
+| composer seat 顶 | 440（展开被限到 332） | 716（限到 548） | 772（不触发） | 640（不触发） |
+| 控制台 | 0 error | 0 error | 0 error | 0 error |
+
+展开高逐档等于 `incomingTop − 16 − 92`，**误差 0**；底边逐档等于 `incomingTop − 16`。三行折叠恒 86 = 3×22 + 20，内容 wrapper 恒 66px。这些数值与 `0.2.1-alpha.2`（B7）**逐数一致，抖动 0**，远小于完成标准允许的 0.5px。
+
+### 静态契约：槽位委托确实发生了，但没有移动 DOM 盒
+
+| 核对点 | 结论 |
+|---|---|
+| `projectUserText` | 安装目录内 `grep` 计数 **0**（已删除，与 J1 一致） |
+| `conversation.user.text` / `.node` | 均为链式槽位，链上叶子 `display:contents`，**不产生 DOM 盒** |
+| 用户行结构 | 仍是 `Sixlwa_userRow > [Sixlwa_userStack（attachmentRow + bubble）, xzv4MW_actions]`，与 alpha.2 **同构** |
+| `data-ref-chip` + `title` | **均保留**：引用气泡渲染 2 个 chip，`title` 为 `@docs/compat-log.md` / `@dsh-sticky-user-bubble/client.js`；**clone 里原样保留 2 个 chip 与同样 title** |
+| `.Sixlwa_bubble` CSS | `padding:10px 16px`、`line-height:calc(22px + …)`，**逐字未变** |
+| `[data-chat-turn-spacer]` / `[data-chat-motion]` | 前者存在（计数 1），后者计数 0（静态回放，与 B7 一致） |
+| `[data-composer-seat]` | 仍是 scrollBody 直接子元素、`position:sticky` |
+| overlay 层 | 仍 `z-index:20 / pointer-events:none / absolute / inset:0` |
+
+这直接回答了 J1 留下的疑问：**槽位委托确实改变了首帧渲染时机（`actions` 与 `content` 现在由不同 owner 出），但因为 React 槽位不落 DOM 盒，`getBoundingClientRect()` 读到的一切都没变**——包括最敏感的「三行折叠高度」与「让位清距」这类间接依赖源气泡自然高度的量。
+
+### 本轮没做什么
+
+- **没改任何插件源码**，`verifiedVersions` 仍是 `["0.2.1-alpha.2"]`（把 rc.2 写进验证清单属发布动作，需用户授权）。
+- **没覆盖目视部分**：滚动流畅度、真实鼠标 hover 手感、非 1 缩放/自定义字号，以及折行动画进行中的那一瞬（`[data-chat-motion]` 静态计数 0，脚本化回放够不到）。
+- 未提交任何 git 操作。
+
+### 可复用技巧
+
+- **判断「页面没变」是内容问题还是缓存问题**：先改 `user/message`（渲染源），再看 `storages/session_projcache` 是否被复用。两者都排除后，才怀疑压缩容器。
+- **zstd 容器要分帧**，判据不是「`zstd -dc` 能解出来」，而是「会话出现在侧边栏」。整包重压能解出完整 6509 行却让会话消失。
+- **注入场景时用唯一标记词**（本轮用 `MAGIC-MARKER-7731`）先验证数据通路，再放真实内容，能省掉很多「到底是没渲染还是没生效」的猜。
+- **四档视口的量测脚本要把「先宽后窄」写死**：窄视口用抽屉导航，脚本化的工作区展开不可靠。
+
+---
 ## J1：同线 prerelease 例行核对（2026-10-19，`0.2.1-alpha.2 → 0.2.1-rc.2`）
 
 一次**例行**检查，不是跨线：运行版本从 `0.2.1-alpha.2` 升到 `0.2.1-rc.2`，两者同属 `0.2.1` 线（通道由 alpha 提到 rc）。工作区 8 个插件的门是 `>=0.2.1-alpha.2 <0.2.2`，按判据这属于「同线内未逐条核对的 prerelease，允许带警告运行」，所以本轮把每个插件的契约面重过一遍。

@@ -128,6 +128,29 @@ GUI 验证覆盖：顶部初始隐藏、下滚/上滚切换、点击/键盘跳�
 
 **不等用户操作也能自己做一轮真机回归**：另起一个受管后台宿主 `dsh web --port 0 --no-open`（不接管当前 GUI），用无头 Chromium 打开它打印的带 token URL，点开一个长会话后直接写 `[data-conversation-scroll].scrollTop`，读取 `[data-dsh-sticky-user-bubble-state]` 与 host 内 clone 的 `getBoundingClientRect()`/`clipPath` 即可覆盖出现、让位、切换与会话跳回（2026-09-19 即用此法复现并复核 `0.1.6-alpha.2` 的回归）。调试期间可以临时把快照形状写进 host 的 `data-*` 属性，但**必须在该轮结束前删掉**（本轮未新增任何调试属性，`client.js` 只有 layer/host/state/clone/content 五个发布用标记）。
 
+### 半离线量测记录（`0.2.1-rc.2`，2026-10-19，四档视口）
+
+隔离宿主 `DSH_HOME=/tmp/dsh-sub-021rc2/home`（从真实 `~/.dsh` 只读拷 `storages/`、`workspaces/`、目标会话 `session-f8e6ec6b-…` 与 11 个被引用的附件对象；profile 用 `dsh plugin --profile web add link:<源码目录>` 现建）+ `dsh web --port 50953 --no-open` + 无头 Chrome 155/CDP 9381（独立 `--user-data-dir`）。**全程未触碰用户自己的 3080**（收尾复查：3080 仍是用户的 `dsh web --no-open`，PID 未变）；宿主按 `lsof -nP -iTCP:50953 -sTCP:LISTEN -t` 取 PID 并核对命令行，Chrome 按 `--user-data-dir=/tmp/dsh-sub-021rc2/chrome` 证明归属后停止，未按进程名杀。
+
+**四档视口：320×568 / 390×844 / 900×900 / 1024×768**（dpr 1）。每档都在**两种场景**下跑完整六常量：① **多附件气泡**（`34d6bd91…`，3 张图 + 8 段正文）；② **`@` 引用气泡**（`4a68ec41…`，纯正文，含 `@docs/compat-log.md` 与 `@dsh-sticky-user-bubble/client.js` 两个 token）。全部数值取自页面里的 `getBoundingClientRect()`/`getComputedStyle()`，定位用收敛式（按 delta 补差，阈值 0.1px、最多 16 次、每次 280ms）。
+
+| 常量 | 四档实测（两场景**逐数相同**） | 与 `0.2.1-alpha.2` 的差异 |
+|---|---|---|
+| 出现阈值（绘制边界） | `scrollRect.top = **76**`（四档全部 76，scrollport 无 padding/border）→ 阅读线 **92** = 76 + 16。底边 140/100/92/84/80/78/77 **全部 `inactive-source-visible`**，**76 → `ready`**（clone 落点 92）；细扫 76.7/76.6/76.5 仍隐藏、**76.5→76.4 翻转**，翻转点落在 `边界 + EPSILON(0.75)` | **完全一致** |
+| 让位清距 | 卡片逐档拉近：`incomingTop − cloneBottom` 从 236 递减，**到 16 后恒定**；此后 clone 随卡片上移（push 2→101）；交接帧 `incomingTop = 92`（= 阅读线）翻成 `inactive-source-visible`、host 清空 | **完全一致** |
+| `push` 上限 | **101**（最后 ready 帧 push=101、clip `inset(85px)`），交接帧 92 直接翻状态 = 折叠高 86 + gap 16 = **102** 的上一帧 | **完全一致**（alpha.2 记的是「上一帧 100、交接帧 92」，本轮细扫到 101 是采样密度差异，同一公式） |
+| `clip-path` | 逐帧 `inset(push − 16)`：push 24→96 对应 `8px`…`80px`，**push ≤ 16 时为 `none`**（实测 push=16 → `none`） | **完全一致** |
+| 三行折叠 | 源气泡随视口变化（1024/900 为 306px、390 为 548px、320 为 790px），clone 折叠高**恒 86px** = 3×22 + 20；内容 wrapper **66px**、`overflow:hidden`、`scrollHeight` = 源高 − 20 | **完全一致** |
+| 展开上限随卡片收紧 | 卡片在 452/392px：展开为自然全高、未夹紧；332/292/252/212/172/132px：展开高 **300/260/220/180/140/100** = `incomingTop − 16 − 92`（逐档**误差 0**），底边 **392/352/312/272/232/192** = `incomingTop − 16`，wrapper 切 `overflow-y:auto` | **完全一致** |
+| 展开不越过 composer seat | seat 顶随视口：320→**440**、390→**716**、900→**772**、1024→**640**。320×568 展开被 seat 限到 **332**（底边 424 ≤ 440）、390×844 限到 **548**（底边 640 ≤ 716）；900/1024 自然高用不满，不触发 seat 限高。seat 仍是 scrollport 直接子元素、`position:sticky` | **完全一致**（alpha.2 用视口压缩触发，本轮用四档天然触发） |
+| 跳回 | 点击 clone 后源气泡 top 回到 **92 = 阅读线**，`state` 转 `inactive-source-visible`（四档两场景均如此；320 多附件那次落到 −52 是点击瞬间气泡较高、scrollTop 已被夹到上限） | **完全一致** |
+| 控制台 | 四档 × 两场景 **0 个 error / exception** | 一致 |
+
+**本轮额外核到的静态与结构事实**：`conversation.user.text` 链式槽位在 rc.2 中确实取代了 `projectUserText`（后者在安装目录里 `grep` 计数 **0**），链上叶子是 `conversation.user.text.node`（`display:contents`，不产生 DOM 盒）；活 DOM 里用户行仍是 `Sixlwa_userRow > [Sixlwa_userStack（含 attachmentRow + bubble）, xzv4MW_actions]`，与 alpha.2 **同构**。`data-ref-chip` 与 chip 的 `title` **均保留**：引用气泡渲染出 2 个 chip，`title` 分别是 `@docs/compat-log.md`、`@dsh-sticky-user-bubble/client.js`（即原文），clone 里**原样保留 2 个 chip 与同样的 title**，说明 `elementTextAffinity` 的投影路径在四档下都成立。`.Sixlwa_bubble` 的 CSS（`padding:10px 16px`、`line-height:calc(22px + …)`）与 `userRow`/`userStack` 在 rc.2 中**逐字未变**。`[data-chat-turn-spacer]` 存在（计数 1）、`[data-chat-motion]` 计数 0；`[data-composer-seat]` 仍是 scrollBody 直接子元素且 `position:sticky`；overlay 层仍 `z-index:20 / pointer-events:none / absolute / inset:0`。
+
+**结论：rc.2 的槽位委托改变首帧渲染时机，但没有改变任何几何结果** —— 四档 × 两场景的六个常量与 `0.2.1-alpha.2` 逐数一致（抖动 0，远小于 0.5px 允许值），未发现新的 owner 层级，无需修复。**仍未覆盖**：目视部分（滚动流畅度、真实 hover 手感、非 1 缩放/自定义字号），以及折行动画进行中的那一瞬（`[data-chat-motion]` 在静态回放里计数 0）。
+
+**本轮踩到的两个坑（下次直接照做）**：① **注入会话内容必须同时改 `agent/inbox/spliced` 与 `user/message` 两类事件**——界面渲染走后者，只改前者会「文件里改了、页面上没变」；② 会话文件**不能整包重压**成单帧，必须按 DSH 的「header 帧 + 批次帧」结构分帧（`zstdCompress` 每批 100 行 + `ZSTD_c_checksumFlag`），否则会话直接从列表里消失；③ 改完会话文件要**同时删 `storages/session_projcache`**，否则投影缓存会让会话不显示（本次一度误判为「内容写坏」）。
 ### 半离线量测记录（`0.2.1-alpha.2`，2026-10-10）
 
 隔离宿主 `DSH_HOME=/tmp/dsh-sub-021/home`（新建：`storages/` + `workspaces/` + 只拷 `dsh-plugins` 工作区的目标会话目录；profile 用 `dsh plugin --profile web add link:<源码目录>` 现建）+ `dsh web --port 0 --no-open`（实际端口 50952）+ 无头 Chrome 155/CDP 9371（独立 `--user-data-dir`，视口 **1512×813**、dpr 1）；目标会话仍是 `f8e6ec6b`（4350 行 / 53 个用户行 / 492 个 `[data-chat-flow]`）。**全程未触碰用户自己的 3080**；脚本与原始输出在 `/tmp/dsh-sub-021/`（非发布物：`cdp.mjs`/`helpers.js`/`measure*.mjs` + `*.log` + `measure-021*.json`）。宿主按 `lsof -nP -iTCP:50952 -sTCP:LISTEN -t` 取 PID、Chrome 按 `--user-data-dir` 证明归属后停止，未按进程名杀。
