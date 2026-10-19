@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| J5（2026-10-19，收尾） | `0.2.1-rc.2` | 把 J1 遗留的「5 个插件尚未把 rc.2 列入验证清单」补齐：`auto-load-history` / `default-tuner` / `default-workspace` / `extra-context` / `local-plugin-manager` 的四处声明（`package.json`、lib 的 `VERIFIED_DSH_VERSIONS`、`install.sh`、插件文档）全部加上 `0.2.1-rc.2`，测试里的硬编码断言同步。**不采信 J1 的历史结论**：每个插件点名的契约符号重新在全仓探针一遍，再逐个写进各自 `AGENTS.md` 的新 rc.2 小节。五个插件 `classifyDshVersion('0.2.1-rc.2')` 由 `{supported:true, verified:false}` 变为 `verified:true`（启动时不再打「未逐条核对」警告），`evaluatePluginCompatibility()` 全返回 `undefined`，`publish:check` 全绿（37/54/19/75/47）。**业务代码一字未改，未提交、未发版** |
 | J4（2026-10-19，修正） | 不涉及版本 | 修掉 J1 查出的两处 `settings.section` order 并列（**违反根 `AGENTS.md`「同一 slot 不复用同一档」**）：五个插件改成 100/110/120/130/140 连续分配（`extra-context` 100 / `local-plugin-manager` 110 / `default-tuner` 120 / `mcp-console` 130 / `chat-archive-manager` 140，后者的 `NAV_ICON_ORDER` 跟随），测试里的硬编码断言与文档同步；五个插件 `publish:check` 全绿。**改动触及 5 个 `client.js`，必须在用户机器生效就得按 minor 发版——发版待用户授权** |
 | J3（2026-10-19，L3 专项） | `0.2.1-rc.2` | 两个带**不可逆 / 高耦合**契约的 L3 插件在 rc.2 上**实跑**（J1 只做了离线核对）：`dsh-chat-archive-manager` 隔离宿主 **轮次 A 38/38 + 轮次 B 20/20**（真实 rename 失败注入 → 冷启动 quarantine → 人工清理 → 功能恢复的完整闭环；目录 inode 全程未变、trash 未被清、journal 未被改写）；`dsh-mcp-console` 宿主侧 **22/22**（动态挂载 / 工具发现 / dispose + 凭据链闭环 + 明文 0 次入载荷 + 手写行未被触碰）+ 真机 GUI **52/52**。**一个真实失败点已定位并修复**：`gui-flow.mjs` 打开设置写的 `click('button','设置')` 假设入口常驻页面上，而它实际在**账号菜单**里（未展开时 DOM 里根本不存在）；逐包核对 `settings-account` 的菜单项实现，alpha.2 与 rc.2 **逐字相同**，故这**不是 rc.2 回归**，而是脚本一直存在的兼容缺口——补「先直接点、点不到再展开菜单」兜底后 52/52 全过。两插件业务代码**零改动** |
 | J2（2026-10-19，L3 专项） | `0.2.1-rc.2` | L3 插件 `dsh-sticky-user-bubble` 承接 J1 的「建议真机复核」：在**四档视口（320×568 / 390×844 / 900×900 / 1024×768）× 两种场景（多附件气泡 / `@` 引用 token 气泡）**下重测六个几何常量，全部与 `0.2.1-alpha.2` **逐数一致、抖动 0**（出现边界 76 / 阅读线 92 / 让位清距 16 / push 上限 102 / `clip-path = inset(push−16)` / 折叠高 86 / 展开高 `incomingTop−16−92` / seat 限高）、控制台 0 error；rc.2 的 `conversation.user.text` 链式槽位只改变首帧渲染时机，**未移动任何 owner 层级**，无需修复。顺带查实注入会话的三个必要做法（同改 `spliced` 与 `user/message` 事件；按 header+批次分帧而非整包重压；清 `session_projcache`） |
@@ -31,6 +32,57 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## J5：把 `0.2.1-rc.2` 补进 5 个插件的验证清单（2026-10-19，`0.2.1-rc.2`）
+
+J1 定级时说得很清楚：8 个插件在门内是 `supported:true, verified:false`——**能跑，但每次启动都打一条「未逐条核对」的警告**。J2/J3 把三个 L3 插件（sticky / chat-archive-manager / mcp-console）的真机验证做完并写进了清单，剩下 5 个 L1/L2 插件一直没补。本轮就是补齐这 5 个：`auto-load-history`、`default-tuner`、`default-workspace`、`extra-context`、`local-plugin-manager`。
+
+### 不采信历史结论
+
+J1 已经有这 5 个插件的离线契约结论，但按根 `AGENTS.md` 的「同线内未逐条核对的 prerelease 允许带警告运行」这条，宣称 `verified` 是对外声明「已逐条核对」，**不能靠翻自己的旧记录**。所以每个插件都重新做了一遍符号存在性探针，再逐条写进它自己的 `AGENTS.md` 新小节（「J5：同线 prerelease，只改清单不改代码」）。
+
+探针结果（全仓 `grep -rl --include='*.js'`，DSH `0.2.1-rc.2` 安装树）：
+
+| 插件 | 关键符号 | 文件数 |
+|---|---|---|
+| `auto-load-history` | `loadThrough` / `loadOlder` / `SessionSnapshot` | 12 / 7 / 4 |
+| `default-tuner` | `configEditor` / `configForms` / `sessionTitle` / `maxTitleBytes` / `fallbackMaxWords` | 5 / 20 / 8 / 2 / 2 |
+| `default-workspace` | `workspaceRegistry` / `initializeDefault` / `insertBefore` / `startSession` | 11 / 17 / 37 / 7 |
+| `extra-context` | `systemPrompt` / `interpolate` / `settings.section` / `settings.action` | 58 / 33 / 12 / 2 |
+| `local-plugin-manager` | `writeFileAtomic` / `withFileLock` / `entries()` / `include:` / `dependencySpec` | 11 / 8 / 272 / 12 / 3 |
+
+### 四处同源的具体落点
+
+每个插件四处，逐字一致：
+
+1. `package.json#dshCompatibility.verifiedVersions` → `["0.2.1-alpha.2", "0.2.1-rc.2"]`
+2. lib 侧的 `VERIFIED_DSH_VERSIONS`（`local-plugin-manager` 在 `lib/profile-manager.js`，其余在 `lib/index.js`）
+3. `install.sh` 的 `DSH_VERIFIED_VERSIONS`（**空格分隔**：`"0.2.1-alpha.2 0.2.1-rc.2"`，脚本按词分割消费）
+4. 插件 `AGENTS.md` 首段的核对声明 + 新增的 rc.2 小节；`README.md` 的兼容段
+
+**踩到的两个坑**（都是测试守卫先红才发现的）：
+
+- **`default-tuner` 的文档腿有格式要求**：它的 `test/manifest.test.js` 用正则 `/逐版本核对清单\s*`([^`]+)`/`u` 解析 AGENTS.md，要求**单组反引号、空格分隔**。我最初写成 `` `0.2.1-alpha.2`、`0.2.1-rc.2` ``（两个反引号组），解析器只吃到第一个，测试直接红。改成 `` `0.2.1-alpha.2 0.2.1-rc.2` `` 才对。`README.md` 同理（`/逐版本验证：\s*`([^`]+)`/u`）。
+- **`default-tuner` 的 `test/version-gate.test.js` 有硬编码清单**：`assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.1-alpha.2'])`。这个不是文档腿、是常量断言，必须单独改。相比之下 `local-plugin-manager` 的测试是 `[...VERIFIED_DSH_VERSIONS]` 从常量派生的，改 lib 就自动跟上——**同一个工作区里两种写法并存，改之前先 `grep` 一眼**。
+
+### 判定
+
+五个插件 `classifyDshVersion('0.2.1-rc.2')` 全部由 `{supported:true, verified:false}` 变成 `{supported:true, verified:true}`；`evaluatePluginCompatibility()`（rc.2 的真实实现）对五个包全部返回 `undefined`（无 unmet）。也就是说启动时那条「位于兼容发布线内，但尚未列入逐版本验证清单」的警告会消失。
+
+闸门：`auto-load-history` 37/37、`default-tuner` 54/54、`default-workspace` 19/19、`extra-context` 75/75、`local-plugin-manager` 47/47，五个 `publish:check` 全绿（含 `pack:check` 的 tarball 白名单）。
+
+### 本轮没做什么
+
+- **没改任何业务代码**：五个插件的 `lib/`、`client.js` 一字未动，只动声明与文档。
+- **没改版本号、没提交、没发版**：改 `lib/` 要发新版本才在用户机器生效，属发布动作，需用户授权。
+- **没重跑真机**：`local-plugin-manager` 的 `e2e:check` 与 `gui:check` 未重跑，结论按 `dsh-app-boot`/`dsh-hmr` 的 diff 同源推断（这两包在本轮的改动分别是「抽出 `readBundlePatches()`」与「新增 module-files」，都不在 `link:` 卸载/重装链路上）。
+
+### 可复用技巧
+
+- **`verified` 声明要用真实分类器验，不要用 semver**：`semver.satisfies('0.2.1-rc.2', '>=0.2.1-alpha.2 <0.2.2', {includePrerelease:true})` 返回 `true` 只说明「在门内」，`verified` 是另一回事——要跑插件自己的 `classifyDshVersion()`。
+- **改清单前先看测试怎么读**：文档腿（正则解析 Markdown）与常量断言（`deepEqual` 硬编码）是两类，后者不会因为改文档而变绿。先 `grep -n '0\.2\.1-alpha\.2' <插件>/test/` 看清有几处。
 
 ---
 
