@@ -2,7 +2,7 @@
 
 ## 定位与边界
 
-面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.1-alpha.2 <0.2.2` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.1-alpha.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
+面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.1-alpha.2 <0.2.2` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.1-alpha.2` 与 `0.2.1-rc.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
 
 **为什么是独立分区，而不是官方插件分区里的一个 tab**（0.1.8 之前别改回去）：
 
@@ -183,6 +183,27 @@ status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 t
 **其余契约项逐条复核**（都在实际安装包里重读，全部成立）：profile 写锁（`dsh-atomic-write` lib 逐字相同；官方 `lockWaitMs` 默认仍 `12e4`）、覆盖项四条语义（`writePluginEnabled` 逐字相同）、`include:<rowId>` 行 id 方案、`reconcileProfilePatches` 与 `readProfileManifest`/`composeEntries` 逐字相同、热重载真源仍是 dsh-hmr 的 profile 配置监听（`patchReload` 依旧无消费者）、`settings.section` 是 list slot 且无 `icon`、内置分区 order 上限仍是 20、`webServer.register` 与 `requestRejection` 语义不变、peerDependencies 兼容预检仍在（`:289`）但不门禁本包。
 
 **本轮的代码改动**（业务逻辑只动读侧归一这一处）：`DSH_RELEASE_LINE='0.2.1'` / `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` / 清单 `['0.2.1-alpha.2']` / range `>=0.2.1-alpha.2 <0.2.2`（四处同源）、依赖 `@deepseek-ai/dsh-atomic-write` 升到 `~0.2.1-alpha.2`、`resolveRecordedLocalPath()` 对齐官方 `dependencySpec()`；`README.md` 兼容段与该处「热生效真源」的表述一并订正。
+
+### `0.2.1-alpha.2 → 0.2.1-rc.2` 逐项核对记录（2026-10-19，J5：同线 prerelease，只改清单不改代码）
+
+alpha.2 → rc.2 是通道提升、不是换线，但 82 个契约包版本整体上抬，因此重过一遍本包点名的契约面（`docs/compat-log.md` 的 J1 有逐包 diff 全表）：
+
+| 契约项 | 0.2.1-rc.2 现状 |
+|---|---|
+| profile 写锁与原子提交（`dsh-atomic-write`） | `withFileLock` 只新增可选 `signal` 中止支持（不传时行为不变），`writeFileAtomic` 与 `mode: 384` 未变——本包不传 `signal`，语义完全等价 |
+| 覆盖项四条语义（`writePluginEnabled`） | 逐字相同（该函数在本轮 diff 中零改动行命中） |
+| `include:<rowId>` 的 entry id 方案 | 仍成立（`cordis-plugin-loader` 的 `EntryTree.sep = ':'`、`include:` 前缀在运行时全仓 12 个文件命中） |
+| 热重载真源仍是 dsh-hmr 的 profile 配置监听 | 仍在；本轮 `dsh-hmr` 新增 module-files（按 inode/size/mtime 找变更模块），属**附加**能力，不改变 `watchConfig` → `refresh` → `reconcileProfilePatches` 这条路径 |
+| `loader.entries()` / `entry.fiber` 只读观察 | 两者都在（`cordis-plugin-loader` 逐字相同） |
+| `dsh-app-boot` 的 profile 读取链 | `composeEntries`/`readProfilePatches`/`reconcileProfilePatches`/`readProfileManifest` 逐字相同；`readProfilePatches` 只是把取 bundle 层那段抽成 `readBundlePatches()`，语义等价 |
+| `dsh-plugin-manager` 的 `./tools`、`./operations` 子路径导出 | 保留，且**新增** `./tools/locale/*`、`./locale/*`（纯附加） |
+| `webServer.register` / `requestRejection` / `settings.section` | 全部未变 |
+
+**一条需要知道的外部语义变化**：rc.2 的 `dsh-app-boot` 把 `evaluatePluginCompatibility()` 从「只查 peerDependencies」改成「`engines.dsh` 优先且单方面决定」，不满足时**被跳过**（bundle 进 `skippedBundles`、条目 `disabled`）而非阻断启动。本包 `engines.dsh` 与 range 同源、实测 `evaluatePluginCompatibility()` 返回 `undefined`，因此无影响。
+
+改动只有四处清单（`package.json` / `lib/profile-manager.js` / `install.sh` / 本文与 `README.md`）——本包的 `test/manifest.test.js` 从常量派生断言、无硬编码版本清单，因此**测试文件无需改动**；**业务逻辑一字未改**，`publish:check` 47/47 通过。
+
+**未覆盖**：与上一轮相同的真 GUI 往返与 `e2e:check`（本轮只跑单测与离线网；`link:` 卸载/重装链路的结论按 `dsh-app-boot`/`dsh-hmr` 的 diff 同源推断，未重跑隔离宿主）。
 
 ## 验证
 

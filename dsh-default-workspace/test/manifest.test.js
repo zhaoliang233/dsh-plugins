@@ -29,11 +29,11 @@ test('declares publishable bundle and client metadata', () => {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
     range: '>=0.2.1-alpha.2 <0.2.2',
-    verifiedVersions: ['0.2.1-alpha.2'],
+    verifiedVersions: ['0.2.1-alpha.2', '0.2.1-rc.2'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.1-alpha.2 <0.2.2"'), true)
-  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.1-alpha.2"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.1-alpha.2 0.2.1-rc.2"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
   // 跨线时发布线/下界是常量而不是一个 range 字符串；宿主与安装脚本必须逐字同源，
   // 否则会出现"宿主放行、安装脚本拒绝"（或反过来）的错配。

@@ -15,7 +15,7 @@
 
 ## 兼容发布线与版本门（2026-10-01 补，2026-10-10 跨到 0.2.1）
 
-兼容线 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对清单 `0.2.1-alpha.2`（跨线当轮的逐包证据见下面「逐版本核对记录」）。
+兼容线 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对清单 `0.2.1-alpha.2 0.2.1-rc.2`（跨线当轮的逐包证据见下面「逐版本核对记录」；`0.2.1-rc.2` 见该节末尾的 J5 小节）。
 
 **声明必须四处同源**：`package.json#dshCompatibility.range`（+ `engines.dsh`）⟷ `lib/index.js` 的 `DSH_COMPATIBILITY_RANGE` / `VERIFIED_DSH_VERSIONS`（发布线与下界从 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 派生）⟷ `install.sh` 的五个常量 `DSH_COMPATIBILITY_RANGE` / `DSH_VERIFIED_VERSIONS` / `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR_CHANNEL` / `DSH_RELEASE_FLOOR_SEQUENCE`（**多版本用空格分隔**，脚本按词分割消费）+ 一份等价的 `prerelease_rank()` ⟷ 本文件与 `README.md` 的兼容段。`test/manifest.test.js` 的「四处同源」用例按行解析这些赋值逐字比对（并且把 range 反推回发布线与下界），加版本时必须四边一起改。
 
@@ -77,6 +77,23 @@
 | 图标集 | `node tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） |
 
 改动：`lib/index.js` 的门改成**从常量派生**（`DSH_RELEASE_LINE='0.2.0'` + `DSH_RELEASE_FLOOR={channel:'rc',sequence:2}` + `PRERELEASE_CHANNELS`，清单 `VERIFIED_DSH_VERSIONS=['0.2.0-rc.2']`，全部普通字面量），`install.sh` 补上五个常量与 `prerelease_rank()`，`package.json`/`engines.dsh`/`README.md` 四处同源更新，`test/` 同步为 13 档矩阵 + 四处同源（含文档腿加强）。**插件业务代码一字未改**。
+
+**`0.2.1-rc.2`（2026-10-19，J5：同线 prerelease，只改清单不改代码）**：alpha.2 → rc.2 是通道提升、不是换线，但 82 个契约包版本整体上抬，因此按根 `AGENTS.md` 的「同线内未逐条核对的 prerelease」重过一遍契约面（`docs/compat-log.md` 的 J1 有逐包 diff 全表）：
+
+| 契约项 | 0.2.1-rc.2 现状 |
+|---|---|
+| `dsh-config-editor`（写坏就救不回来的那条链） | 逐字相同 |
+| `dsh-app-boot` 的 profile 读取链 | `composeEntries`/`readProfilePatches`/`reconcileProfilePatches`/`readProfileManifest` 逐字相同；`readProfilePatches` 只是把取 bundle 层的那段抽成 `readBundlePatches()`，语义等价；另有新的 `engines.dsh` 判定（见下） |
+| `dsh-atomic-write` / `cordis` / `schemastery` | 逐字相同（`withFileLock` 只新增可选 `signal` 支持，不传时行为不变） |
+| 目标条目 8 个 required 顶层字段 | `dsh-session-title` 与 `dsh-session-title-first-prompt-llm` 的 `lib/index.js` **逐字相同**（后者只新增 `locale/`），`maxTitleBytes`/`fallbackMaxWords`/`fallbackMaxBytes` 全在 |
+| 标题预检口径与 `titleInput` 投影 | 逐字相同 |
+| `sessionTitle.get/refresh`、`sessions.get/list` | 存在且签名未变 |
+| `configEditor`/`configForms`/`settings.describe` | 全部存在 |
+| `dsh-host-webserver.register` / `requestRejection` | 未变 |
+
+**一条值得记下的外部语义变化**：rc.2 的 `dsh-app-boot` 把 `evaluatePluginCompatibility()` 从「只查 peerDependencies」改成「`engines.dsh` 优先且单方面决定」（有它时完全忽略 peerDependencies），不满足时**被跳过**（bundle 进 `skippedBundles`、条目 `disabled`），**不是**阻断启动。本插件 `engines.dsh` 与 range 同源，实测 `evaluatePluginCompatibility()` 返回 `undefined`（无 unmet），因此无影响——但这也说明 `engines.dsh` 现在是**有执法权的字段**，写错不再是文档问题。
+
+改动只有四处清单（`package.json` / `lib/index.js` 的 `VERIFIED_DSH_VERSIONS` / `install.sh` / 本文与 `README.md` 的兼容段）加两处测试硬编码断言；**业务逻辑一字未改**，`publish:check` 54/54 通过。运行时的 `classifyDshVersion('0.2.1-rc.2')` 由 `{supported:true, verified:false}` 变为 `verified:true`，启动时不再打「未逐条核对」警告。
 
 **更早一轮（`0.1.7-rc.2`，2026-10-01）的版本门补缺与实机证据**：已归档到 [`docs/compat-log.md`](../docs/compat-log.md)。本插件的**当前**契约以上面这节与「兼容发布线与版本门」一节为准。
 

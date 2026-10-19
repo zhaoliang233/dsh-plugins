@@ -21,7 +21,7 @@ const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
  * 逐版本核对过契约的版本；必须与 `package.json#dshCompatibility.verifiedVersions`
  * 和 `install.sh` 的 `DSH_VERIFIED_VERSIONS` 同源。
  */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
 
 export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }

@@ -93,7 +93,7 @@ const DEFAULT_ENTRY_PATH = fileURLToPath(import.meta.url)
  * @param {unknown} version
  * @returns {{supported: boolean, verified: boolean, normalized?: string}}
  */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
 
 export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }

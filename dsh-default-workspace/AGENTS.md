@@ -15,6 +15,21 @@
 
 **未覆盖**：独立入口按钮与受管 Workspace 的创建/置顶/改名删除保护在 0.2.1-alpha.2 上的**实机点击**（隔离宿主验到状态接口 200，host/client 两组单测覆盖注册与补丁路径）。
 
+**`0.2.1-rc.2`（2026-10-19，J5：同线 prerelease，只改清单不改代码）**：alpha.2 → rc.2 是通道提升、不是换线，但 82 个契约包版本整体上抬，因此重过一遍契约面（`docs/compat-log.md` 的 J1 有逐包 diff 全表）：
+
+| 契约项 | 0.2.1-rc.2 现状 |
+|---|---|
+| `ctx.workspaceRegistry` 的 `list`/`create`/`delete`/`insertBefore`/`initializeDefault` | 全部存在，计数与 alpha.2 一致（`list()` 3、`create(` 6、`delete(` 7、`insertBefore(` 4、`initializeDefault` 8） |
+| `dsh-client-ui-workspace` 的 `workspaces.rename/delete/insertBefore` 补丁面 | 计数不变（`rename(` 4、`delete(` 6、`insertBefore(` 1、`refresh(` 1） |
+| `uiWorkspace.startSession(id, { clearPreviousDraft: false })` | 仍支持；本轮 `connectWorkspace` 新增 `agentPreset` 维度的并发去重，但两参数形态未变，`{clearPreviousDraft:false}` 语义照旧 |
+| `sidebar.footer.action` / `dsh-host-webserver.register` / `requestRejection` | 全部存在 |
+
+**一处需要知道的内部变化（不影响本插件）**：`dsh-api-workspace-controller` 的 `follow()` 由同步返回改成 `async *` 生成器，并加了 `remoteAccess.allows()` 过滤与新的 `replace` 帧。本插件**从不消费 `follow()`**（只用 registry 的五个方法），因此无影响；但以后若要读实时 Workspace 流，得按新签名写。
+
+改动只有四处清单（`package.json` / `lib/index.js` / `install.sh` / 本文与 `README.md` 的兼容段）加一处测试硬编码断言；**业务逻辑一字未改**，`publish:check` 19/19 通过。
+
+**未覆盖**：与上一轮相同的实机点击项。
+
 **`0.2.0-rc.2`（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完。逐包比对（全树逐文件 sha256）后，本插件依赖的面**全部保持**：
 
 - `dsh-workspace`（Host 侧 `workspaceRegistry` 与拦截器消费端）**逐字相同**——`create`/`createCanonical`/`delete`/`rename`/`insertBefore`/`initializeDefault` 的签名与语义都没动。

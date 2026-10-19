@@ -189,5 +189,5 @@ test('DSH_COMPATIBILITY_RANGE / 清单常量与声明的一致（四处同源的
   assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.1-alpha.2 <0.2.2')
   assert.equal(DSH_RELEASE_LINE, '0.2.1')
   assert.deepEqual(DSH_RELEASE_FLOOR, { channel: 'alpha', sequence: 2 })
-  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.1-alpha.2'])
+  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.1-alpha.2', '0.2.1-rc.2'])
 })

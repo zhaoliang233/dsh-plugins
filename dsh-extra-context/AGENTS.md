@@ -1,7 +1,7 @@
 # dsh-extra-context — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.1`，兼容线 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对的是 `0.2.1-alpha.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+> 目标 DSH `0.2.1`，兼容线 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对的是 `0.2.1-alpha.2` 与 `0.2.1-rc.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
 
 ## 逐版本核对记录
 
@@ -19,6 +19,23 @@
 | 状态路由鉴权（`connection.requestRejection` + `x-dsh-extra-context-client`） | `dsh-host-webserver` 的 `register()`（重复路径抛错 + disposer）**逐字相同**；`dsh-client-connection` 的 `requestRejection` 只多了「绑定地址/协议」参数（loopback http 判定不变） |
 
 改动：`DSH_RELEASE_LINE='0.2.1'` / `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` / 清单 `['0.2.1-alpha.2']`，`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源换线。**插件业务代码一字未改**。
+
+**`0.2.1-rc.2`（2026-10-19，J5：同线 prerelease，只改清单不改代码）**：alpha.2 → rc.2 是通道提升、不是换线，但 82 个契约包版本整体上抬，因此重过一遍契约面（`docs/compat-log.md` 的 J1 有逐包 diff 全表）：
+
+| 契约面 | 0.2.1-rc.2 现状 |
+|---|---|
+| `ctx.systemPrompt.section` / `interpolate: false` / `assemble()` / `renderPrompt()` | `systemPrompt` 58 个文件命中、`interpolate` 33 个，均在位 |
+| 条目 config 模型（`Config` + `.volatile()` + loader `_commitVolatile`） | `cordis-plugin-loader` 逐字相同（`schemastery` 只是从 `~3.18.5-alpha.1` 转正式版，lib 逐字相同） |
+| `settings.describe()` / `ctx.configForms.get()` | `configForms` 20 个文件命中，契约面未变 |
+| `settings.section` list slot（需 `id`）与 `settings.action` | 声明仍由 `settings-general` 提供，12/2 个文件命中 |
+| `navIcon` 白名单与齿轮回落 | 未变；`IconSettingsOutlineMedium` 与 `IconContextInjectionOutlineMedium` 都在图标集里（188 个、无漂移），`verify-nav-icon.js --measure` 六项全过 |
+| `llm/stream` waterfall 与 `COMPACTION_INSTRUCTION` | `dsh-compaction-basic` 逐字相同（本插件「压缩摘要补充指令」的直接前提） |
+| surface 节点 0 保护（`assertSystemHeadRewrite` / `applySurfacePlan`） | 未变 |
+| 状态路由鉴权（`connection.requestRejection`） | 未变 |
+
+改动只有四处清单（`package.json` / `lib/index.js` / `install.sh` / 本文与 `README.md` 的兼容段）加两处测试硬编码断言；**业务逻辑一字未改**，`publish:check` 75/75 通过、导航图标六项全过。
+
+**未覆盖**：压缩摘要补充指令在 rc.2 上的真实路由 A/B（`dsh-compaction-basic` 与 `dsh-llm` 逐字相同，按同源推断成立；与 0.2.0 轮相同的未覆盖项）。
 
 **`0.2.0-rc.2`（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，**跨线是立项而不是例行检查**（换 range 上界 = 换发布线，旧线用户留在旧插件版本）。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）后，本插件依赖的面**全部保持**：
 

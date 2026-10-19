@@ -36,7 +36,7 @@ export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
 /** prerelease channel 的先后顺序；下标即优先级。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
 export const DEFAULT_PROFILE = 'web'
 
 // state.json 只保留卸载墓碑；禁用状态的真源是 profile patch 的覆盖项本身。

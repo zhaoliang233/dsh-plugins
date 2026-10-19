@@ -6,7 +6,7 @@ DSH_PROFILE="${DSH_PROFILE:-web}"
 DSH_COMPATIBILITY_RANGE=">=0.2.1-alpha.2 <0.2.2"
 # 逐版本验证清单：必须与 lib/profile-manager.js 的 VERIFIED_DSH_VERSIONS 逐字一致，
 # test/manifest.test.js 会核对两处与 package.json#dshCompatibility 不漂移。
-DSH_VERIFIED_VERSIONS="0.2.1-alpha.2"
+DSH_VERIFIED_VERSIONS="0.2.1-alpha.2 0.2.1-rc.2"
 # 发布线与下界：必须与 lib/profile-manager.js 的 DSH_RELEASE_LINE / DSH_RELEASE_FLOOR 同源。
 DSH_RELEASE_LINE="0.2.1"
 DSH_RELEASE_FLOOR_CHANNEL="alpha"
