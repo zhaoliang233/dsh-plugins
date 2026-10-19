@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| J1（2026-10-19，例行） | `0.2.1-alpha.2 → 0.2.1-rc.2` | 同线内 prerelease 例行核对（**不跨线、不改源码、刷新了图标快照**）。alpha→rc 是通道提升不是换线，但 82 个契约包版本整体上抬，逐包规范化 diff 后**三处实质变化**：① `dsh-app-boot` 把 `evaluatePluginCompatibility` 从「只查 peerDependencies」改成「`engines.dsh` 优先且单方面决定」——**不满足时进 `skippedBundles`（跳过）而非阻断启动**，别误判成启动拦截；② 用户气泡文本投影整体重构：primitives 的 `projectUserText` 被删除，改成 `conversation.user.text` 链式槽位 + `UserTextRun`/`ReferenceChip`（跨 7 个包，alpha.2 中出现 0 次），但**最终 DOM 与 CSS 与 alpha.2 一致**（只多一层不产生 DOM 的 React 槽位），`data-ref-chip`+`title` 保留；③ `dsh-api-workspace-controller` 的 `follow()` 变 async generator 并加 `remoteAccess` 过滤与 `replace` 帧。离线网全绿：9 插件 468 项单测、图标无漂移、4 个导航图标插件六项全过、9 个 `publish:check` 全过。**未做任何插件代码改动**；`dsh-mobile-compat` 按用户决定只记录（仍在门外 inert）。顺带查出两处**既有** order 并列违规 |
 | I1（2026-10-10，发布审计） | `0.2.1-alpha.2` | 8 个已发布包换线后的独立收口校验：四处同源、458 项单测、图标网、8 个 `publish:check`、registry/provenance、`npm ci` 锁一致性全过；真实运行态由「路由 404」变「401/200」证明 8 个宿主半体都活了。**修掉 `release.yml` 一个看不见的 bug**（创建 Release 用 `github.ref_name` 而非校验过的 tag，手动派发时会产出 `main` 这种分支名 tag），并清理两个发布流程残骸 |
 | B8（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-chat-archive-manager` 换到 `>=0.2.1-alpha.2 <0.2.2`：296 个包两版逐文件 sha256 比对，删除事务路径上「逐字相同」与「改了但够不着」两类都逐行有证据（`dsh-agent-loop` 的 factory dispose 只把 `scope.dispose()` 挪进独立 `try/catch`；`dsh-session-persistence-jsonl` 的 4 个 hunk 只包装返回值 / 新增附加键；`dsh-workspace`+`dsh-agent`+`dsh-session-format*`+`dsh-session-persistence` 整包逐字相同）；隔离宿主**基线 5 + 轮次 A 68 + 轮次 B 65 全过**（含中途中断与可恢复性闭环）；`publish:check` 78 项 + tarball 9 文件全绿 |
 | B7（2026-10-10） | `0.2.1-alpha.2` | L3 插件 `dsh-sticky-user-bubble` 换到 `>=0.2.1-alpha.2 <0.2.2`：chat 包 11.5k 行 diff 逐行分类为「位置搬移 + CSS 4 处无值级几何变化 + opt-in 折行动画」；六个几何常量在隔离宿主上重新量出且与 0.2.0 全线一致（含 push 上限 102 与候选交接帧）；业务代码一字未改 |
@@ -27,6 +28,93 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## J1：同线 prerelease 例行核对（2026-10-19，`0.2.1-alpha.2 → 0.2.1-rc.2`）
+
+一次**例行**检查，不是跨线：运行版本从 `0.2.1-alpha.2` 升到 `0.2.1-rc.2`，两者同属 `0.2.1` 线（通道由 alpha 提到 rc）。工作区 8 个插件的门是 `>=0.2.1-alpha.2 <0.2.2`，按判据这属于「同线内未逐条核对的 prerelease，允许带警告运行」，所以本轮把每个插件的契约面重过一遍。
+
+### 逐包 diff
+
+`npm view` 显示组件数 85 → 86（新增 `@deepseek-ai/dsh-experimental-plugin-market-bundle`，只进了 `OPTIONAL_BUNDLES`，当前 profile 未使用，不影响组成）。82 个组件版本号整体上抬，`cordis`/`schemastery`/`cordis-plugin-*` 从 `-alpha.1` 转正式版（这三组规范化后**逐字相同**）。
+
+**直接比对原始文件没有意义**：每个 `.js` 里都嵌着版本号字符串，`diff -rq` 会报几乎全红。本轮的有效做法是先 `sed` 把 `0.2.1-(alpha.2|rc.2)` 与几个 `-alpha.1` 后缀统一成 `<VER>`，再比——这一步把噪声从 19 个包几十个文件压到下表。**没做规范化的那一次 diff 得出的「所有包都改了」是假结论。**
+
+规范化后真正动了代码的包：
+
+| 包 | 实质变化 | 触及哪个插件 |
+|---|---|---|
+| `dsh-app-boot` | `evaluatePluginCompatibility` 语义重写（见下）；新增 `readBundlePatches`/`recomposeProfile`/`MovedDirectories` | 全部（间接，经启动装配） |
+| `dsh-api-workspace-controller` | `follow()` 由同步返回改 `async *`，加 `remoteAccess.allows()` 过滤与 `replace` 帧 | `dsh-default-workspace` |
+| `dsh-client-ui-chat` | 用户文本改走槽位，新增 `conversation.chat.user.content` | `dsh-sticky-user-bubble` |
+| `dsh-client-ui-primitives` | **删除 `projectUserText`**，新增 `UserTextRun`/`ReferenceChip`/`HoverCardGroup` | `dsh-sticky-user-bubble`（属性级） |
+| `dsh-client-ui-conversation` | 新增 `conversation.user.text` + `.node` 槽位树（alpha.2 为 0 次） | `dsh-sticky-user-bubble` |
+| `dsh-client-connection` | `client.js` 拆成 `client.node.js`/`client.browser.js`，新增 `openConnectionWebSocket` 与 `interactions` | `dsh-mobile-compat`（已在门外） |
+| `dsh-workspace` | `sessionPath` 改 `candidateMatches` + `missingSessionPaths`（ENOENT 容错） | `dsh-chat-archive-manager`（间接） |
+| `dsh-client-ui-workspace` | fork 失败改走 frame-wide notice；`connectBlank` 按 `agentPreset` 去重 | `dsh-default-workspace` |
+| `dsh-session-persistence-jsonl` | dispose 改 `ctx.effect` 生成器包装 | `dsh-chat-archive-manager`（间接） |
+| `dsh-atomic-write` | `withFileLock` 支持 `signal` 中止 | `dsh-local-plugin-manager` |
+| `dsh-hmr` | 新增 module-files（按 inode/size/mtime 找变更模块） | `dsh-local-plugin-manager`（间接） |
+| `dsh-plugin-manager` | 新增 `./tools/locale/*`、`./locale/*` 子路径导出 | `dsh-local-plugin-manager`（读侧） |
+
+逐字相同（含 manifest 只改版本号）的包：`dsh-client-store`、`dsh-client-ui-slots`、`dsh-client-ui-layout`、`dsh-mcp-client`、`dsh-session-format`、`dsh-util-values`、`dsh-experimental-session-titles-bundle`、`dsh-session-title`、`dsh-session-title-first-prompt-llm`（仅新增 locale）、`dsh-agent-loop`、`cordis`、`cordis-plugin-loader`、`schemastery`。`dsh-api-session-controller` 整体有大量改动，但 `loadOlder`/`loadThrough` 实现段与 `SessionSnapshot` 形状**逐字相同**。
+
+### 三处需要特别记下的语义变化
+
+**① `engines.dsh` 从「被忽略」变成「单方面决定一切」。** alpha.2 的 `evaluatePluginCompatibility` 只在 `peerDependencies` 里找 `@deepseek-ai/dsh*`；rc.2 的 `unmetRequirements()` 先看 `engines.dsh`，**有它就只看它、完全忽略 peerDependencies**。对本工作区影响为零（9 个插件都有 `engines.dsh` 且全在门内，实测 `evaluatePluginCompatibility()` 对 9 个包全部返回 `undefined`），但有两件事必须记清：
+
+- 不满足时**不阻断启动**。bundle 侧 `throw` 被 `catch` 成 `skippedBundles.push(...)`，插件条目侧走 `deny(row, reason)` 把行 `disabled` 掉。我初读 diff 时误判成「会阻止启动」，读 `catch` 段才纠正。所以 `dsh-mobile-compat` 在将来 `0.2.1` 正式版下的表现是**被跳过**，不是把整个 `dsh web` 拦下来。
+- 这条也解释了为什么「四处同源」不能省：`engines.dsh` 现在是有执法权的字段，写错不再是文档问题。
+
+**② 用户气泡文本投影整体重构，但最终 DOM 没变。** primitives 的 `projectUserText`（rc.2 中 `grep` 计数 0）被删除，改由 `conversation.user.text` → `.node` 两级链式槽位渲染，叶子是 `UserTextRun`（`<span class=plainRun>`）与 `ReferenceChip`。这对 `dsh-sticky-user-bubble`（依赖气泡克隆与精确几何）是本轮最大风险点，逐项核对后结论是**结构等价**：
+
+| 依赖项 | 结论 |
+|---|---|
+| `data-chat-flow-kind` / `-key` / `data-chat-anchor-key` | 计数 4/3/5，两版一致 |
+| `data-ref-chip` + `title` | `ReferenceChip` 里两种返回分支都带（rc.2 的 `appearance` 取代 alpha 的 `referenceKind`，值语义不变） |
+| `userRow` / `userStack` / `bubble` CSS | **逐字相同**；全包唯一几何变化是 `fileCard` 圆角 `radius-xl`→`radius-lg` |
+| 中间层级 | alpha 在 `UserStyleBubble` 内联渲 `userStack`；rc 是 `renderFactorySlot("conversation.chat.user.content", …)`，而该槽位的 `UserContent` 组件**最外层仍是 `userStack`** — React 槽位不产生额外 DOM，所以 `userRow > [userStack, actions]` 结构不变 |
+| `--dsh-chat-flow-gap` | 12px/16px 两处都在 |
+
+即便如此仍建议真机复核：气泡克隆吃的是 `getBoundingClientRect()`，不是选择器，而「槽位委托」会改变首帧渲染时机（actions 与 content 现在由不同 owner 出），这类差异静态读代码看不出来。
+
+**③ `follow()` 签名变化不影响 `dsh-default-workspace`。** 插件只用 `workspaceRegistry` 的 `list/create/delete/insertBefore/initializeDefault`（rc.2 中全部存在），从不消费 `follow()`。客户端侧只有 `uiWorkspace.startSession(workspaceId, {clearPreviousDraft:false})`，`rename/delete/insertBefore/refresh/getSnapshot` 计数不变。
+
+### 离线网结果
+
+| 检查 | 结果 |
+|---|---|
+| 9 插件 `npm test` | 468/468（37+78+54+19+75+47+104+26+28） |
+| `tools/dsh-icons/build.js` + `check.js` | 无漂移（188 图标，Medium/Regular 各 94） |
+| 导航图标几何 4 个插件 | `extra-context`/`chat-archive-manager`/`local-plugin-manager`/`mcp-console` 六项全过 |
+| 9 插件 `npm run publish:check` | 全过 |
+
+导航图标补丁的清单本轮更正了一次：先前只记了 `dsh-extra-context`，实际按 `data-*-nav-icon` 搜索有 **4 个**插件带这类 DOM 补丁，`grep -c` 计数为证。
+
+### 顺带查出的两处既有违规（非本轮引入）
+
+`settings.section` 同 slot 内 order 并列，违反根 `AGENTS.md`「同一个 slot 里多个插件不要复用同一档 order」：
+
+| order | 插件 |
+|---|---|
+| 100 | `dsh-extra-context`、`dsh-local-plugin-manager` |
+| 110 | `dsh-default-tuner`、`dsh-mcp-console` |
+| 120 | `dsh-chat-archive-manager`（唯一不冲突） |
+
+并列时只能靠注册顺序决胜，`bundle` 列表一调整就可能换序。建议改成 100/110/120/130/140 连续分配。
+
+### 本轮没做什么（以及为什么）
+
+- **没改任何插件源码**，因此 8 个插件的 `verifiedVersions` 仍是 `["0.2.1-alpha.2"]`。门内版本本来就是 `supported:true, verified:false`（带警告运行），加 `rc.2` 是对外宣称「已逐条核对」，属发布动作；而改 `lib/` 必须发新版本才生效，需用户授权。
+- **没动 `dsh-mobile-compat`**：用户明确选择只记录。它仍在 `>=0.2.0-rc.2 <0.2.1` 门内 inert，跨线须单独开一轮重跑整张浏览器尺寸矩阵。
+
+### 可复用技巧
+
+- **逐包 diff 一定要先抹版本号**，否则 `diff -rq` 全是噪声；判据用「规范化后仍不同」而不是「`diff` 有输出」。
+- **解压多个同前缀包必须各用独立目录**。本轮把 `dsh-session-title`、`dsh-session-title-first-prompt-llm`、`dsh-session-title-all-prompts-llm` 解到同一层级，导致后两者覆盖前者、搜出「字段不存在」的假结论；改成 `mkdir -p <完整包名>-<版本>` 才对。
+- **`dsh-app-boot` 的兼容判定可以离线直接调**：`require('@deepseek-ai/dsh-app-boot/lib/index.js').evaluatePluginCompatibility(manifest, {}, '<版本>')` 传第三个参数就能对任意版本求值，不用起宿主。
+- 判断两个 prerelease 是否同线，别只看 semver `satisfies`（`>=0.2.0-rc.2 <0.2.1` 对 `0.2.1-rc.2` 在 `includePrerelease` 下也返回 `true`），要跑各插件自己的 `classifyDshVersion()`。
 
 ---
 

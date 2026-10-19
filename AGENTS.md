@@ -122,11 +122,14 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
    ```bash
    npm view '@deepseek-ai/dsh@<版本>' dependencies --json   # 组件清单与版本提升概况
    ```
+   **比对前必须先抹掉版本号**（`sed -E 's/0\.2\.1-(alpha\.2|rc\.2)/<VER>/g'`）：每个 `.js` 都嵌着版本字符串，不抹的话 `diff -rq` 会把几十个包全报成「已改动」，而那个结论是假的；判据是「规范化后仍不同」。**多个同前缀包（如 `dsh-session-title` / `-first-prompt-llm` / `-all-prompts-llm`）必须各解到独立目录**，否则后者覆盖前者会搜出「字段不存在」的假结论。
 3. **跑离线网**（三条都要跑，任何一条红都算发现）：
    ```bash
    for d in dsh-*/; do (cd "$d" && npm test); done                    # 单测
    node tools/dsh-icons/build.js && node tools/dsh-icons/check.js     # 图标漂移（0 = 无漂移）
-   node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure  # 有导航图标补丁的插件，六项必须全过
+   # 有导航图标补丁的是 4 个：extra-context / chat-archive-manager / local-plugin-manager / mcp-console
+   for p in dsh-extra-context dsh-chat-archive-manager dsh-local-plugin-manager dsh-mcp-console; do
+     node tools/dsh-icons/verify-nav-icon.js --plugin "$p" --measure; done   # 六项必须全过
    ```
    **工具自己坏了也算兼容性问题**：`tools/dsh-icons` 是整张离线网的入口，它报错就先修它（2026-09-28 的 rc.2 就是这样——提取器先炸了，后面的检查全跑不到）。
 4. **做符号存在性探针**：对每个插件点名的契约符号，在 DSH 安装目录里**全仓**搜一遍确认还在：
