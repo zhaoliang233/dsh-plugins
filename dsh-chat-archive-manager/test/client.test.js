@@ -776,13 +776,13 @@ test('registers the Settings section and archive nav icon marker with reversible
       name: 'settings.section',
       id: 'archived-chats',
       // 插件分区必须排到 DSH 自带分区（0.1.7 最大是 agent-presets 20）之后。
-      order: 120,
+      order: 140,
       label: '归档管理'
     })
     assert.deepEqual(navIconRegistration.options, {
       name: 'settings.action',
       id: 'dsh-chat-archive-manager.nav-icon',
-      order: 120
+      order: 140
     })
     assert.equal(fixture.styles.length, 1)
     // Untagged sheets are claimed by whichever bundle materializes next, and HMR removes
@@ -971,7 +971,7 @@ test('renders grouped archive management inside Settings and leaves core list se
     assert.deepEqual(options, {
       name: 'settings.section',
       id: 'archived-chats',
-      order: 120,
+      order: 140,
       label: '归档管理'
     })
 

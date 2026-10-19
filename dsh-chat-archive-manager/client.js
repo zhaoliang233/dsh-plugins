@@ -48,8 +48,10 @@ window.__ModuleLoader__.load({
      * （0.1.6 的最大项 archived-sessions 25 已被 DSH 删除），
      * **插件分区一律 ≥ 100**：排在内置之后，不插队、也不与内置并列
      * （并列时只能靠注册顺序决胜）。升级 DSH 后重新读一遍内置项的 order 上限。
+     * 同 slot 内各插件不复用同一档：extra-context 100 / local-plugin-manager 110 /
+     * default-tuner 120 / mcp-console 130 / 本包 140。
      */
-    const SECTION_ORDER = 120
+    const SECTION_ORDER = 140
     /** 导航图标补丁的挂载点与本分区同号（动作区里只有壳层的 open-document 在 0）。 */
     const NAV_ICON_ORDER = SECTION_ORDER
     const BATCH_CONFIRM_THRESHOLD = 50

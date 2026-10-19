@@ -239,9 +239,10 @@ test('bundle 注册的两个 slot 与设置分区契约一致', () => {
   assert.deepEqual(
     plain(registered).map((item) => [item.name, item.id, item.order, item.label]),
     [
-      // order ≥ 100 = 排到 DSH 自带分区（最大 25）之后。
-      ['settings.section', 'mcp-console', 110, 'MCP 服务器'],
-      ['settings.action', 'mcp-console-nav-icon', 110, undefined]
+      // order ≥ 100 = 排到 DSH 自带分区（0.2.1 最大是 agent-presets 20）之后；
+      // 同 slot 内各插件不复用同一档，分配表在根 AGENTS.md。
+      ['settings.section', 'mcp-console', 130, 'MCP 服务器'],
+      ['settings.action', 'mcp-console-nav-icon', 130, undefined]
     ]
   )
 })

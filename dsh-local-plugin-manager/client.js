@@ -45,9 +45,10 @@ window.__ModuleLoader__.load({
     const SECTION_LABEL = '插件开发'
     /** 分区 id：壳层用它做选中态与 aria-current，跨发布线保持稳定。 */
     const SECTION_ID = 'plugin-dev'
-    // 插件贡献的设置入口一律排到 DSH 自带项之后：内置分区最高 order 是 plugins 的 15，
-    // 插件分区从 100 起。并列只能靠注册顺序决胜，所以不要复用内置档位。
-    const SECTION_ORDER = 100
+    // 插件贡献的设置入口一律排到 DSH 自带项之后：内置分区最高 order 是 agent-presets 的 20，
+    // 插件分区从 100 起，同 slot 内互不复用同一档（并列只能靠注册顺序决胜）。
+    // 本工作区当前的连续分配：extra-context 100 / 本包 110 / default-tuner 120 / mcp-console 130 / chat-archive-manager 140。
+    const SECTION_ORDER = 110
     /** 导航图标补丁打在按钮上的标记与引用计数（见 patchSettingsNavIcon）。 */
     const NAV_PATCH_FLAG = 'dlpmNavIcon'
     const NAV_PATCH_COUNT = 'dlpmNavIconReferences'

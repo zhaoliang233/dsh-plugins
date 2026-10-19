@@ -186,14 +186,14 @@ test('registers a 插件开发 settings section with reversible current-theme st
       assert.deepEqual(harness.registrations[0].options, {
         name: 'settings.section',
         id: 'plugin-dev',
-        order: 100,
+        order: 110,
         label: '插件开发'
       })
       // 导航图标补丁的挂载点，与分区同档 order，排到 DSH 自带项之后。
       assert.deepEqual(harness.registrations[1].options, {
         name: 'settings.action',
         id: 'dsh-local-plugin-manager-nav-icon',
-        order: 100
+        order: 110
       })
       const style = styleFor(fixture)
       assert.ok(style)

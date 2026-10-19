@@ -75,7 +75,7 @@
 | 鉴权 / CSRF 边界 | **12/12**：缺自定义客户端头 403、头值非 1 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、同源头 200、动作缺 CSRF 403、错 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、方法不符 405、非 JSON 415、正确 CSRF 200 |
 | `npm run verify` | **104/104**（跨线新增 5 条：包名/条目 id/bundle id 同源、发布线与下界四处同源、`install.sh` 两处清单、版本门矩阵） |
 | 导航图标 | `verify-nav-icon.js --measure` 六项全过（label 偏移 36/9 与壳层原生行一致、原 svg 被隐藏、mask 生效、`::before` 恰好 16×16、壳层行未被动过）；`tools/dsh-icons/check.js` 188 个图标无漂移 |
-| 设置分区 order | 0.2.0 新增的 `ui-settings-session-log` 是 **`settings.general.item`（order 90）**，不是 `settings.section`；`settings.section` 的内置项仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，本插件的 **110 仍排在全部内置分区之后** |
+| 设置分区 order | 0.2.0 新增的 `ui-settings-session-log` 是 **`settings.general.item`（order 90）**，不是 `settings.section`；`settings.section` 的内置项仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，本插件当时写 **110**（2026-10-19 起改为 **130**，见根 `AGENTS.md`），都在全部内置分区之后 |
 
 **结论：业务代码一字未改**，本轮改动只有 `lib/dsh.js` 与 `install.sh` 的版本门、`package.json` 的两处范围、`test/manifest.test.js`（新增）、`test/host.test.js` 的版本门用例与四份文档。
 
@@ -95,7 +95,7 @@
 | 鉴权 / CSRF 边界 | **12/12**：缺自定义客户端头 403、头值非 1 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、同源头 200、缺 CSRF 403、错 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、动作路由 GET 405、非 JSON 415、正确 CSRF 200、状态路由 POST 405 |
 | `npm run publish:check` | **104/104** + 打包白名单 **12 个文件 / 60803 字节** |
 | 导航图标 | `verify-nav-icon.js --measure` 六项全过；`tools/dsh-icons/check.js` 188 个图标无漂移 |
-| 设置分区 order | 内置 `settings.section` 仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（上限 **20** 未变）→ 本插件 **110 仍排在全部内置分区之后**；`settings.general.item` 上限仍 100（该线新增的 `dsh-cordis-client-runner` 示例也是 100） |
+| 设置分区 order | 内置 `settings.section` 仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（上限 **20** 未变）→ 本插件当时写的 **110** 排在全部内置分区之后（2026-10-19 起改为 **130**）；`settings.general.item` 上限仍 100（该线新增的 `dsh-cordis-client-runner` 示例也是 100） |
 
 **关键修正：本轮不能说「契约面逐字相同」。** `dsh-mcp-client` 的**代码**（`lib/index.js` 835 行 + 5 个 `.d.ts`）与 rc.2 逐字相同、同 sha256（`758d8fc4…`），但它的 `package.json` **不是「只变 version」**：运行时依赖 `@modelcontextprotocol/client` 由 `2.0.0` 升到 **`2.2.0`**（MCP SDK 跨两个 minor），peerDependencies 整体重钉到 0.2.1-alpha.2 线；`dsh-host-webserver` 同时新增了运行时依赖 `ipaddr.js`。这类「代码同哈希、依赖换版本」只能靠**逐包去掉 `version` 再比 JSON + 比对依赖字段**发现，读 CHANGELOG 或只看 `lib/` diff 都会漏。上面的动态挂载/工具发现/dispose/对账实测逐条通过，据此判定**本插件在新 SDK 上行为不变**。
 
@@ -122,7 +122,7 @@
 | `lib/plan.js` | 纯逻辑：设置与已挂载实例的对账计划（挂/卸/拦/不变） |
 | `lib/mount-manager.js` | 运行态：`ctx.plugin` 挂载、`fiber.dispose` 卸载、凭据解析、`ctx.tools.view()` 取工具名、捕获 mcp-client 日志 |
 | `lib/targets.js` | 纯逻辑：把 loader 里的 MCP 行投影成只读视图（脱敏：URL 去查询串、stdio 只给可执行文件名与参数个数、env/header 只给键名） |
-| `client.js` | 单文件 CJS 惰性 bundle：设置分区（`settings.section` order 110 = 插件设置入口一律 ≥ 100、排在 DSH 自带分区之后）、经 `configForms.get('dsh-mcp-console')` 读写条目配置、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
+| `client.js` | 单文件 CJS 惰性 bundle：设置分区（`settings.section` order 130 = 插件设置入口一律 ≥ 100、排在 DSH 自带分区之后；同 slot 的连续分配见根 `AGENTS.md`）、经 `configForms.get('dsh-mcp-console')` 读写条目配置、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
 | `test/harness.js` | 测试用的小 React 运行时（可渲染、可点击），守住"接线"这一类缺陷 |
 | `scripts/gui-flow.mjs` | 真机 GUI 验收（CDP + 无头 Chrome），不进发布物 |
 | `scripts/fixture-mcp-server.mjs` | 自检用的最小 stdio MCP 服务器（只服务 dev 脚本，不进发布物） |

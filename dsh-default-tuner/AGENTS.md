@@ -2,7 +2,7 @@
 
 ## 这是什么
 
-宿主半体 + 浏览器半体的双面插件：宿主侧用官方 `ctx.configEditor` 读写当前 profile 的补丁文件，浏览器侧在设置里注册一个 `settings.section` 分区（`order: 110`，排在 DSH 自带项之后）。
+宿主半体 + 浏览器半体的双面插件：宿主侧用官方 `ctx.configEditor` 读写当前 profile 的补丁文件，浏览器侧在设置里注册一个 `settings.section` 分区（`order: 120`，排在 DSH 自带项之后；同 slot 的连续分配见根 `AGENTS.md`）。
 
 结构：
 
@@ -42,7 +42,7 @@
 | 标题预检口径 | `frameMessages()` 现在在 `dsh-session-title-first-prompt-llm/lib/index.js:54-56`（0.2.0 时在 `dsh-session-title-llm`），文本与插件 `TITLE_INPUT_PREFIX` **逐字一致**（`Generate the session title from this JSON array of human messages:\n` + `JSON.stringify(messages)`）；超限文案 `session-title-llm: input is N bytes, exceeding maxInputBytes M` 在 `dsh-session-title-llm/lib/index.js:170` **逐字相同**（同一句，行号 `:195` → `:170`），检查仍是 `Buffer.byteLength(prepared.input,'utf8') > config.maxInputBytes`；`titleInput` 投影仍是 `key: "titleInput"` / `stateVersion: 3` / `first: { seq, text }`（`dsh-session-title/lib/index.js:236-250`，字段顺序未变） |
 | 会话与标题服务 | `dsh-session-title` 的 `get(session)`（`:281`）与 `refresh(session, signal)`（`:319`）位置与函数体未变（该文件 3 个 hunk 全在 `:350` 之后：`register()` 允许 closing 期重注册、一处边界条件放宽、`generate()` 新增 `currentTitle` 入参）；`dsh-session` 的 `get(id)` 与 `list()` **逐字未变**（两处 hunk 分别是注释改写与导出表新增 `appendPluginRecord`/`pluginRecordOf`） |
 | 状态路由与能力探测 | `dsh-host-webserver/lib/index.js:298-305` 的 `register(route)` **逐字相同**（`{kind:'exact'|'prefix'}`、重复 (kind,path) 抛错、返回 disposer）；`dsh-client-connection` 的 `requestRejection` **零改动行命中** |
-| 客户端 slot | `dsh-client-ui-settings/lib/client.js` **逐字相同**；`settings.section` 的声明与插件注册 `id:'default-tuner'` / `order:110` 零改动行命中；内置分区 order 上限仍是 **20**（`agent-presets`，全仓重读 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20），110 无并列 |
+| 客户端 slot | `dsh-client-ui-settings/lib/client.js` **逐字相同**；`settings.section` 的声明与插件注册 `id:'default-tuner'` / `order:110` 零改动行命中（该常量 2026-10-19 起改为 **120**，见根 `AGENTS.md` 的连续分配表）；内置分区 order 上限仍是 **20**（`agent-presets`，全仓重读 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20） |
 | 官方控件与图标 | `dsh-client-ui-primitives` 的导出表只新增 `CommandText`/`InlineEditor` 两个名字；本插件要的 `Button`/`Input`/`Tag`/`IconTriangleRightFill{Medium,Regular}` 全在表内 |
 | `dsh-settings` / `dsh-session-projection` | `dsh-settings` 的 `lib/` 逐字相同；`dsh-session-projection` 只有 `register()` 的返回值写法变了（`const dispose = ctx.effect(...); return () => void dispose()` → 直接 `return ctx.effect(...)`，语义等价），`stateOf` 未动 |
 
@@ -71,7 +71,7 @@
 | 标题预检口径 | `frameMessages()`（`dsh-session-title-llm/lib/index.js:157`）与插件 `TITLE_INPUT_PREFIX`（`lib/overrides.js:269`）逐字一致；超限文案 `input is N bytes, exceeding maxInputBytes M`（同文件 `:193-194`）与插件正则一致；`titleInput` 投影由 `dsh-session-title/lib/index.js:237` 注册、`stateOf` 在 `dsh-session-projection/lib/index.js:127`；该包 lib 与 0.1.7-rc.2 逐字相同 |
 | 会话与标题服务 | `dsh-session-title` 的 `get(session)`（`:281`）与 `refresh(session, signal)`（`:319`）逐字相同；`dsh-session` 的 `get(id)`（`:1855` 前）与 `list()`（`:1868`）未变，该包 4 处 hunk 全在 `repair.js` 的失败工具结果恢复（`openTurnClosers` 重写 + 新增 `ToolCallRecovery`）与导出表 |
 | 状态路由与能力探测 | `dsh-host-webserver/lib/index.js:177-186` 的 `register()` 仍是 `{kind:'exact'|'prefix', path, handler}`、重复 (kind,path) 抛错、返回 disposer；`dsh-client-connection/lib/index.js:586-589` 的 `requestRejection()` 仍是 `403`（host/origin 栅栏）→ `401`（未认证）→ `undefined`（放行），正是两级守卫的语义 |
-| 客户端 slot | `dsh-client-ui-settings/lib/client.js` **逐字节相同**；`settings.section` 仍由 `dsh-client-ui-settings-general/lib/client.js:1111-1141` 在 `sidebar.settings` 的 children 里声明为 **list slot**（注册必须带 `id`），插件注册 `id:'default-tuner'` / `order:110`（`client.js:576-579`）。内置分区 order 不变：account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（上限 20），110 无并列 |
+| 客户端 slot | `dsh-client-ui-settings/lib/client.js` **逐字节相同**；`settings.section` 仍由 `dsh-client-ui-settings-general/lib/client.js:1111-1141` 在 `sidebar.settings` 的 children 里声明为 **list slot**（注册必须带 `id`），插件注册 `id:'default-tuner'` / `order:110`（`client.js:576-579`；该常量 2026-10-19 起改为 **120**）。内置分区 order 不变：account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（上限 20） |
 | 官方控件与图标 | `dsh-client-ui-primitives/lib/index.js` 的导出表（`:12381`）里 `Button`/`Input`/`Tag`/`IconTriangleRightFillMedium`/`IconTriangleRightFillRegular` **全在**；`Button`（`:3216`）与 `Tag`（`:3327`）定义逐字相同，`Input`（`:3529`）只是包了一层 `forwardRef`（props 与「wrapper span + 原生 input」形态不变） |
 | `dsh-settings` | lib 与 0.1.7-rc.2 **逐字相同**（只有 `package.json` 的 version 变）。本插件宿主**不消费 `settings` 服务**（`ctx.get` 的清单里没有它），它依赖的是 `configEditor` 的条目配置模型 + 目标包自己的 Config schema，两者分别由上面的条目与 `cordis-plugin-loader`（逐字相同）承担 |
 | 图标集 | `node tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） |

@@ -9,6 +9,8 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| J4（2026-10-19，修正） | 不涉及版本 | 修掉 J1 查出的两处 `settings.section` order 并列（**违反根 `AGENTS.md`「同一 slot 不复用同一档」**）：五个插件改成 100/110/120/130/140 连续分配（`extra-context` 100 / `local-plugin-manager` 110 / `default-tuner` 120 / `mcp-console` 130 / `chat-archive-manager` 140，后者的 `NAV_ICON_ORDER` 跟随），测试里的硬编码断言与文档同步；五个插件 `publish:check` 全绿。**改动触及 5 个 `client.js`，必须在用户机器生效就得按 minor 发版——发版待用户授权** |
+| J3（2026-10-19，L3 专项） | `0.2.1-rc.2` | 两个带**不可逆 / 高耦合**契约的 L3 插件在 rc.2 上**实跑**（J1 只做了离线核对）：`dsh-chat-archive-manager` 隔离宿主 **轮次 A 38/38 + 轮次 B 20/20**（真实 rename 失败注入 → 冷启动 quarantine → 人工清理 → 功能恢复的完整闭环；目录 inode 全程未变、trash 未被清、journal 未被改写）；`dsh-mcp-console` 宿主侧 **22/22**（动态挂载 / 工具发现 / dispose + 凭据链闭环 + 明文 0 次入载荷 + 手写行未被触碰）+ 真机 GUI **52/52**。**一个真实失败点已定位并修复**：`gui-flow.mjs` 打开设置写的 `click('button','设置')` 假设入口常驻页面上，而它实际在**账号菜单**里（未展开时 DOM 里根本不存在）；逐包核对 `settings-account` 的菜单项实现，alpha.2 与 rc.2 **逐字相同**，故这**不是 rc.2 回归**，而是脚本一直存在的兼容缺口——补「先直接点、点不到再展开菜单」兜底后 52/52 全过。两插件业务代码**零改动** |
 | J2（2026-10-19，L3 专项） | `0.2.1-rc.2` | L3 插件 `dsh-sticky-user-bubble` 承接 J1 的「建议真机复核」：在**四档视口（320×568 / 390×844 / 900×900 / 1024×768）× 两种场景（多附件气泡 / `@` 引用 token 气泡）**下重测六个几何常量，全部与 `0.2.1-alpha.2` **逐数一致、抖动 0**（出现边界 76 / 阅读线 92 / 让位清距 16 / push 上限 102 / `clip-path = inset(push−16)` / 折叠高 86 / 展开高 `incomingTop−16−92` / seat 限高）、控制台 0 error；rc.2 的 `conversation.user.text` 链式槽位只改变首帧渲染时机，**未移动任何 owner 层级**，无需修复。顺带查实注入会话的三个必要做法（同改 `spliced` 与 `user/message` 事件；按 header+批次分帧而非整包重压；清 `session_projcache`） |
 | J1（2026-10-19，例行） | `0.2.1-alpha.2 → 0.2.1-rc.2` | 同线内 prerelease 例行核对（**不跨线、不改源码、刷新了图标快照**）。alpha→rc 是通道提升不是换线，但 82 个契约包版本整体上抬，逐包规范化 diff 后**三处实质变化**：① `dsh-app-boot` 把 `evaluatePluginCompatibility` 从「只查 peerDependencies」改成「`engines.dsh` 优先且单方面决定」——**不满足时进 `skippedBundles`（跳过）而非阻断启动**，别误判成启动拦截；② 用户气泡文本投影整体重构：primitives 的 `projectUserText` 被删除，改成 `conversation.user.text` 链式槽位 + `UserTextRun`/`ReferenceChip`（跨 7 个包，alpha.2 中出现 0 次），但**最终 DOM 与 CSS 与 alpha.2 一致**（只多一层不产生 DOM 的 React 槽位），`data-ref-chip`+`title` 保留；③ `dsh-api-workspace-controller` 的 `follow()` 变 async generator 并加 `remoteAccess` 过滤与 `replace` 帧。离线网全绿：9 插件 468 项单测、图标无漂移、4 个导航图标插件六项全过、9 个 `publish:check` 全过。**未做任何插件代码改动**；`dsh-mobile-compat` 按用户决定只记录（仍在门外 inert）。顺带查出两处**既有** order 并列违规 |
 | I1（2026-10-10，发布审计） | `0.2.1-alpha.2` | 8 个已发布包换线后的独立收口校验：四处同源、458 项单测、图标网、8 个 `publish:check`、registry/provenance、`npm ci` 锁一致性全过；真实运行态由「路由 404」变「401/200」证明 8 个宿主半体都活了。**修掉 `release.yml` 一个看不见的 bug**（创建 Release 用 `github.ref_name` 而非校验过的 tag，手动派发时会产出 `main` 这种分支名 tag），并清理两个发布流程残骸 |
@@ -29,6 +31,49 @@
 | B1（2026-10-01） | `0.2.0-rc.2` | L1 两个插件跨线完成，已实机验证 |
 | A1–A3（2026-10-01） | `0.1.7-rc.2 → 0.2.0-rc.2` | 只做侦察 + 补一个缺失的版本门 |
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
+
+---
+
+## J4：`settings.section` order 并列表正（2026-10-19，不涉及 DSH 版本）
+
+J1 例行核对时顺带查出两处**既有**的 order 并列（违反根 `AGENTS.md`「同一个 slot 里多个插件不要复用同一档 order」）。本轮只做这一件事：把五个插件的 `SECTION_ORDER` 改成 100/110/120/130/140 连续分配，**不改版本门、不改兼容线、不动业务逻辑**。
+
+### 分配
+
+| order | 插件 | 常量 | 修复前 |
+|---|---|---|---|
+| 100 | `dsh-extra-context` | `client.js` 的 `SECTION_ORDER` | 100（不变） |
+| 110 | `dsh-local-plugin-manager` | `client.js` 的 `SECTION_ORDER` | 100 ⚠️ 与 extra-context 并列 |
+| 120 | `dsh-default-tuner` | `client.js` 的 `SECTION_ORDER` | 110 ⚠️ 与 mcp-console 并列 |
+| 130 | `dsh-mcp-console` | `client.js` 的 `SECTION_ORDER` | 110 ⚠️ 与 default-tuner 并列 |
+| 140 | `dsh-chat-archive-manager` | `SECTION_ORDER` + `NAV_ICON_ORDER`（跟随） | 120（不冲突，本次仅有下移） |
+
+`dsh-chat-archive-manager` 的 `NAV_ICON_ORDER = SECTION_ORDER` 是赋值而非字面量，改分区档位时它自动跟随——`settings.action` 那个挂载点只需要一个"排在壳层 open-document(0) 之后"的位次，不必与分区同值以外的语义。
+
+### 改动面
+
+- **代码**：5 个 `client.js` 的 `SECTION_ORDER` 常量（只有 `chat-archive-manager` 额外涉及 `NAV_ICON_ORDER` 的跟随语义，无需改字）。注释一并订正——原先有一句"同仓库其它插件用 100，这里 110 避免同档撞车"，那是并列已存在时打的补丁，已替换成指向根 `AGENTS.md` 分配表的说明。
+- **测试**：`dsh-local-plugin-manager/test/client.test.js`（两处 `order: 100 → 110`）、`dsh-chat-archive-manager/test/client.test.js`（两处 `120 → 140`，第 974 行的 `deepEqual` 也一并改）、`dsh-mcp-console/test/client.test.js`（`110 → 130` 两处）。这三处都是 `assert.deepEqual` 的硬编码期望值，不改必红；`dsh-extra-context` 与 `dsh-default-tuner` 的测试用的是 `>= 100` / 正则取值的弱断言，无需改。
+- **文档**：根 `AGENTS.md` 的 Slot 一节新增「`settings.section` 的当前分配」表（**权威表**，新增插件往下顺延），并把「需要固定次序就 100/110/120 往上排」改成「从 100 起按 10 递增连续分配」；五个插件的 `AGENTS.md` 同步（历史核对记录里的旧数字**保留原文 + 标注"该常量 X 起改为 N"**，因为那是当时的实测记录，不能改写成假证据）。
+
+### 验证
+
+| 检查 | 结果 |
+|---|---|
+| `dsh-extra-context` `publish:check` | 75/75 + tarball 8 文件 |
+| `dsh-local-plugin-manager` `publish:check` | 47/47 + tarball 10 文件 |
+| `dsh-default-tuner` `publish:check` | 54/54 + tarball 8 文件 |
+| `dsh-mcp-console` `publish:check` | 104/104 + tarball 12 文件 |
+| `dsh-chat-archive-manager` `publish:check` | 78/78 + tarball 9 文件 |
+
+### 为什么这次必须要发版
+
+`client.js` 在发布物里，浏览器侧 bundle 是**每次页面加载从磁盘/安装包重新取**的——所以：
+
+- 本机 `link:` 开发路线：刷新页面即可看到新 order，无需重启 `dsh web`（`client.js` 不进 Host 进程）。
+- 用户机器（registry 安装）：**只有发了新版本才会生效**。按工作区规则「同线内向后兼容的功能新增走 minor」，这五个包各发一个 minor。**发版属受限操作，待用户明确授权**（`commit`/`tag`/`push` 一律不自行执行）。
+
+> 顺带记一条：`settings.section` 只影响设置菜单里插件分区的**相对顺序**，不影响任何功能；这项改动风险极低，但"改了 `client.js` 就必须发版"这条判断本身是发布流程的一部分，别因为"只改了一个数字"就跳过。
 
 ---
 
@@ -263,17 +308,17 @@ if (direct?.ok !== true) {
 
 导航图标补丁的清单本轮更正了一次：先前只记了 `dsh-extra-context`，实际按 `data-*-nav-icon` 搜索有 **4 个**插件带这类 DOM 补丁，`grep -c` 计数为证。
 
-### 顺带查出的两处既有违规（非本轮引入）
+### 顺带查出的两处既有违规（非本轮引入，**已在 J4 修掉**）
 
-`settings.section` 同 slot 内 order 并列，违反根 `AGENTS.md`「同一个 slot 里多个插件不要复用同一档 order」：
+`settings.section` 同 slot 内 order 并列，违反根 `AGENTS.md`「同一个 slot 里多个插件不要复用同一档 order」（当时的现状，2026-10-19 起已改为 100/110/120/130/140 连续分配，见 J4）：
 
-| order | 插件 |
-|---|---|
-| 100 | `dsh-extra-context`、`dsh-local-plugin-manager` |
-| 110 | `dsh-default-tuner`、`dsh-mcp-console` |
-| 120 | `dsh-chat-archive-manager`（唯一不冲突） |
+| order（修复前） | 插件 | 修复后 |
+|---|---|---|
+| 100 | `dsh-extra-context`、`dsh-local-plugin-manager` | 100 / **110** |
+| 110 | `dsh-default-tuner`、`dsh-mcp-console` | **120** / **130** |
+| 120 | `dsh-chat-archive-manager`（当时唯一不冲突） | **140** |
 
-并列时只能靠注册顺序决胜，`bundle` 列表一调整就可能换序。建议改成 100/110/120/130/140 连续分配。
+并列时只能靠注册顺序决胜，`bundle` 列表一调整就可能换序。
 
 ### 本轮没做什么（以及为什么）
 

@@ -34,8 +34,11 @@ window.__ModuleLoader__.load({
     const CSRF_HEADER = 'x-dsh-default-tuner-csrf'
     /** 设置导航里的分区名。 */
     const SECTION_LABEL = '默认设置覆盖'
-    /** 插件分区一律排在 DSH 自带项之后（用户规则），同仓库其它插件用 100，这里 110 避免同档撞车。 */
-    const SECTION_ORDER = 110
+    /**
+     * 插件分区一律排在 DSH 自带项之后（用户规则）。同 slot 内各插件不复用同一档：
+     * extra-context 100 / local-plugin-manager 110 / 本包 120 / mcp-console 130 / chat-archive-manager 140。
+     */
+    const SECTION_ORDER = 120
     const PLUGIN_ID = 'dsh-default-tuner'
 
     /**

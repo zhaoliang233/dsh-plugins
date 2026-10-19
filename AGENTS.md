@@ -239,7 +239,19 @@ L3 插件的真机验收一次红几十项时，**先分清"仪器坏了"还是"
 - 全局 Slot：`shell.overlay`（`dsh-client-ui-layout` 声明，`{kind:'list', scope:'root'}`，AppFrame 渲染为绝对定位全屏层，z-index 20，`pointer-events:none`、子元素 auto）——全局弹窗/横幅的落点；`sidebar.footer.action` 可放侧边栏底部按钮。
 - 子 Slot 由父 entry 的 `children` 表在运行期声明：注册方必须用 `ctx.slots.inject('<slot>', () => ctx.slots.register({ name: '<slot>', ... }, Component))` 等待声明，不要直接 `register` 或依赖 client bundle 顺序。两者的副作用都归调用方 fiber，随插件卸载清理。
 - 注册规则（按 slot 类型）：list slot **必须带 `id`**（否则 apply 抛 `list slot "..." requires options.id`，插件加载失败、浏览器显示 "Failed to load plugins"）；single slot 不需要额外字段；keyed slot 需要 `key`；chain slot 需要 `select`。
-- **设置入口一律排在 DSH 自带项之后（用户规则）**：插件贡献的 `settings.section` / `settings.general.item` / `settings.plugins.tab` 的 `order` 都 **≥ 100**。DSH `0.2.0-rc.2` 实测内置项——**分区**（`settings.section`）account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，上限 **20**（与 0.1.7 一致）；**通用行**（`settings.general.item`，**是另一个 slot，别拿 20 当它的上限**）permission −20 / language 0 / appearance 10 / font-size 11 / transcript-view 12 / developer-tools 15 / shortcuts 16 / link-opening 17 / composer-enter 20 / performance-usage 30 / settings-session-log 90 / current-version 100，上限**已到 100**；插件页 tab all 10。同一个 slot 里多个插件不要复用同一档 order（壳层是 `sort((a,b) => a.order - b.order)` 的稳定排序，并列时只能靠注册顺序决胜）；需要固定次序就 100 / 110 / 120 往上排。**升级 DSH 后重新读一遍内置项的 order 上限**（两个 slot 分别读），别把插件行插到内置行中间。
+- **设置入口一律排在 DSH 自带项之后（用户规则）**：插件贡献的 `settings.section` / `settings.general.item` / `settings.plugins.tab` 的 `order` 都 **≥ 100**。DSH `0.2.0-rc.2` 实测内置项——**分区**（`settings.section`）account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，上限 **20**（与 0.1.7 一致）；**通用行**（`settings.general.item`，**是另一个 slot，别拿 20 当它的上限**）permission −20 / language 0 / appearance 10 / font-size 11 / transcript-view 12 / developer-tools 15 / shortcuts 16 / link-opening 17 / composer-enter 20 / performance-usage 30 / settings-session-log 90 / current-version 100，上限**已到 100**；插件页 tab all 10。同一个 slot 里多个插件不要复用同一档 order（壳层是 `sort((a,b) => a.order - b.order)` 的稳定排序，并列时只能靠注册顺序决胜）；需要固定次序就从 100 起按 10 递增连续分配。**升级 DSH 后重新读一遍内置项的 order 上限**（两个 slot 分别读），别把插件行插到内置行中间。
+
+**`settings.section` 的当前分配（新增插件往下顺延，别插空档、别复用）**：
+
+| order | 插件（`SECTION_ORDER`） |
+|---|---|
+| 100 | `dsh-extra-context` |
+| 110 | `dsh-local-plugin-manager` |
+| 120 | `dsh-default-tuner` |
+| 130 | `dsh-mcp-console` |
+| 140 | `dsh-chat-archive-manager`（`NAV_ICON_ORDER` 跟随它） |
+
+`settings.general.item` 用的是另一条线（`dsh-auto-load-history` = 110），两个 slot 互不影响，别把两边的数字放在一起比。
 
 ### 子代理委派纪律
 

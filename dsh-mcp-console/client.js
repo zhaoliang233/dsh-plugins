@@ -62,11 +62,12 @@ window.__ModuleLoader__.load({
     const SECTION_ID = 'mcp-console'
     const SECTION_LABEL = 'MCP 服务器'
     /**
-     * 设置分区 order。DSH 自带分区是 general 0 / models 10 / plugins 15 /
-     * agent-presets 20 / archived-sessions 25，**插件分区一律 ≥ 100**：排在内置之后，
-     * 不插队、也不与内置并列（并列时只能靠注册顺序决胜）。
+     * 设置分区 order。DSH 自带分区是 account −10 / general 0 / models 10 / plugins 15 /
+     * agent-presets 20，**插件分区一律 ≥ 100**：排在内置之后，不插队、也不与内置并列。
+     * 同 slot 内各插件不复用同一档：extra-context 100 / local-plugin-manager 110 /
+     * default-tuner 120 / 本包 130 / chat-archive-manager 140。
      */
-    const SECTION_ORDER = 110
+    const SECTION_ORDER = 130
     const NAV_ICON_ID = 'mcp-console-nav-icon'
     const STYLE_OWNER = `${PLUGIN_ID}-v1`
     const CREDENTIAL_TOKEN = /credential:([A-Za-z_][A-Za-z0-9_]*)/gu
