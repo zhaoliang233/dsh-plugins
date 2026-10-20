@@ -21,7 +21,7 @@
 
 ```bash
 dsh plugin --profile web add dsh-default-tuner        # 安装
-dsh plugin --profile web add dsh-default-tuner@0.3.1  # 指定版本（升级必须显式写版本号）
+dsh plugin --profile web add dsh-default-tuner@0.3.2  # 指定版本（升级必须显式写版本号）
 dsh plugin --profile web remove dsh-default-tuner     # 卸载
 ```
 

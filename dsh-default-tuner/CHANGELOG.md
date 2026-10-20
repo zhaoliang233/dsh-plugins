@@ -1,5 +1,11 @@
 # 变更记录
 
+## [0.3.2] - 2026-10-20
+
+### 变更
+
+- 把 `0.2.1-rc.2` 加入逐版本验证清单：`dshCompatibility.verifiedVersions`、`lib/index.js` 的 `VERIFIED_DSH_VERSIONS`、`install.sh` 的 `DSH_VERIFIED_VERSIONS` 与文档四处同源，安装这个 prerelease 时不再打「未逐版本核对」警告。**业务代码与兼容范围（`>=0.2.1-alpha.2 <0.2.2`）均未变**，纯清单与文档同步。
+
 ## [0.3.1] - 2026-10-19
 
 ### 修复
