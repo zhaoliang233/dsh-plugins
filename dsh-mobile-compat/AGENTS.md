@@ -12,7 +12,7 @@ Client 主导、Host 只提供运行版本状态接口、外壳级且版本锁�
 
 **0.1.6 → 0.1.7 是跨发布线的大幅重写**，不是例行检查：把两个版本共有的 50 个 `dsh-client-*` 包按 `lib/client.js` 的 sha256 逐包比对，**47 个都有实质改动**（只有 `dsh-client-resources`、`dsh-client-ui-brand-official`、`dsh-client-ui-directory-picker-native` 三个逐字节相同），`dsh-client-ui-primitives` / `dsh-client-ui-slots` 与 dockkit 一起打在 `dsh-web-frontend` 的 `index-*.js` + `index-*.css` 里（两个产物哈希都变了），所以上一线的结论一条都不能继承。逐项复核与实测结论见 `compatibility.json#contracts` 与本文「0.1.7-rc.2 逐项核对记录」。
 
-`0.2.0-rc.2` 是本发布线目前唯一 source-verified 的版本；同一 `0.2.0` 线内**高于或等于下界**的 rc 与正式版允许带警告运行（例如 `0.2.0-rc.3`、`0.2.0`），继续由运行时能力与精确结构探测 fail closed。**下界是 `rc.2`，所以 `0.2.0-alpha.*` / `0.2.0-beta.*` / `0.2.0-rc.1` 全部低于下界、必须被挡在门外**——判定按 channel 优先级排序（`PRERELEASE_CHANNELS`），不要退回 `channel !== 'alpha' || seq >= N` 的写法，那表达的是「下界是 alpha」、会静默放行 `0.2.0-alpha.9`。跨到 `0.2.1` 之前、或收录低于 `0.2.0-rc.2` 的版本，都必须重新读取源码并调整范围，禁止无上界范围或跨发布线猜测。范围外（整个 `0.1.7` 线、`0.1.6` 线）保持 inert：上一线的用户留在上一线的插件版本（`0.1.7` 线 = `0.4.0`，`0.1.6` 线 = `0.3.7`），一个插件版本只服务一条发布线。
+本发布线当前已发布到 npm 的版本是 `0.5.1`（`>=0.2.0-rc.2 <0.2.1` 线；`0.3.7` 服务 `0.1.6` 线、`0.4.0` 服务 `0.1.7` 线）。`0.2.0-rc.2` 是本发布线目前唯一 source-verified 的版本；同一 `0.2.0` 线内**高于或等于下界**的 rc 与正式版允许带警告运行（例如 `0.2.0-rc.3`、`0.2.0`），继续由运行时能力与精确结构探测 fail closed。**下界是 `rc.2`，所以 `0.2.0-alpha.*` / `0.2.0-beta.*` / `0.2.0-rc.1` 全部低于下界、必须被挡在门外**——判定按 channel 优先级排序（`PRERELEASE_CHANNELS`），不要退回 `channel !== 'alpha' || seq >= N` 的写法，那表达的是「下界是 alpha」、会静默放行 `0.2.0-alpha.9`。跨到 `0.2.1` 之前、或收录低于 `0.2.0-rc.2` 的版本，都必须重新读取源码并调整范围，禁止无上界范围或跨发布线猜测。范围外（整个 `0.1.7` 线、`0.1.6` 线）保持 inert：上一线的用户留在上一线的插件版本（`0.1.7` 线 = `0.4.0`，`0.1.6` 线 = `0.3.7`），一个插件版本只服务一条发布线。
 
 `scripts/check-compat.js --installed` 比较 `dsh --version`。运行时 Host 从 CLI entry 解析实际 `@deepseek-ai/dsh/package.json` 并在 `GET /dsh-mobile-compat/status` 返回版本；route 先通过 DSH `connection.requestRejection(req)` 的 trusted-host 与签名浏览器 cookie 认证，Client fetch 显式使用 `credentials: 'same-origin'`。Client 只用 `connection.generation.getSnapshot()/subscribe()` 作为连接就绪/重试触发器，release version 始终来自插件状态接口；跨发布线版本必须保持 inert。
 
@@ -131,60 +131,17 @@ chrome 图标不再单独放大（曾写成 18px）：DSH 的 `iconButton` 是 2
 6. 人工补测真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题和 Locale。
 7. 调整兼容范围上界（跨到 `0.2.0`）或下界之前，必须完成以上检查并重新读取源码。
 
-### 0.2.0-rc.2 逐项核对记录（2026-10-01，跨线）
+### 逐项核对记录
 
-第 1 步读的是本机运行安装 `@deepseek-ai/dsh` `0.2.0-rc.2`（288 个组件、62 个 `dsh-client-*`，前端产物 `index-5SrrfWpU.js` + `index-BPHePDI_.css`），不看 dist-tag。**上一线（`0.1.7-rc.2`）的结论一条都没有继承**：每一项都在 0.2.0-rc.2 的实际产物里重新读了一遍源码，再在隔离宿主上重量几何。第 2 步逐项结论：
+逐版本逐契约面核对结果（`0.1.7-rc.2` 与 `0.2.0-rc.2` 两轮跨线，含 14 行契约表与完整尺寸矩阵数据）见 [`docs/compat-log.md`](../docs/compat-log.md) 的 B6 等轮次。
 
-| 契约面 | 0.2.0-rc.2 现状 | 结论 |
-|---|---|---|
-| `connection.generation` | `dsh-client-connection` 与 0.1.7-rc.2 逐字相同（`getSnapshot()`/`subscribe()` 未变） | 不变 |
-| layout Service | `ctx.layout.toggleSidebar()`（`lib/client.js:478`）与 `closeRightbar()` 仍在 `ILayout` 上，语义未变 | 不变 |
-| AppFrame 三列 + 四个 seat | 前四个 host children 仍是 `sidebarCol` / `CenterColumn`（`centerCol`）/ `RightbarColumn`（`rightbarCol` + `data-rightbar-col`）/ `overlayLayer`（`data-shell-overlay`）；`DocumentTitle` 仍不产生 host 节点，`leadingMounted` 与两个 `DragHandle` 仍排在更后；`main` 仍是 keyed slot（`renderSlot("main", {}, { entryKey: usePanelInfo(info => info.activePanelId) ?? "conversation" })`） | 不变，探测逻辑无需改 |
-| SidebarRoot | 侧栏 seat 仍由 `renderSlot("sidebar", …)` 直系承载，内联桌面宽度仍只在 `wide` 时写 | 不变 |
-| 侧栏导航行 | 三类 class 后缀都在：`newSession`（含 `newSessionContent`/`newSessionLabelMask`/`newSessionShortcut`）、`panelRow`、`sessionRow`；会话行仍是 `role="treeitem"` 的 **`div`**（`clsx(Rows_module_css_default.sessionRow, …)`），「切换会话不换 occupant」形态不变 | 不变 |
-| WorkspaceBrowser | 仍是 `root` > `sectionHeader` > [`sectionLabel`（`wide` 才渲染）、`searchSlot`（内含 `button[aria-expanded]`）、`headerActions`]；rail 态仍不渲染 search slot | 不变 |
-| Settings | `createPortal(…, document.body)` 仍在（`dsh-client-ui-settings-general/lib/client.js`），`role="dialog"` + `aria-modal="true"` + 直系 `nav` + 直系内容容器不变；`useModalLayer(panel, true, onClose)` 仍在 | 不变 |
-| Conversation 外层 | `ConversationRoot` 的最后一个 direct child 仍是 `div.body`（`data-conversation-content`），它内部仍是 direct `div.scrollBody[data-conversation-scroll]` + `WidthControls`；`data-composer-seat` 仍是 `composerSeat` 上的直接子元素；`data-composer-card` 仍在；Composer 编辑器仍是 `contenteditable` 的 **div**，带 `role="textbox"` + `aria-multiline="true"` + `data-composer-input` | 不变 |
-| 会话标题栏 | `ConversationSessionHeader` 仍是 `titleRow` > (`titleCluster` > `nav.crumbs` + `div.headerActions`) + `div.headerUtilities`，`div.headerCorner`（`data-conversation-header-corner`）是 `titleRow` 的兄弟；tabs 仍是其后的另一行（`data-conversation-tabs`） | 不变 |
-| 右栏 dockkit | 13 个 `data-dockkit-*` 名字逐个存活（次数与 0.1.7 一致）；`data-dockkit-tab-close` 的值仍是 tab id（`"data-dockkit-tab-close": y`）；`_tabClose_` 仍 20×20 锚在 `top/right 4px`；`_tabStrip_`/`_stripChrome_` 仍 28px 高；`_iconButton_` 仍 28×28 + 15px 图标；`[class*='paneBody']` 仍命中 | 不变 |
-| 右栏层级 | 面板仍是 `position:absolute; top:0; bottom:0; right:0`；`autoFullscreen = viewportWidth < 768` 仍派生 `fullscreen` 并写 `width: 100vw`；fullscreen 仍写 `--dsh-dockkit-dock-layer:40`（非 fullscreen 为 10），抽屉 30 仍在其下 | 不变 |
-| 右栏入口 | `[data-sidebar-right-expand]` 仍是 primitives 的 `sm` Button（`_button{width:28px}`、`_button svg{width:15px;height:15px}`）画 `IconPanelLeftOutlineRegular` | 不变 |
-| 图标 | `IconCloseOutlineRegular`、`IconPanelLeftOutlineMedium/Regular` 三个都在 primitives 静态 seed 里；`tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） | 不变 |
-| viewport | `dsh-web-frontend/dist/index.html` 仍是裸 `width=device-width, initial-scale=1` | 不变 |
+**三条跨轮有效的验证前置**（不照做会得到假红或假绿）：
 
-第 3 步改动：`package.json`（range `>=0.2.0-rc.2 <0.2.1`、verifiedVersions、`engines.dsh`）、`compatibility.json`（range、verifiedVersions、`versions[0].note` 重写为 0.2.0 证据、全部 16 个契约的 `versions`）、`client.js` 的四个门常量、`install.sh`、`scripts/check-compat.js`、测试里的版本断言与本文件/README/CHANGELOG。**插件业务代码一字未改**——0.2.0-rc.2 的 DOM 与能力契约逐项满足，跨线本身没有引入需要适配的结构。
+- **隔离 profile 必须与用户实际运行的一致**，带上 `@deepseek-ai/dsh-experimental-agent-team-profile`——只有它注册的标题栏动作才让 strip 里有可量的控件，否则 strip 断言会在「没有控件可量」上失败。
+- **发探针消息用 CDP `Input.insertText`**：composer 是 contenteditable div，用 `HTMLTextAreaElement` 的 setter 会抛 `Illegal invocation`。
+- **尺寸矩阵的会话行用例要先备好两行**（`ensureSessionRows(2)`）：新 profile 只有一个空会话，会话行用例会因缺行而失败。
 
-**门常量从「下界是 alpha」换成「下界是 rc」**：`client.js` 与 `scripts/check-compat.js` 都改成 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR{channel,sequence}` + `PRERELEASE_CHANNELS` 的 channel 优先级比较，`install.sh` 有等价的 shell 版（含 `prerelease_rank()`）。旧的 `channel !== 'alpha' || seq >= N` 表达的是「下界是 alpha」，下界换成 `rc.2` 后会把 `0.2.0-alpha.9` 静默判成兼容——`test/compatibility.test.js` 用 `0.2.0-alpha.9` / `beta.4` / `rc.1` / `alpha.1` 四档把它钉住，`test/manifest.test.js` 则把 range 反推回发布线与下界、并核对 `install.sh` 的五个常量同源（照抄 B1/B2 四个已跨线插件的形状）。
-
-第 4/5 步：`npm test`（26）、`check-compat --manifest`/`--installed`、`pack:check`、隔离 profile 的 add/remove 往返，以及在隔离宿主（随机端口 + 独立 `DSH_HOME` + 无头 Chromium）上跑完整尺寸矩阵。隔离 profile 必须与用户实际运行的一样带上 `@deepseek-ai/dsh-experimental-agent-team-profile`——只有它注册的标题栏动作才让 strip 里有可量的控件，否则 strip 断言会在"没有控件可量"上失败。
-
-第 6 步（需要用户在真机做的部分，本轮**未**覆盖）：真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题与 Locale。
-
-### 0.1.7-rc.2 逐项核对记录（2026-09-29，跨线）
-
-第 1 步取的是 npm 上 `0.1.6-alpha.2` 的发布包与本机运行包 `0.1.7-rc.2`（`node_modules/@deepseek-ai/dsh`，283 个组件、60 个 `dsh-client-*`），不看 dist-tag。第 2 步逐项结论（每一项都读了 0.1.7-rc.2 的实际产物，并在隔离宿主上实测）：
-
-| 契约面 | 0.1.7-rc.2 现状 | 结论 |
-|---|---|---|
-| `connection.generation` | `getSnapshot()`/`subscribe()` 原样（`dsh-client-connection` 的 generation source 注册与订阅未改名） | 不变 |
-| layout Service | `ctx.layout.toggleSidebar()` 仍在 `ILayout` 上；`closeRightbar()` 语义未变 | 不变 |
-| AppFrame 三列 + 四个 seat | 前四个 host children 仍是 sidebarCol / centerCol / rightbarCol / overlayLayer；三个 seat 仍是 direct `data-slot`；`main` 改为 keyed slot（entryKey = `panelInfo.activePanelId ?? 'conversation'`），下探链多一层 display:contents anchor | 探测逻辑无需改，文档已订正 |
-| SidebarRoot | 仍只在 `wide` 时写内联桌面宽度 | 不变 |
-| 侧栏导航行 | `newSession`（内含新的 `newSessionContent`/`newSessionLabelMask`/`newSessionShortcut` 与会话快捷键）、`panelRow`、`sessionRow` 三类 class 后缀都在；会话行的「切换会话不换 occupant」形态不变 | 不变（回归里选中/未选中两条会话行都实测收起） |
-| WorkspaceBrowser | root > sectionHeader > [sectionLabel, searchSlot（`button[aria-expanded]`）, headerActions] 顺序不变；rail 态不渲染 search slot | 不变 |
-| Settings | 弹窗改为 portal 到 `document.body`（0.1.6 在 `#root` 内），直系子关系 `nav` + 内容容器不变；插件规则本来就是 body 后代选择器 | 不变（实测全屏 390×844、折行 `display:contents`、行序与左右分端都对） |
-| Conversation 外层 | `data-conversation-scroll` 仍是 ConversationRoot 最后一个 direct child（`div.body`）内的直接子元素；`data-composer-seat`/`data-composer-card` 仍在；Composer 编辑器仍是 `contenteditable` + `role=textbox` + `aria-multiline=true` | 不变 |
-| 会话标题栏 | `titleRow > titleCluster` 与 `headerUtilities`/`headerCorner` 三个名字都在，tabs 仍是后一行；strip 安装与拖动断言全过 | 不变 |
-| 右栏 dockkit | strip/chrome/tab-close 等属性名保留，`[class*='paneBody']` 仍命中；tab 关闭键仍 20×20 绝对锚在 `top/right 4px`，strip 级控件被插件撑到 44×44，chrome 图标仍 15px | 不变 |
-| 右栏层级 | fullscreen 时面板 100vw、层级在 dock host 的 `--dsh-dockkit-dock-layer:40`（0.1.6 记的是面板自身的 `z-index:40`）；抽屉 30 仍在其下 | 行为不变，契约文本已订正 |
-| 图标 | 0.1.7 用档位词命名（`IconCloseOutlineRegular`、`IconPanelLeftOutlineMedium|Regular`），插件的 `iconOf()` 候选链第一项就命中 | 不变 |
-| viewport | `index.html` 仍是裸 `width=device-width, initial-scale=1`，插件补 `viewport-fit=cover` 实测生效 | 不变 |
-
-第 3 步改动：`package.json`（version → `0.4.0`、range/verifiedVersions/engines.dsh）、`compatibility.json`（range、verifiedVersions、`versions[0].note`、全部 16 个契约、新增 `sidebar-navigation-rows`）、`client.js` 的四个门常量、测试里的版本断言与本文件/README/CHANGELOG。**插件业务代码一字未改**——0.1.7 的 DOM 契约逐项满足，跨线本身没有引入需要适配的结构。
-
-第 4/5 步：`npm test`（25）、`check-compat --manifest`/`--installed`、`pack:check`、隔离 profile 的 add/remove 往返，以及在隔离宿主（随机端口 + 独立 `DSH_HOME` + 无头 Chromium）上跑完整尺寸矩阵全绿。回归脚本为 0.1.7 修了两处**环境适配**：`ensureSession()` 发探针消息改用 CDP `Input.insertText`（composer 是 contenteditable div，旧代码用 `HTMLTextAreaElement` 的 setter 会抛 `Illegal invocation`），并新增 `ensureSessionRows(2)`（新 profile 只有一个空会话，会话行用例需要两行）。另外隔离 profile 必须和用户实际运行的一样带上 `@deepseek-ai/dsh-experimental-agent-team-profile`：只有它注册的标题栏动作才让 strip 里有可量的控件，否则 strip 断言会在"没有控件可量"上失败（也正因如此，带警告运行的同线版本必须继续靠能力探测而不是靠断言放水）。
-
-第 6 步（需要用户在真机做的部分，本轮**未**覆盖）：真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题与 Locale。
+**真机第 6 步始终未覆盖**：真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题与 Locale——这些只能由用户在自己的设备上看，脚本化量测到不了。
 
 ## 发布与安装路线
 

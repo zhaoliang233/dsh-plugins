@@ -14,7 +14,7 @@
 
 ## 已核对的契约（不是猜测）
 
-> 行号取自**当前运行的 `0.2.1-alpha.2` 实际安装包**（`<(command -v dsh) 的安装目录>/node_modules/@deepseek-ai/…`）；跨线后行号会位移，追查时先按符号名搜。逐版本复核记录见「版本规则」末尾。
+> 行号取自**当前运行安装包**（`<(command -v dsh) 的安装目录>/node_modules/@deepseek-ai/…`，版本用 `dsh --version` 取）；跨线后行号会位移，追查时先按符号名搜。逐版本复核记录见「版本规则」末尾。
 
 | 事实 | 来源 |
 |---|---|
@@ -109,101 +109,20 @@ status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 t
 
 ## 版本规则
 
-按已核对契约的兼容发布线维护，不为每个非破坏性 prerelease 建独立代码分支（范围与验证版本见「定位与边界」）。跨发布线前必须重新检查 Profile、CLI、Loader、webServer 和 Settings Slot，再同步更新 `DSH_COMPATIBILITY_RANGE`、验证清单、manifest、安装脚本、README 与测试。`install.sh` 的 `VERIFIED_DSH_VERSIONS` 必须与 `lib/profile-manager.js` 的清单逐字一致：0.1.6 换验证版本时漏改过这一处，真机安装因此每次打一条假告警，现由 `test/manifest.test.js` 守卫。
+按已核对契约的兼容发布线维护，不为每个非破坏性 prerelease 建独立代码分支（范围与验证版本见「定位与边界」）。跨发布线前必须重新检查 Profile、CLI、Loader、webServer 与 Settings 这五处契约面。
 
-**版本门从常量派生**（2026-10-01 跨线时照抄已跨线的 `dsh-extra-context`，2026-10-10 跨 `0.2.1` 时只改常量）：`lib/profile-manager.js` 不内联任何版本字面量，改为读 `DSH_RELEASE_LINE`（`0.2.1`）+ `DSH_RELEASE_FLOOR`（`{ channel: 'alpha', sequence: 2 }`）+ `PRERELEASE_CHANNELS`；`install.sh` 有一份等价的 shell 版（含 `prerelease_rank()`）。旧写法 `channel !== 'alpha' || seq >= 1` 只能表达「下界是 alpha」，下界换成 rc 后必须改成 channel 优先级比较，否则 `0.2.0-alpha.9` 会被误判成兼容——所以判定逻辑保持 channel 优先级比较，跨线只改常量与清单。`test/manifest.test.js` 有守卫把 range 反推回下界常量、并核对 `install.sh` 的五个常量。
+**版本门从常量派生**：`lib/profile-manager.js` 不内联版本字面量，读 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`；`install.sh` 有等价的 shell 版（含 `prerelease_rank()`）。跨线只改常量与清单，判定逻辑不动。
 
-**运行时依赖随发布线一起走**：`@deepseek-ai/dsh-atomic-write` 由 `~0.1.7-alpha.1` → `~0.2.0-rc.2` → `~0.2.1-alpha.2` 随线推进。理由不是「有新 API」——这些版本的 lib 一直逐字相同（见下），而是插件既然只在某条线内运行，写锁就该用同一条线的实现，避免线内锁约定变化时插件与宿主静默分叉。锁是文件系统级的（`<锚点>.lock` + `wx`），跨版本副本之间本来就互斥。
+**运行时依赖随发布线一起走**：`@deepseek-ai/dsh-atomic-write` 的 `~` 范围跟发布线同步推进（profile 写锁与原子提交靠它）。
 
-`0.1.6-alpha.2 → 0.1.7-alpha.1/alpha.2` 的核对方式（后续跨线照做）：`npm pack` 契约包后用 `diff` 比对解包后的 `lib/*.js`，不要靠 CHANGELOG。本包用到的六个包在 `0.1.7-alpha.1` 与 `alpha.2` 之间逐字相同（`dsh-atomic-write`、`dsh-host-webserver`、`dsh-client-connection`、`dsh-client-ui-settings-general` 的 host/client、`dsh-app-boot` 的 include 行 id）；`dsh-plugin-manager` 的差异只是一处 registry 常量重构，`@deepseek-ai/cordis-plugin-loader@1.0.4→1.0.5` 与 `cordis-plugin-include@1.0.8→1.0.9` 逐字相同（`include:<rowId>` 的 entry id 方案因此仍成立）。
+**核对方式**：`npm pack` 契约包后用 `diff` 比对解包后的 `lib/*.js`，不要靠 CHANGELOG；比对前先抹掉版本号字面量。
 
-### `0.1.7-alpha.2 → 0.1.7-rc.2` 逐项核对记录（2026-09-28）
+**两条跨轮有效的处置**：
 
-命中的包：`dsh-plugin-manager`（17 个 lib 文件，`lib/index.js` +757/−154，新增 github-connection 与 run-tree）、`dsh-app-boot`（8 个，+424/−48）、`dsh-atomic-write`（2 个，+73/−8）、`dsh-client-ui-settings-general`（4 个）。逐字相同：`dsh-host-webserver`、`dsh-client-connection`、`dsh-base`、`dsh-client-ui-settings-plugin-inventory`、`@deepseek-ai/cordis-plugin-loader`（仍 1.0.5）、`cordis-plugin-include`（仍 1.0.9）、`dsh-hmr`（只有 README.i18n.yaml 与版本号不同）。
+- **profile 记录的依赖值必须归一到绝对路径**：pnpm 会原样记录 `link:../src/foo` 或 `link:~/x`，读侧必须用 `dependencySpec()` 同款归一，否则相对路径的本地插件会被判成不可管理。
+- **0.2.1 起移除 `link:` 插件可以真的进程内生效**：`ResolutionRouter.replace()` 放开了 profile 作用域那条「必须重启」的硬门，因此在 `link:` 插件停掉之后移除 profile 映射与 `localPackageNames` 不再要求重启进程。
 
-五项结论，都在 rc.2 上真机复验过，**无需改代码**：
-
-1. **profile 写锁仍对齐**：`dsh-atomic-write` 的改动只是新增「持锁进程已退出（PID 探测 ESRCH）时接管死锁」；锁路径约定仍是 `<锚点>.lock` + `wx` 独占创建、锚点仍是 `<profile>/package.json`、`mode` 仍是 `0o600`（`384`）、`waitMs` 语义与默认值都没变，`writeFileAtomic` 逐字未变。本包用的是自己的 `~0.1.7-alpha.1` 副本（锁文件内容同为 `<pid>\n`），与宿主的 rc.2 副本跨版本仍然互斥。
-2. **覆盖项语义四条全部仍成立**：rc.2 的 `writePluginEnabled` 仍是「顶层、不带 `insert`」「`findLast` + `name` 匹配」「命中就地 `setIn(['disabled'], !enabled)`、启用写显式 `false` 不删条目」「目标值与现值相同直接 `return false` 不写文件」，`writeFileAtomic(..., { mode: 384 })` 也没变。唯一新增是写前多一次 `loadOptionalPatches('dsh', filename)`（读同一 profile patch 做解析准备），不改变写入结果。GUI 往返实测：两边轮流启停同一条，`cordis.patch.yml` 里该行始终只有一条覆盖项。
-3. **`include:<rowId>` 的 entry id 方案仍在**：`dsh-app-boot` 的 `mountRootInclude()` 依然建 `{ id: 'include', name: 'cordis:include' }`，`cordis-plugin-loader` 仍以 `parentEntryId + EntryTree.sep`（`':'`）拼子行 id，所以顶层 `insert` 进来的行仍是 `include:<rowId>`。
-4. **热重载路径仍在，但真源不是 `patchReload`**：`dsh-hmr` 逐字未变，它 watch profile patch 与 manifest 后走 `reconcileProfilePatches` 重组 loader 树；rc.2 全树搜不到 `patchReload` 的消费者。真机实测：写入后约 3 秒运行态生效（boot graph 里该包的 client bundle 消失 / 回来）。
-5. **`settings.section` 的 order 上限未变**：rc.2 内置仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，本包当时的 100 仍排在最后（2026-10-19 起改为 **110**）。
-
-同时确认 rc.2 新增的 **plugin-manager 兼容预检**（读 bundle 的 `peerDependencies`，不满足就在 profile 装配时抛错）不门禁本包：本包（以及本工作区其他插件）都没声明 `peerDependencies`。
-
-### `0.1.7-rc.2 → 0.2.0-rc.2` 逐项核对记录（2026-10-01，跨线）
-
-逐包 diff 见 `docs/compat-log.md` 的「A1–A3」：`dsh-plugin-manager`、`dsh-atomic-write`、`dsh-hmr` 与 0.1.7-rc.2 **逐字相同**（只有 `version` 字段变）；`dsh-app-boot` 只给 `OPTIONAL_BUNDLES` 追加了 `@deepseek-ai/dsh-experimental-schedule-bundle`，**插件兼容预检逻辑一行未改**。本轮把本包点名的每一处契约在 0.2.0-rc.2 的**实际安装包**里重读确认，**全部成立，业务代码一字未改**（本轮改动只有版本门、清单、依赖范围与 `gui-check.mjs` 的一条断言）：
-
-1. **profile 写锁仍对齐**：`dsh-atomic-write` 的 `withFileLock` 仍是 `<filename>.lock` + `wx` 独占创建 + `mode: 384`（`lib/index.js:188-196`），`writeFileAtomic` 的提交路径与 `mode` 参数未变（`:61`/`:127`），`DEFAULT_LOCK_WAIT_MS` 仍是 `2e3`；本包继续传自己的 `waitMs`（默认 120000，对齐官方的 `lockWaitMs`，`plugin-manager/lib/index.js:1356` 仍是 `z.number().default(12e4)`）。
-2. **覆盖项语义四条仍成立**：`writePluginEnabled`（`plugin-manager/lib/index.js:881-910`）仍是「顶层、不带 `insert`」（`item.has("insert")` 直接 false）「`findLast` + `name` 匹配（未声明 `name` 也接受）」「命中就地 `setIn([index, "disabled"], !enabled)`、没有则 `add({ id, disabled })`、**启用写显式 `false` 不删条目**」「目标值与现值相同直接 `return false`」，提交仍是 `writeFileAtomic(filename, String(document), { mode: 384 })`。
-3. **`include:<rowId>` 的 entry id 方案仍在**：`dsh-app-boot` 的 `mountRootInclude()` 仍建 `{ id: 'include', name: 'cordis:include' }`（`:3701-3703`），`@deepseek-ai/cordis-plugin-loader` 的 `EntryTree.sep` 仍是 `':'`（`lib/index.js:127`），子行 id 仍是 `parent.id + EntryTree.sep + id`（`:330`）。
-4. **热重载路径仍在**：`dsh-hmr` 逐字未变，仍 watch profile 目录并在变化后走 `reconcileProfilePatches`（`lib/index.js:8`/`:370`/`:387`）。隔离宿主实测：管理器禁用后 boot graph 里该包的 client bundle 消失，再启用后回来。
-5. **`settings.section` / `settings.action` 的声明未变**：`dsh-client-ui-settings-general` 的 `settings.section` 仍是 `{ kind: 'list', scope: 'root' }` 的声明（`:1128-1131` 是 `settings.action` 的），注册选项仍只有 id/order/label/locale/children/inject（**没有 icon**，DOM 补丁仍必要）；壳层 `navIcon(id)` 的白名单仍是 account/models/agent-presets/plugins/archived-sessions（`client.js:244-267`），未知 id 回落齿轮。
-6. **`connection.requestRejection` 与 `webServer.register` 未变**：前者仍在 `dsh-client-connection/lib/index.js:586`，后者仍在 `dsh-host-webserver/lib/index.js:177`。
-7. **兼容预检不门禁本包**：`dsh-app-boot` 的 peerDependencies 预检仍在（`:289`），本包没有声明 `peerDependencies`，因此不受它门禁。
-
-### `0.2.0-rc.2 → 0.2.1-alpha.2` 逐项核对记录（2026-10-10，跨线）
-
-取包方式：`npm pack` 两版到 `/tmp/dsh-lpm-021/{old,new}` 后逐文件比对；**先自证取到的是同一份代码**——new 侧 11 个契约包的 `lib/` 与运行安装逐字一致（`diff -rq` 0 差异），再开始比较。
-
-| 包 | lib 改动规模 | 结论 |
-|---|---|---|
-| `dsh-plugin-manager` | `lib/index.js` +200/−28（新增 official-install-target / build-approval 重写） | 见下第 1、2 条：**新增 `dependencySpec()` 与新的 `removeBundle` 语义**；`writePluginEnabled` **逐字相同** |
-| `dsh-app-boot` | `lib/index.js` +199/−43 | 见下第 3 条：**运行时替换校验放宽**；本包用到的 `readProfileManifest`/`composeEntries`/`readProfilePatches`/`resolveBundleDir`/`resolveProfileDir`/`bundlePatchPaths`/`loadOverlayPatches`/`loadOptionalPatches`/`reconcileProfilePatches` 全部**逐字相同**，`mountRootInclude()` 的 `{ id: 'include' }` 仍在（`:3861`） |
-| `dsh-hmr` | `lib/index.js` +402/−37 | 见下第 4 条：**新增 `PackageManifests` 清单缓存失效**；profile 配置监听路径（`watchConfig` + `refresh` + `reconcileProfilePatches`）仍在，`runExclusive` 仍是官方 plugin-manager 调用的公开方法 |
-| `dsh-host-webserver` | +207/−63 | `register(route)`（重复 (kind, path) 抛错 + disposer）**逐字相同**（`:298`） |
-| `dsh-client-connection` | +94/−38 | `requestRejection` 三段判据不变，新增「绑定地址/协议」与 TLS 判定（`:639`） |
-| `dsh-client-modules` | `lib/client.js` +9/−4 | 只改「未打标签 `<style>` 的认领范围」：现在只认领本 factory 期间新增的那些（`:495`/`:682`）。本包样式一直显式打 `data-plugin`，不受影响，反而更安全 |
-| `cordis-plugin-loader` | `lib/index.js` +6/−3（1.0.5 → 1.0.6-alpha.1） | `EntryTree.sep` 仍是 `':'`（`:127`）、子行 id 仍是 `parent.id + sep + id`（`:332`）；改动只是 `_init()` 多留一份 `moduleNamespace` 给 HMR |
-| `cordis-plugin-include` | 1.0.9 → 1.0.10-alpha.1 | `lib/` **逐字相同**（只有 `package.json` 版本号） |
-| `dsh-atomic-write` | 版本号变 | `lib/` **逐字相同**（写锁与原子提交零改动） |
-| `dsh-base` | `cordis.patch.yml` | 删了 `skill-badge`、`tool-ralph` 两条默认行、给 subagent 去掉 `backgroundMode`、新增 `working-directory` 两行；**`hmr` 那一行（含 `disabled: !!js "!ctx.get('profileContext')"`）逐字相同** |
-| `dsh-client-ui-settings-general` | `lib/client.js` 仅 1 行 | 唯一差异是 `CurrentVersionRow` 的版本号字面量；`navIcon` 白名单（`:244`）与 `settings.section`/`settings.action` 声明**逐字相同** |
-| `dsh-client-ui-settings` / `-slots` / `-settings-plugin-inventory` | lib 逐字相同 | 分区渲染与 slot 契约无变化 |
-| `dsh-client-ui-primitives` | 新增 `CommandText`/`InlineEditor` | 本包用到的 `Switch`/`Button`/`Tag`/`Modal` 与 5 个图标名（`IconCodeOutlineMedium`、`IconRefreshOutlineMedium`、`IconTrashOutlineMedium`、`IconLoadingOutlineMedium`、`IconWarningOutlineMedium`）全部仍在；`tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） |
-
-**三处新结构逐行核对**（用户本轮点名，行号取自 `0.2.1-alpha.2` 安装包）：
-
-1. **`dependencySpec()`**（`dsh-plugin-manager`）——官方新增的「把 profile 记录的依赖值变成可安装 spec」函数：
-   - `lib/types/install-spec.js:104-115`：`const local = /^(file|link):(.*)$/s.exec(recorded)` → `path.replace(/^~(?=$|[\\/])/, () => homedir())` → `` `${local[1]}:${resolve(profileDir, path)}` ``；非 registry 值（git/URL）原样透传（只剥 http(s) 的 user-info），registry 值走 `${name}@${recorded}`。
-   - `lib/index.js:135` 是同函数的内联副本，消费点只有 `:1603` 的 `sourceOf = (packageName) => owned ? { source: dependencySpec(name, recorded[name], this.profile.dir, packageName) } : {}`——即官方插件页 DTO 的 `source` 字段（`typert.host.js:104` 的 schema 里 `source?: string`），UI 用它显示「代码来源」并比较 `installTarget.spec` 决定是否提示更新。
-   - **对本插件的处置**：本包不消费官方 DTO，但**读侧必须同样归一**——pnpm 会原样记录 `link:../src/foo` 或 `link:~/x`（2026-10-10 实测 pnpm 12.6.0），本包原先只做 `resolve(profileDir, target)`，`~` 形态会被判成「本地链接目标不可用」。已抽成 `resolveRecordedLocalPath(profileDir, target, home = homedir())`（`lib/profile-manager.js`）并补单测，语义与官方这条逐字对齐（含「`~` 后必须是结尾或分隔符」这条边界）。
-2. **运行时替换校验放宽**（`dsh-app-boot` 的 `ResolutionRouter.replace()`）：旧版有两道「必须重启」的硬门，新版放开了 profile 一条：
-   - 删除：`0.2.0-rc.2` 的 `:1368` —— `for (const name of this.current.localPackageNames) if (!localPackageNames.has(name)) throw new Error("profile resolution: removing local package … requires a process restart")`。
-   - 新增：`0.2.1-alpha.2` 的 `:1446` —— `if (next === void 0 && current.scope === "profile") continue;`（profile scope 的映射允许消失），并把 `:1447` 的 `declarer` 比较收窄为 `current.scope === "installation" && !sameResolution(current.declarer, next.declarer)`。
-   - 服务层注释同时写明新契约（`:3367-3371`）：profile 映射与 `localPackageNames` 可以在对应插件停掉之后移除、linked roots 也可以移除；保留的 profile 映射允许换 declarer，但不允许换目录/版本/scope；installation 映射必须保持不变。
-   - **对本插件的处置**：这正是「卸载一个 `link:` 插件能真正生效」的前提（配合官方 plugin-manager 新增的 `refreshPackages()` 调用，`lib/index.js:1824`/`:1826`/`:1963`/`:2023`）。本包卸载走**外部 CLI**，进程内不发布 successor，因此本轮不需要改代码；但墓碑与覆盖项策略的措辞已按新事实订正（见「卸载」），并已在隔离宿主上实测卸载后 boot graph 的变化。
-3. **`package.json` 缓存失效**（`dsh-hmr` 新增 `PackageManifests`）：
-   - `lib/index.js:213` 的类持有 `directories`/`configurations`/`realDirectories`，装 Node 内部钩子：`readPackageJSON`、`getPackageScopeConfig`、`getPackageType`、`getNearestParentPackageJSON`、CJS `_load`（`:281-300` 一段）。
-   - `:228` 的 `invalidate(manifest)`：加入被失效目录 → 清自己的配置缓存与 `realDirectories` → 删 `cjs._pathCache` 的全部键 → 抓 ESM `ResolveCache` 实例并 `Map.prototype.clear` 它；此后这些目录下的清单**从磁盘读**。
-   - 触发点：`:748` 的主 watcher 分派 —— `const isManifest = basename(filename) === "package.json" && !filename.includes(`${sep}node_modules${sep}`)` → `this.manifests.invalidate(filename)`；`:752` 起对 manifest 一律 `continue`（不再当成模块重载），`:757` 的 `loadCache.has(url, "json")` 多认一种 JSON 加载。
-   - **对本插件的处置**：无需改代码；它是「重装后 manifest 立刻可读」的另一半保证（另一半是 app-boot 的放宽）。注意 profile manifest 本身走的是 `:719` 的 `watchConfig(manifestPath, () => refresh(true))`，而 `:701` 有一个**条件提前返回**：bundle 列表没变时 manifest 变化不会触发重组——本包的卸载/重装都会改 `dsh.profile.bundles`，所以不受影响；将来若只改依赖不改 bundle 列表，别指望这条路径会重组 loader。
-
-**其余契约项逐条复核**（都在实际安装包里重读，全部成立）：profile 写锁（`dsh-atomic-write` lib 逐字相同；官方 `lockWaitMs` 默认仍 `12e4`）、覆盖项四条语义（`writePluginEnabled` 逐字相同）、`include:<rowId>` 行 id 方案、`reconcileProfilePatches` 与 `readProfileManifest`/`composeEntries` 逐字相同、热重载真源仍是 dsh-hmr 的 profile 配置监听（`patchReload` 依旧无消费者）、`settings.section` 是 list slot 且无 `icon`、内置分区 order 上限仍是 20、`webServer.register` 与 `requestRejection` 语义不变、peerDependencies 兼容预检仍在（`:289`）但不门禁本包。
-
-**本轮的代码改动**（业务逻辑只动读侧归一这一处）：`DSH_RELEASE_LINE='0.2.1'` / `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` / 清单 `['0.2.1-alpha.2']` / range `>=0.2.1-alpha.2 <0.2.2`（四处同源）、依赖 `@deepseek-ai/dsh-atomic-write` 升到 `~0.2.1-alpha.2`、`resolveRecordedLocalPath()` 对齐官方 `dependencySpec()`；`README.md` 兼容段与该处「热生效真源」的表述一并订正。
-
-### `0.2.1-alpha.2 → 0.2.1-rc.2` 逐项核对记录（2026-10-19，J5：同线 prerelease，只改清单不改代码）
-
-alpha.2 → rc.2 是通道提升、不是换线，但 82 个契约包版本整体上抬，因此重过一遍本包点名的契约面（`docs/compat-log.md` 的 J1 有逐包 diff 全表）：
-
-| 契约项 | 0.2.1-rc.2 现状 |
-|---|---|
-| profile 写锁与原子提交（`dsh-atomic-write`） | `withFileLock` 只新增可选 `signal` 中止支持（不传时行为不变），`writeFileAtomic` 与 `mode: 384` 未变——本包不传 `signal`，语义完全等价 |
-| 覆盖项四条语义（`writePluginEnabled`） | 逐字相同（该函数在本轮 diff 中零改动行命中） |
-| `include:<rowId>` 的 entry id 方案 | 仍成立（`cordis-plugin-loader` 的 `EntryTree.sep = ':'`、`include:` 前缀在运行时全仓 12 个文件命中） |
-| 热重载真源仍是 dsh-hmr 的 profile 配置监听 | 仍在；本轮 `dsh-hmr` 新增 module-files（按 inode/size/mtime 找变更模块），属**附加**能力，不改变 `watchConfig` → `refresh` → `reconcileProfilePatches` 这条路径 |
-| `loader.entries()` / `entry.fiber` 只读观察 | 两者都在（`cordis-plugin-loader` 逐字相同） |
-| `dsh-app-boot` 的 profile 读取链 | `composeEntries`/`readProfilePatches`/`reconcileProfilePatches`/`readProfileManifest` 逐字相同；`readProfilePatches` 只是把取 bundle 层那段抽成 `readBundlePatches()`，语义等价 |
-| `dsh-plugin-manager` 的 `./tools`、`./operations` 子路径导出 | 保留，且**新增** `./tools/locale/*`、`./locale/*`（纯附加） |
-| `webServer.register` / `requestRejection` / `settings.section` | 全部未变 |
-
-**一条需要知道的外部语义变化**：rc.2 的 `dsh-app-boot` 把 `evaluatePluginCompatibility()` 从「只查 peerDependencies」改成「`engines.dsh` 优先且单方面决定」，不满足时**被跳过**（bundle 进 `skippedBundles`、条目 `disabled`）而非阻断启动。本包 `engines.dsh` 与 range 同源、实测 `evaluatePluginCompatibility()` 返回 `undefined`，因此无影响。
-
-改动只有四处清单（`package.json` / `lib/profile-manager.js` / `install.sh` / 本文与 `README.md`）——本包的 `test/manifest.test.js` 从常量派生断言、无硬编码版本清单，因此**测试文件无需改动**；**业务逻辑一字未改**，`publish:check` 47/47 通过。
-
-**未覆盖**：与上一轮相同的真 GUI 往返与 `e2e:check`（本轮只跑单测与离线网；`link:` 卸载/重装链路的结论按 `dsh-app-boot`/`dsh-hmr` 的 diff 同源推断，未重跑隔离宿主）。
+逐版本逐项核对记录（`0.1.7-alpha.2` 起 4 轮，含三处新结构逐行核对与 45/24/20/47 项验收数据）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
 ## 验证
 

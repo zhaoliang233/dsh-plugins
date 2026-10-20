@@ -5,56 +5,9 @@
 
 ## 逐版本核对记录
 
-**`0.2.1-alpha.2`（2026-10-10，跨发布线：DSH 从 `0.2.0-rc.2` 升到 `0.2.1-alpha.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完（`@deepseek-ai/dsh@0.2.0-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）。契约面逐项有证据：
+逐版本逐契约面核对记录（`0.1.7-rc.2` 起 4 轮）见 [`docs/compat-log.md`](../docs/compat-log.md) 的 F1 等轮次；本插件的**当前**契约以下面「已核对的契约」表为准。
 
-| 契约面 | 0.2.1-alpha.2 现状 |
-|---|---|
-| `ctx.systemPrompt.section` / `interpolate: false` / `assemble()` / `renderPrompt()` | `dsh-system-prompt/lib/index.js` **改了**，但改的全是 runtime-context（`refreshContext()` 是 0.2.1 新增）：section 侧 `section.interpolate === false ? section.text : …` 与 `sections` 组装/遮蔽逻辑**逐字相同**；`dsh-agent-loop` 的 `renderPrompt(assembly)` 调用点与函数体**逐字相同**（该包本轮只动了运行时上下文准入与 teardown 聚合） |
-| 条目 config 模型（`Config` + `.volatile()` + loader `_commitVolatile`） | `_commitVolatile()` **逐字相同**；`cordis-plugin-loader/lib/index.js` 只改了 `_init()`（多留一份 `moduleNamespace` 给 HMR）+ 一个字段声明，`registry.plugin()` 读 `runtime.Config` 的路径不变；`schemastery` 只有 `package.json` 版本号变（`3.18.4 → 3.18.5-alpha.1`，lib 逐字相同）；`dsh-settings` lib 逐字相同 |
-| `settings.describe()` 的 `{ns,value,user,base,revision,autoGenerate}` | `dsh-settings`、`dsh-config-editor` lib 逐字相同（两个包只有 README 与 `package.json` 版本号变） |
-| `ctx.configForms.get()` / `settings.section` list slot 需 `id` / `Switch` | `dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store` lib 逐字相同；`Switch` 组件块与 `Switch.module.css` **逐字相同**（primitives 只新增 `CommandText` / `InlineEditor` 两个组件） |
-| 设置页导航图标白名单（`navIcon`）与齿轮回落 | `dsh-client-ui-settings-general/lib/client.js` 的 `navIcon` **逐字相同**，该文件唯一实质改动是版本号字面量（`CurrentVersionRow`）与侧边栏 CSS |
-| `llm/stream` waterfall 与压缩摘要（`COMPACTION_INSTRUCTION`） | `dsh-compaction-basic/lib/index.js` **逐字节相同**（sha256 一致）；`dsh-llm` 的 waterfall 与 `adapterStream` 读 `resolvedOptions.messages` 的行**逐字相同** |
-| surface 节点 0 保护（`assertSystemHeadRewrite` / `applySurfacePlan`） | `dsh-session/lib/index.js` 两个函数**逐字相同**（该包本轮改的是 `invariant.js` 移除与类型面） |
-| 状态路由鉴权（`connection.requestRejection` + `x-dsh-extra-context-client`） | `dsh-host-webserver` 的 `register()`（重复路径抛错 + disposer）**逐字相同**；`dsh-client-connection` 的 `requestRejection` 只多了「绑定地址/协议」参数（loopback http 判定不变） |
-
-改动：`DSH_RELEASE_LINE='0.2.1'` / `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` / 清单 `['0.2.1-alpha.2']`，`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源换线。**插件业务代码一字未改**。
-
-**`0.2.1-rc.2`（2026-10-19，J5：同线 prerelease，只改清单不改代码）**：alpha.2 → rc.2 是通道提升、不是换线，但 82 个契约包版本整体上抬，因此重过一遍契约面（`docs/compat-log.md` 的 J1 有逐包 diff 全表）：
-
-| 契约面 | 0.2.1-rc.2 现状 |
-|---|---|
-| `ctx.systemPrompt.section` / `interpolate: false` / `assemble()` / `renderPrompt()` | `systemPrompt` 58 个文件命中、`interpolate` 33 个，均在位 |
-| 条目 config 模型（`Config` + `.volatile()` + loader `_commitVolatile`） | `cordis-plugin-loader` 逐字相同（`schemastery` 只是从 `~3.18.5-alpha.1` 转正式版，lib 逐字相同） |
-| `settings.describe()` / `ctx.configForms.get()` | `configForms` 20 个文件命中，契约面未变 |
-| `settings.section` list slot（需 `id`）与 `settings.action` | 声明仍由 `settings-general` 提供，12/2 个文件命中 |
-| `navIcon` 白名单与齿轮回落 | 未变；`IconSettingsOutlineMedium` 与 `IconContextInjectionOutlineMedium` 都在图标集里（188 个、无漂移），`verify-nav-icon.js --measure` 六项全过 |
-| `llm/stream` waterfall 与 `COMPACTION_INSTRUCTION` | `dsh-compaction-basic` 逐字相同（本插件「压缩摘要补充指令」的直接前提） |
-| surface 节点 0 保护（`assertSystemHeadRewrite` / `applySurfacePlan`） | 未变 |
-| 状态路由鉴权（`connection.requestRejection`） | 未变 |
-
-改动只有四处清单（`package.json` / `lib/index.js` / `install.sh` / 本文与 `README.md` 的兼容段）加两处测试硬编码断言；**业务逻辑一字未改**，`publish:check` 75/75 通过、导航图标六项全过。
-
-**未覆盖**：压缩摘要补充指令在 rc.2 上的真实路由 A/B（`dsh-compaction-basic` 与 `dsh-llm` 逐字相同，按同源推断成立；与 0.2.0 轮相同的未覆盖项）。
-
-**`0.2.0-rc.2`（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完，**跨线是立项而不是例行检查**（换 range 上界 = 换发布线，旧线用户留在旧插件版本）。逐包比对（`@deepseek-ai/dsh@0.1.7-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）后，本插件依赖的面**全部保持**：
-
-| 契约面 | 0.2.0-rc.2 现状 |
-|---|---|
-| `ctx.systemPrompt.section` / `ScopedLayers` / `interpolate` / `renderPrompt()` | `dsh-system-prompt` 逐字相同；`dsh-agent-loop` 的 `renderPrompt` 调用点上下文逐字相同（该包本轮只改了失败步骤的工具结果恢复） |
-| 条目 config 模型（`Config` + `.volatile()` + loader `_commitVolatile`） | `cordis-plugin-loader`、`schemastery`、`dsh-settings` 逐字相同 |
-| `settings.describe()` 的 `{ns,value,user,base,revision,autoGenerate}` | `dsh-settings` 逐字相同；消费端 `dsh-config-editor` 的 `configuration()` 改了，但已用合成 profile 实测两版本输出逐字相同（见根 `AGENTS.md` 的 0.2.0 记录），`override`（判「用户写过没有」的字段）构造未变 |
-| `ctx.configForms.get()` / `settings.section` list slot 需 `id` / `Switch` | `dsh-client-ui-settings`、`dsh-client-ui-slots`、`dsh-client-store` 逐字相同；`Switch` 仍导出，`Switch.module.css` 只**新增**一条 `aria-checked='false'` 的 thumb 背景规则 |
-| 设置页导航图标白名单（`navIcon`）与齿轮回落 | `dsh-client-ui-settings-general/lib/client.js` 的 `navIcon` 函数与 0.1.7-rc.2 **逐字相同**；该文件本轮唯一实质改动是版本号字面量。`verify-nav-icon.js --measure` 六项全过 |
-| `llm/stream` waterfall 与压缩摘要（`COMPACTION_INSTRUCTION`） | `dsh-llm` 只改了 `lib/typert.host.js`（远程绑定），`lib/index.js` 逐字相同；`dsh-compaction-basic` 逐字相同 |
-| surface 节点 0 保护（`assertSystemHeadRewrite` / `applySurfacePlan`） | `dsh-session` 本轮改了工具结果恢复，但这两个函数与全部 `system/message` 处理点的上下文**逐字相同** |
-| 图标集 | `tools/dsh-icons/check.js` 无漂移（188 个，Medium/Regular 各 94） |
-
-改动：`lib/index.js` 的版本门改成**从 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 派生**（跨线只需改这三个常量 + 清单，判定逻辑不动；alpha/beta/更低 rc 一律挡在门外），`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源更新，`install.sh` 的 shell 判定同步泛化（用假的 `dsh`/`pnpm`/`npm` 跑了十档版本矩阵，与 JS 分类器逐条一致）。**插件业务代码一字未改**——0.2.0 的契约面逐项满足。
-
-**未覆盖**：压缩摘要补充指令在 0.2.0 上的真实请求链路（`dsh-llm`/`dsh-compaction-basic` 逐字相同，按同源推断成立，本轮没跑真实路由 A/B）。
-
-**更早一轮（`0.1.7-rc.2`，2026-09-28）的逐包比对与实机证据**：已归档到 [`docs/compat-log.md`](../docs/compat-log.md)。那一轮的结论（导航图标补丁成立、`Switch` props 不变、图标无删名）仍然有效，但属于历史；本插件的**当前契约**以上面这节与下面的「已核对的契约」表为准。
+**一处跨轮未覆盖项**：压缩摘要补充指令的真实路由 A/B 始终没跑（`dsh-compaction-basic` 与 `dsh-llm` 在历次比对里逐字相同，按同源推断成立）。要看它是否真的改变摘要语言，按「实现事实 5」的验证方法跑一次带它/去掉它的对照即可。
 
 ## 一句话
 
@@ -209,7 +162,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 - **开关/增删必须当场提交**：这些是明确点击动作（没有“边打边看”的过程），漏提交会表现为“切了像没切”。
 - **两个开关都用官方 `Switch`，不自绘**（用户要求“开关组件在 dsh 中可以直接拿来用”）：动作行里是「总开关」（左侧配一行可见小字，容器 `.dec-master` 用 `margin-left:auto` 贴右），每行行首是启停开关（`.dec-row-switch`）。开关的尺寸、开启态品牌色轨道、圆角拇指、焦点环、过渡全部由壳层组件负责，插件样式**只做定位**（早先的实现是自绘按钮 + `.dec-btn-on` 中性填充，深色主题下还要额外绕开品牌色，已删除）。
 - **`label`（分段名称）字段已整体移除**：界面、客户端规范化、`buildStatus` 状态行、宿主规范化与设置 schema 五处都不再认识它。schemastery 对未知键是 **merge 保留**（`object` 非 strict），所以老设置文件里的 `label:` 不会让校验失败，但也**不会**被读进来；两侧规范化只挑 `id/enabled/text`，因此脏数据里的 label 既不出现在界面上，也不会被重新提交回去。改这条时注意别只改一边：`test/client.test.js` 的 `decode`、添加分支与 `test/host.test.js` 的 `normalizeSettings`/`buildStatus`/schema 都有断言。
-- **图标按钮两条硬约束**（用户实测反馈，两次都踩过）：①内容必须同型——删除按钮原用文本 `'✕'`、展开按钮用 SVG，class 相同却因基线对齐差 1.5px；现在两者都是 SVG，按钮 `inline-flex` + `align-items:center` 居中、图标 `display:block` 去掉行内盒间隙，**别把图标按钮的内容写成文本字符**（它还会随字体渲染变化）。②必须同尺寸档——官方图标按 `14`/`16` 分档（`IconXxx14`/`IconXxx16`），曾用 `IconCloseOutline16`（16 档描边）搭 `IconTriangleRightFill14`（14 档实心），实测删除图标 12×12、箭头 5×8，明显一大一小；**同一行里的图标必须同档**，本条用 `IconCloseFill14`，换图标前先确认档位。
+- **图标按钮两条硬约束**（用户实测反馈，两次都踩过）：①内容必须同型——删除按钮原用文本 `'✕'`、展开按钮用 SVG，class 相同却因基线对齐差 1.5px；现在两者都是 SVG，按钮 `inline-flex` + `align-items:center` 居中、图标 `display:block` 去掉行内盒间隙，**别把图标按钮的内容写成文本字符**（它还会随字体渲染变化）。②同行同档——图标取值走 `iconOf()` 候选链，首项是当前字重档位（`…Medium` 或 `…Regular`），同一行取同一档。曾把两档混搭（`IconCloseOutline16` 配 `IconTriangleRightFill14`），实测删除图标 12×12、箭头 5×8，明显一大一小。
 - **呈现用字符数、判断用字节数**（用户反馈“字符统计跟我看到的字数不一致”）：UTF-8 一个汉字 3 字节，把字节数标成“字”会大出约 2.7 倍（实测那条 67 字的规则显示成 183）。`characterCount()`（`Intl.Segmenter` 字素簇，emoji/组合字符算一个可见字符）**只用于界面呈现**（规则行「N 个字符」、预览「约 N 个字符 · 约 N tokens」）；`byteLength()`（UTF-8 字节）**只用于预算与上限**（`overBudget` 必须字节口径，宿主上限 `maxBytes` 就是字节，换成字符数会“看着没超、实际已超”）。新增任何“给用户看的体积数字”时先问：这是字节还是字符？
 - **计数单位全界面统一为「字符」**（用户反馈：行内写「N 字」、预览写「约 N 个字符」，同一份数字两种叫法）：行内是精确字素计数，不写“约”；“约”只留给预览里的 token 估算。测试同时断言"行内数字 == 实际字符数"与"整页不得出现裸露的 `N 字`"（注入回 `N 字` → 变红）。
 - **预览是本地渲染的单一数据源**：`previewText()` 必须与宿主 `renderExtraContext()` 口径一致（含前置说明与前后标记），空内容时**不得**渲染包裹结构；曾让预览在“本地/宿主”两份数据间切换，导致勾选后预览显示旧值（`test/client.test.js` 有跨端一致性断言守着两边固定文字）。
@@ -235,7 +188,7 @@ npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象�
 - **已在真实部署验证**：`GET /dsh-extra-context/status`、设置页分区、设置写盘、预览与消耗提示，以及“新建会话自动带上最新上下文”（用真实子代理逐字核对过 system prompt 内容）。
 - **导航图标补丁在真实浏览器里量过**（固定场景已固化进工作区工具）：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 用壳层原样抽取的导航 CSS + 真实 bundle（极简 React 垫片挂到真 DOM，保证 ref/`outerHTML`/`getComputedStyle` 都是真的）搭出与设置面板同构的 `nav button` 结构，并自动探测本插件的补丁契约（`data-dec-nav-icon` / `var(--dec-nav-icon-mask)` / 用 `display:none` 隐藏原 svg），契约与代码不同源时直接报错。量测结果：补丁行与壳层原生行的 `labelOffsetLeft/Top` 相同（36/9），原 svg `display:none`、`::before` 为 16×16 且 `mask-image` 是 data URI，壳层其他行保持齿轮且无任何 dataset 痕迹。**这不是实机设置页**，实机观感仍需用户刷新页面目视确认。
 - 仍未实机验证：客户端 bundle 的裸单包路径 `/plugins/<id>/client.js` 取不到（`dsh-client-modules` 只广告/应答 combo URL `/plugins/??<id>/client.js&rev=<rev>`），所以“客户端是否加载”只能靠页面现象判断，不能用 curl 断言。
-- **本机（Windows）跑不全闸门的两个已知原因**，与插件代码无关：①`npm run check` 的 `bash -n install.sh/uninstall.sh` 依赖 PATH 里有 bash（这台机器的 Git bash 只剩 `bin\bash.exe` 壳、`usr\bin\bash.exe` 缺失）；②`npm run pack:check` 读 `npm pack --dry-run --json`，npm 12 起该输出是**以包名为键的对象**、而脚本按数组解构（`const [pack] = JSON.parse(output)`）→ `object is not iterable`。CI/发布跑 ubuntu，不受影响；要在本机跑全闸门得先修这两处。
+- **两个已知的闸门缺口**，与插件代码无关：①`npm run check` 的 `bash -n install.sh/uninstall.sh` 依赖 PATH 里有 bash；②`npm run pack:check` 读 `npm pack --dry-run --json`，npm 12 起该输出是**以包名为键的对象**、而脚本按数组解构（`const [pack] = JSON.parse(output)`）→ `object is not iterable`。CI 与发布跑 ubuntu，不受影响。
 
 ## 排查顺序
 

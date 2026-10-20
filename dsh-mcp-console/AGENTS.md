@@ -43,74 +43,13 @@
 
 结论：动态挂载/卸载、两种传输、与 host 全局工具层的关系都已证实。**这份探针不在交付包里**（在 `/tmp/dsh-mcp-spike/`），但它证明了 README 里「不需要重启」的说法。（这张表是 0.1.6 线做的；0.1.7 线的等价路径由下面那张表和真机 GUI 验收覆盖。）
 
-## 本插件在隔离宿主上的端到端实测（0.1.7-alpha.2 起；0.2.0-rc.2 / 0.2.1-alpha.2 复跑）
+## 验收判据
 
-用独立 `DSH_HOME`（alpha.2 那轮是 `/tmp/dsh-mcp-migrate/home`，rc.2 这轮是 `/tmp/dsh-mcp-rc2`）+ 从 web 模板初始化出的 profile 装**本插件自己**（`link:`）并启动宿主（`--port 3099`，全程不碰用户正在用的 3080），逐项核对用户可见承诺。**首次落地在 `0.1.7-alpha.2`；下表每一行都在 `0.1.7-rc.2` 上重新跑过一遍**（rc.2 的 `dsh-mcp-client` / `dsh-credentials` / `dsh-config-editor` / `dsh-settings` 与 alpha.2 逐字相同，复核重点因而落在动态挂载与对账链上）：
+在隔离宿主上四项全过才算通过：`/status` 未认证 401、认证后 200；boot graph 中 `dsh-mcp-console` 出现 4 处（id/url/rev/inject）；`npm run gui:check` 52/52；凭据走 `credentials`、明文 0 次进入 profile 配置或请求载荷。
 
-| 场景 | 实测结果 |
-|---|---|
-| 启动装配（alpha.2 + rc.2） | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`versionSupported=true`；`dshVersion` 分别为 `0.1.7-alpha.2` / `0.1.7-rc.2` |
-| 直接往 profile 的 `cordis.patch.yml` 写 `- id: dsh-mcp-console` 的 `config.servers`（alpha.2 + rc.2） | 4~6 秒内热加载：`lastReconcile.reason=settings` → `mounted:["spike"]`，拿到 `mcp__spike__spike_echo` 等 20 个工具——**证明 `loader/volatile-update` 事件确实到达插件并触发对账**（换线时最关键、最容易静默失效的一环） |
-| 组合层手写一行 MCP（URL 查询串带 token + `Authorization: Bearer …`）（alpha.2 + rc.2） | `profileTargets` 给出 `include:mcp-patchy`、`endpoint` 去掉查询串、`headerKeys:["Authorization"]`；整个状态载荷里 `SHOULD-NOT-LEAK` 出现 0 次 |
-| 官方设置写入路径（真机 GUI 里的新增/编辑/启停/删除）（alpha.2 + rc.2） | 客户端 `configForms.get('dsh-mcp-console').mutate` → 宿主 `settings.mutate` → `configEditor` 写 profile patch → `loader/volatile-update` → 对账；`live.state=mounted`、工具 20 个 |
-| 写入落盘形态（alpha.2 + rc.2） | 官方 `configEditor` 把值写进该 profile 的 `cordis.patch.yml` 里 `dsh-mcp-console` 那一条的 `config`——与用户手写的 MCP 条目**同文件、不同条目**；手写注释与 `!!js` 表达式未被触碰 |
-| 真机 GUI 验收（`scripts/gui-flow.mjs`：CDP + 无头 Chrome）（alpha.2 + rc.2） | 两轮都 **52/52 通过**（含导入脱敏、验证前置、浮层在面板内、20 个工具名齐全、可滚动）；rc.2 上连跑两次都是 52/52，浮层实测 `279x205` 在面板 `472x335` 内 |
-| **rc.2 专项**：鉴权/CSRF 边界 | 14/14：缺自定义客户端头 403、头值非 `1` 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、动作路由错/缺 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、方法不符 405、非 JSON 415、同源头 + 正确 CSRF 200 |
-| **rc.2 专项**：对账幂等与凭据链 | 配置指纹未变时连续对账 `mounted:[] / unmounted:[] / unchanged:["srv-idem-a"]`，`live.mountedAt` 不变（无偷偷重挂）；引用未配置凭据的条目被拦（`blockedReason` 指名缺哪个键、`live.state=null`），把值写进 `.credentials.yaml` 后再对账即挂载（同轮 `mounted` 里有它、`blocked` 里没有它；`unchanged` 始终不含它 —— 被拦条目每轮重算，这是能从被拦恢复的前提） |
+同线的其它 prerelease 带警告运行、能力探测仍是权威判定；`0.2.1` 正式版按判据在门内，发布后把它加进 `VERIFIED_DSH_VERSIONS` 与 `install.sh` 清单。
 
-> 0.1.6 线那张旧表（`/tmp/dsh-mcp-spike/home2`，往 `settings.yaml` 写条目、按 `settings` scope 的 watch 对账）已随换线失效：那条链在 0.1.7 里不存在了。
-
-### 0.2.0-rc.2 复跑（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）
-
-隔离环境 `DSH_HOME=/tmp/dsh-mcp-020/home`、profile `web`、端口 **5922**（非 3080；验证后按端口取 PID 停止）、headless Chrome 153 + CDP 9333。profile 里手写两行 `dsh-mcp-client`：**第 1 行是 URL 带 token + `Authorization` 的 `patchy2`**（GUI 脚本的「导入」断言按它取锚点），第 2 行是 stdio fixture（20 个工具）。
-
-| 场景 | 实测结果 |
-|---|---|
-| 启动装配 | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`versionSupported=true`、`dshVersion=0.2.0-rc.2`、`compatibilityRange=>=0.2.0-rc.2 <0.2.1`、`verifiedVersions=["0.2.0-rc.2"]` |
-| **`loader/volatile-update` → 对账**（换线时最关键、最容易静默失效的一环） | 直接往 profile 的 `cordis.patch.yml` 写 `config.servers` → `lastReconcile.reason=settings`、`mounted:["volprobe"]`、`live.state=mounted`、20 个工具 |
-| **对账幂等** | 紧接着手动 `reconcile`：`mounted:[] / unmounted:[] / unchanged:["srv-volatile"]`，`live.mountedAt` **不变**（没有偷偷重挂） |
-| **凭据占位符链路** | 加一条 `env: { VOLPROBE_TOKEN: 'credential:VOLPROBE_TOK' }` 的条目 → 被拦（`blockedReason` 指名缺 `VOLPROBE_TOK`、`live.state=null`；同一轮 `mounted` 里仍有它，这是「已知边界」记过的形态）→ 把值写进 `.credentials.yaml` 后**无需手动对账**：`reason=credentials`（证明 `credentials/reference-updated` 到达插件）、`mounted:["credprobe"]`、`blocked:[]`、20 个工具、`unchanged` 仍只含上一个条目；明文 `probe-value` 在状态载荷里出现 **0 次** |
-| **凭据写入走官方服务** | 隔离 `DSH_HOME` 的 `.credentials.yaml`（mode **0600**）里出现 `MCP_PATCHY2_HEADERS_AUTHORIZATION` / `MCP_PATCHY2_URL_URL`（「导入」动作写入）与 `URL_TOK`（GUI 里「保存凭据」写入）——三条都由宿主经 `ctx.credentials.set` 落盘。插件自己**不解析 yaml**：全仓 grep 只有 `lib/store.js` 一行注释提到该文件名，没有任何读取/解析代码 |
-| 真机 GUI（`scripts/gui-flow.mjs`） | **52/52 连跑两轮全过**；浮层实测 `279x205` 在面板 `472x335` 内（与 rc.2 的数字逐字一致） |
-| 鉴权 / CSRF 边界 | **12/12**：缺自定义客户端头 403、头值非 1 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、同源头 200、动作缺 CSRF 403、错 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、方法不符 405、非 JSON 415、正确 CSRF 200 |
-| `npm run verify` | **104/104**（跨线新增 5 条：包名/条目 id/bundle id 同源、发布线与下界四处同源、`install.sh` 两处清单、版本门矩阵） |
-| 导航图标 | `verify-nav-icon.js --measure` 六项全过（label 偏移 36/9 与壳层原生行一致、原 svg 被隐藏、mask 生效、`::before` 恰好 16×16、壳层行未被动过）；`tools/dsh-icons/check.js` 188 个图标无漂移 |
-| 设置分区 order | 0.2.0 新增的 `ui-settings-session-log` 是 **`settings.general.item`（order 90）**，不是 `settings.section`；`settings.section` 的内置项仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，本插件当时写 **110**（2026-10-19 起改为 **130**，见根 `AGENTS.md`），都在全部内置分区之后 |
-
-**结论：业务代码一字未改**，本轮改动只有 `lib/dsh.js` 与 `install.sh` 的版本门、`package.json` 的两处范围、`test/manifest.test.js`（新增）、`test/host.test.js` 的版本门用例与四份文档。
-
-### 0.2.1-alpha.2 复跑（2026-10-10，跨发布线：DSH 从 `0.2.0-rc.2` 升到 `0.2.1-alpha.2`）
-
-隔离环境 `DSH_HOME=/tmp/dsh-mcp-console-021/home`、profile `web`、端口 **5922**（非 3080）、headless Chrome 155 + CDP 9333。profile 里手写两行 `dsh-mcp-client`（第 1 行 URL 带 token + `Authorization` 的 `patchy2`，第 2 行 stdio fixture 20 个工具），另在本插件自己那条 config 里放两条对账探针（`srv-volatile`、`srv-credprobe`）。
-
-| 场景 | 实测结果 |
-|---|---|
-| 启动装配 | `runtime=ready`、`settingsAvailable=true`、`mcpModule.strategy=loader-import`、`versionSupported=true`、`dshVersion=0.2.1-alpha.2`、`compatibilityRange=>=0.2.1-alpha.2 <0.2.2`、`verifiedVersions=["0.2.1-alpha.2"]`、`actions=['reconcile','verify','import']` |
-| **`loader/volatile-update` → 对账** | 直接往 profile 的 `cordis.patch.yml` 写 `config.servers` → `reason=settings`、`mounted:["volprobe"]`、`live.state=mounted`、20 个工具 |
-| **对账幂等** | 手动 `reconcile`：`mounted:[] / unmounted:[] / unchanged:["srv-volatile"]`，`live.mountedAt` **不变**（无偷偷重挂）；GUI 两轮后两条探针都在 `unchanged` 且仍 `mounted` |
-| **凭据占位符链路** | `env: { VOLPROBE_TOKEN: 'credential:VOLPROBE_TOK' }` → 被拦（`blockedReason` 指名缺 `VOLPROBE_TOK`、`live.state=null`；同一轮 `mounted` 里仍有它）→ 值写进 `.credentials.yaml` 后**无需手动对账**：`reason=credentials`（证明 `credentials/reference-updated` 到达插件）、`mounted:["credprobe"]`、`blocked:[]`、20 个工具；明文 `probe-value` 在状态载荷里出现 **0 次** |
-| **凭据写入走官方服务** | 隔离 `.credentials.yaml`（mode **0600**）的 `refs` 段里出现 `MCP_PATCHY2_HEADERS_AUTHORIZATION` / `MCP_PATCHY2_URL_URL`（「导入」动作）与 `URL_TOK`（GUI「保存凭据」）——都由宿主经 `ctx.credentials.set` 落盘；插件自己**不解析 yaml** |
-| **设置写入不触碰手写内容** | GUI 两轮写入后，patch 里手写的分节注释、两条 `- insert:` 条目、`args` 列表格式逐字保留，被改的只有 `dsh-mcp-console` 自己那条 |
-| 真机 GUI（`scripts/gui-flow.mjs`） | **52/52 连跑两轮全过**；浮层实测 `250x261` 在面板 `467x449` 内 |
-| 鉴权 / CSRF 边界 | **12/12**：缺自定义客户端头 403、头值非 1 403、跨源 Origin 403、`sec-fetch-site: cross-site` 403、同源头 200、缺 CSRF 403、错 CSRF 403（body 可读 `bad-csrf`）、未知动作 400、动作路由 GET 405、非 JSON 415、正确 CSRF 200、状态路由 POST 405 |
-| `npm run publish:check` | **104/104** + 打包白名单 **12 个文件 / 60803 字节** |
-| 导航图标 | `verify-nav-icon.js --measure` 六项全过；`tools/dsh-icons/check.js` 188 个图标无漂移 |
-| 设置分区 order | 内置 `settings.section` 仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（上限 **20** 未变）→ 本插件当时写的 **110** 排在全部内置分区之后（2026-10-19 起改为 **130**）；`settings.general.item` 上限仍 100（该线新增的 `dsh-cordis-client-runner` 示例也是 100） |
-
-**关键修正：本轮不能说「契约面逐字相同」。** `dsh-mcp-client` 的**代码**（`lib/index.js` 835 行 + 5 个 `.d.ts`）与 rc.2 逐字相同、同 sha256（`758d8fc4…`），但它的 `package.json` **不是「只变 version」**：运行时依赖 `@modelcontextprotocol/client` 由 `2.0.0` 升到 **`2.2.0`**（MCP SDK 跨两个 minor），peerDependencies 整体重钉到 0.2.1-alpha.2 线；`dsh-host-webserver` 同时新增了运行时依赖 `ipaddr.js`。这类「代码同哈希、依赖换版本」只能靠**逐包去掉 `version` 再比 JSON + 比对依赖字段**发现，读 CHANGELOG 或只看 `lib/` diff 都会漏。上面的动态挂载/工具发现/dispose/对账实测逐条通过，据此判定**本插件在新 SDK 上行为不变**。
-
-**结论：业务代码一字未改**，本轮改动只有 `lib/dsh.js` 与 `install.sh` 的版本门常量、`package.json` 的 range/engines/verifiedVersions、`test/manifest.test.js` 与 `test/host.test.js` 的版本门矩阵、README / CHANGELOG 与本文件。
-
-### 逐版本核对记录
-
-| DSH 版本 | 本轮核对方式 | 结论 |
-|---|---|---|
-| `0.1.7-alpha.2` | 逐包核对 `0.1.6-alpha.2 → 0.1.7-alpha.1` 契约差异后换线；隔离宿主端到端 + 真机 GUI 52/52 | 首次验证通过（本节上表的首次落地） |
-| `0.1.7-rc.2`（2026-09-29） | 复用工作区已做的逐包 diff（`dsh-mcp-client` / `dsh-credentials` / `dsh-config-editor` / `dsh-settings` / `dsh-host-webserver` 与 alpha.2 **逐字相同**；真的动过的是 `dsh-app-boot` +424/-48、`dsh-plugin-manager` +757/-154、`dsh-tools` 仅新增 `displayReason` 字段）；在**独立的 `DSH_HOME=/tmp/dsh-mcp-rc2`** 上重跑端到端断言 + 真机 GUI（连跑两次 52/52）+ 14 例鉴权/CSRF + 对账幂等与凭据链实测；`npm run verify` 99/99 | 通过，**代码无需适配**：动态挂载链路（`ctx.plugin` / `fiber.dispose` / `loader/volatile-update` → 对账）在 rc.2 上行为不变；本插件不声明 `peerDependencies`，rc.2 新增的插件兼容预检不门禁本条目（`runtime=ready`、`settingsAvailable=true` 证明装配期没抛错）；设置/凭据/配置编辑三条链路的契约包逐字相同，实测也照旧 |
-| **`0.2.0-rc.2`（2026-10-01，跨发布线）** | 复用工作区的逐包 diff（A1–A3：本插件点名的 `dsh-mcp-client` / `dsh-credentials` / `dsh-settings` / `dsh-tools` / `dsh-host-webserver` **逐字相同**，只有 `version` 字段变），并在**实际安装包**里把「已核对的契约」表逐项重读（`dsh-acp:12,218` 的动态挂载先例、`cordis` 的 `plugin()`、`cordis-plugin-loader` 的 `_commitVolatile`/`loader/volatile-update`、`dsh-credentials-local` 的 `resolve(473)/describe(491)/set(513)/unset(517)`、`dsh-config-editor` 的 `withFileLock(package.json)`+`writeFileAtomic(..., {mode:384})`+`reconcileProfilePatches`、`dsh-settings` 的 `ns: entry.options.id`、`dsh-host-webserver:179` 的重复路由 throw）；独立 `DSH_HOME=/tmp/dsh-mcp-020/home` + 端口 5922 上跑端到端 + 真机 GUI（连跑两轮 52/52）+ 12 项鉴权/CSRF + 对账幂等 + 凭据链；`npm run verify` 104/104 | 通过，**业务代码一字未改**：本轮只改了版本门（`lib/dsh.js` 从 `DSH_RELEASE_LINE`/`DSH_RELEASE_FLOOR` 派生、`install.sh` 的等价 shell 版含 `prerelease_rank()`）、`package.json` 的 range/engines/清单、测试守卫与文档。**特别注意**：下界从 `alpha.1` 换成 `rc.2` 后必须比较 channel 优先级——旧的 `channel !== 'alpha' || seq >= 1` 会把 `0.2.0-alpha.9` 误判成兼容（`test/manifest.test.js` 的版本门矩阵守着） |
-| **`0.2.1-alpha.2`（2026-10-10，跨发布线）** | 逐包 diff 11 个契约包（见 `docs/compat-log.md` 的 G2）：`dsh-mcp-client` **代码同哈希**（`lib/index.js` 835 行 `758d8fc4…` + 5 个 `.d.ts`），但 `package.json` 的运行时依赖 `@modelcontextprotocol/client` `2.0.0 → 2.2.0`；`dsh-settings` / `dsh-config-editor` 代码 0 行差异；`dsh-credentials(-local)` / `dsh-tools` / `dsh-system-prompt` / `dsh-host-webserver`（+`ipaddr.js`）/ `dsh-plugin-manager` / `dsh-acp` / `cordis-plugin-loader 1.0.5→1.0.6-alpha.1` 有真改动。在**实际安装包**里逐项重读契约面（行号证据见 G2），并在独立 `DSH_HOME=/tmp/dsh-mcp-console-021/home` + 端口 5922 上跑端到端 + 真机 GUI（连跑两轮 52/52）+ 12 项鉴权/CSRF + 对账幂等 + 凭据链闭环 + 设置写入不触碰手写注释；`npm run publish:check` 104/104 + 打包 12 文件 | 通过，**业务代码一字未改**：只改版本门常量（`DSH_RELEASE_LINE='0.2.1'`、下界 `{channel:'alpha',sequence:2}`）、`package.json` 三处、测试守卫与文档。**留意**：MCP SDK 跨了两个 minor，属「代码同哈希、依赖换版本」——这类只能靠逐包去掉 `version` 比对依赖字段发现，本轮已用动态挂载/工具发现/dispose/对账实测覆盖 |
-| **`0.2.1-rc.2`（2026-10-19，同线 prerelease 实跑）** | 承接 J1 的离线核对（已确认 `dsh-mcp-client` 逐字相同），本轮按用户要求**实跑**：独立 `DSH_HOME=/private/tmp/dsh-mcp-021rc2/home` + 端口 5922（非 3080），profile 里手写两行 `dsh-mcp-client`（`patchy2` + stdio fixture 20 个工具）。宿主侧 **22/22**：动态挂载/工具发现/dispose、**凭据链闭环**（缺凭据被拦并指名键名 → 写入 `.credentials.yaml` 的 `refs:` 段后**无需手动对账**即挂载）、**明文 0 次入载荷**（13 份响应载荷全查，URL 里的 token 同样 0 次）、鉴权/CSRF 8 项、手写行未被触碰。真机 GUI **52/52**（连跑两轮）。`npm run publish:check` 104/104 + 打包 12 文件 | 通过，**业务代码一字未改**：本轮只把 `0.2.1-rc.2` 加进四处同源清单。**一个真实失败点在验收脚本里、不在插件里**：`scripts/gui-flow.mjs` 原本直接 `click('button','设置')`，而设置入口在**账号菜单**里（菜单未展开时 DOM 中不存在该按钮）；逐包对照 alpha.2 证明该菜单实现**逐字相同**，故**不是 rc.2 回归**而是脚本一直存在的缺口——补「先直接点、点不到再展开菜单」兜底后 52/52 全过（详见 `docs/compat-log.md` 的 J3） |
-| 其它 `0.2.1-*` prerelease / `0.2.1` 正式版 | 未逐版本核对 | 落在兼容线内、带警告运行；能力探测仍是权威判定。正式版发布后按判据它在门内，届时把它加进 `VERIFIED_DSH_VERSIONS` 与 `install.sh` 清单即可 |
+逐轮实测记录（`0.1.7-alpha.2` / `0.1.7-rc.2` / `0.2.0-rc.2` / `0.2.1-alpha.2` / `0.2.1-rc.2`）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
 ## 结构
 
@@ -241,7 +180,7 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   #
 - `scripts/gui-flow.mjs`（`npm run gui:check`）是**真机 GUI 验收**：用 CDP 驱动无头 Chrome 打开隔离宿主，走「打开设置（先关掉首启引导弹层）→ 进分区 → 查行是不是一行 → 导入（带上 URL/命令与凭据占位符、页面不出现明文）→ 新增（弹窗，label 文案与同一行）→ 填错命令后点保存（自动验证失败、不落盘）→ 换本地 fixture 服务器再保存 → 悬停「已连接 · N 个工具」看完整清单、量它是否在面板内、滚轮滚动清单 → 编辑 → 停用 → 删除」，每步都用宿主状态接口交叉核对，真机里还走了一遍「点『凭据』→ 自己取键名 → 凭据区出现该键」。**必须先关引导弹层**，否则它盖住设置面板、悬停事件落不到插件元素上——弹层文案随发布线变（0.1.6 是「稍后配置」/「关闭」，0.1.7 的首启引导多了「继续」一步），所以脚本改成"循环点到没有可见 dialog 为止"并新增一条断言，只认旧文案会让浮层那几条假失败。定位弹窗要用 `.dmc-dialog`：设置面板本身也带 `role=dialog`，按 role 查会先命中它。
 - **导航图标补丁的几何**用工作区工具离线量过，每次换线都复跑：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-mcp-console --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure`，六项检查全通过（`stylesInjected` / `geometryMatches`（label 偏移 36,9 与壳层原生行一致）/ `originalIconHidden` / `maskApplied` / `squareIconBox`（::before 恰好 16×16）/ `shellRowUntouched`；`0.2.1-alpha.2` 上复跑同样六项全过）。为跑通它给固定场景补了 `createContext`/`useContext` 与 `ctx.effect`（详见 `tools/dsh-icons/README.md`），并用 `dsh-extra-context`、`dsh-chat-archive-manager` 回归确认没有改坏既有插件。
 - **样式注入必须同步**：`installStyles` 先注入再登记 `ctx.effect` 清理。曾把注入整块放进 effect 回调，固定场景（无 effect）下样式永远进不了文档——这与 `dsh-extra-context` 踩过的「标记已打、CSS 未到」是同一个坑。
-- **本机真实宿主上已验证**（0.1.6 线，用户重启后；换线后由上面「隔离宿主上的端到端实测（0.1.7-alpha.2）」一节取代）：`runtime=ready`、`settingsAvailable=true`、模块走 `loader-import`；`profileTargets` 正确列出用户 patch 里的 `figma`/`jira`（jira 的 `Authorization` 只给键名，`JIRA_MCP_BASIC` 的值与任何 `Basic ` 明文都不在载荷里）；无自定义客户端头 403、错误 CSRF 403。
+- **本机真实宿主上已验证**（0.1.6 线，用户重启后；换线后由「验收判据」一节的隔离宿主实测取代）：`runtime=ready`、`settingsAvailable=true`、模块走 `loader-import`；`profileTargets` 正确列出用户 patch 里的 `figma`/`jira`（jira 的 `Authorization` 只给键名，`JIRA_MCP_BASIC` 的值与任何 `Basic ` 明文都不在载荷里）；无自定义客户端头 403、错误 CSRF 403。
 - **只读块（配置文件中的服务器）的文案不得出现实现细节**：曾经在页面上写「这些行来自 profile 的 cordis.patch.yml（含 !!js 表达式），本插件不修改该文件…」——用户直接反馈「很乱、说明描述了一些跟具体配置有关的信息，明显不合理」。现在页面上只有标题 +「只读 · 值不显示」，实现细节留在文档里；`test/client.test.js` 与 `scripts/gui-flow.mjs` 都断言渲染文本里不出现 `profile` / `cordis.patch.yml` / `!!js` / `本插件不修改`。
 - 只读块**不复用托管行的 `.dmc-row` 样式**，自己成卡片（`.dmc-targets`/`.dmc-target`）：两者层级不同，混用会让人以为它也是可编辑条目。
 - **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，52/52；`0.1.7-alpha.2`、`0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-alpha.2` 各通过，后两条线各连跑两轮）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmc-tools`/高度 <60px）；官方浮层的宽高都在 `.dmc-section` 之内（alpha.2 实测 `232x202` vs 面板 `464x389`，rc.2 实测 `279x205` vs `472x335`，`0.2.1-alpha.2` 实测 `250x261` vs `467x449`，都 `insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
