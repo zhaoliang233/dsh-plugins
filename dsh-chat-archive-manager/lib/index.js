@@ -21,17 +21,17 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  *
  * 能力探测仍然是权威判定：**线内**版本即使未逐条核对，也照常挂载并逐项 fail closed 降级。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2']
 
 /**
  * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.1`、`0.2.1-<channel>.N`）。
  * 语义与 `install.sh` 的 `DSH_RELEASE_LINE` 逐字对应，并与
- * `DSH_COMPATIBILITY_RANGE=">=0.2.1-alpha.2 <0.2.2"` 一致：**0.2.0 一线与 0.2.2 起都不算在内**
+ * `DSH_COMPATIBILITY_RANGE=">=0.2.2-alpha.2 <0.2.3"` 一致：**0.2.0 一线与 0.2.2 起都不算在内**
  * （上一线 0.2.0、下一线 0.2.2 都要重新核对契约后另发版本）。
  */
-export const DSH_RELEASE_LINE = '0.2.1'
+export const DSH_RELEASE_LINE = '0.2.2'
 
 /**
  * 兼容线的下界：同线内更低 channel（仅指下界之上的 channel 优先于它）或更小序列号

@@ -1,11 +1,15 @@
 # dsh-extra-context — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.1`，兼容线 `>=0.2.1-alpha.2 <0.2.2`，逐版本核对的是 `0.2.1-alpha.2` 与 `0.2.1-rc.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对的是 `0.2.2-alpha.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
 
 ## 逐版本核对记录
 
-逐版本逐契约面核对记录（`0.1.7-rc.2` 起 4 轮）见 [`docs/compat-log.md`](../docs/compat-log.md) 的 F1 等轮次；本插件的**当前**契约以下面「已核对的契约」表为准。
+逐版本逐契约面核对记录（`0.1.7-rc.2` 起 6 轮）见 [`docs/compat-log.md`](../docs/compat-log.md) 的 F1 等轮次；本插件的**当前**契约以下面「已核对的契约」表为准。
+
+**`0.2.2-alpha.2`（2026-10-28，跨发布线，最小兼容修复）**：`dsh-system-prompt` 的 `section()`/`ScopedLayers`/`interpolate`/`renderPrompt` 仍成立（0.2.2 只改了 `assemble()` 里 tools 的归属：把 provider 侧的 `tools` 原样返回）；`dsh-settings`、`dsh-config-editor`、`cordis-plugin-loader` 的 `.volatile()`/`volatile-update`、`describe()`、`settings.configure()` 语义未变（`dsh-settings` 只把 `entry.fiber.config` 读法换成 `effectiveConfig`，`ctx.config.<字段>.get()` 仍是公开读法）；`dsh-compaction-basic` 的 `summarizeWithLlm()`/`COMPACTION_INSTRUCTION`/`purpose: "compaction"` 与 `dsh-llm` 的 `llm/stream` waterfall 逐字未变；`dsh-session` 的 surface 节点 0 保护（`assertSystemHeadRewrite`/`applySurfacePlan`）仍在。隔离 `DSH_HOME` + 0.2.2-alpha.2 宿主实测：`/dsh-extra-context/status` 200、`writable:true`；设置页「额外上下文」分区真实渲染；真实 GUI 里 `data-dec-nav-icon` 补丁生效且六项几何与壳层原生行一致。**业务代码未改**，只换版本门与清单。**随后用户反馈设置菜单图标空白**（2026-10-29）：0.2.2 的图标是 sprite 壳，`outerHTML` 只有 `<use href="#…">`，直接当 mask 会引用一个独立文档里不存在的符号；已改为优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG，`navIconMaskSource()` 仍作旧线兜底。
+
+**`0.2.1-alpha.2`（2026-10-10，跨发布线）**：见下方 F1 记录；`0.2.2-alpha.2` 这一轮没有重跑压缩摘要 A/B（`dsh-compaction-basic`/`dsh-llm` 在本轮 diff 里除 `reservedCompletionTokens` 多取一个 `header` 参数外，摘要路径逐字相同），该未覆盖项照旧列在下面。
 
 **一处跨轮未覆盖项**：压缩摘要补充指令的真实路由 A/B 始终没跑（`dsh-compaction-basic` 与 `dsh-llm` 在历次比对里逐字相同，按同源推断成立）。要看它是否真的改变摘要语言，按「实现事实 5」的验证方法跑一次带它/去掉它的对照即可。
 
@@ -72,7 +76,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 用户实测反馈：「额外上下文」这一行用的是**齿轮**，与“设置”本身撞脸。根因是壳层设计（见契约表最后两行与 `navIcon` 白名单）。插件做法（`client.js` 的「设置页导航图标」分区）：
 
 1. 注册 `settings.action`（id `extra-context-nav-icon`）作为挂载点——它与设置面板同生命周期，面板关闭即随 fiber 卸载并回滚；
-2. 挂载点在 `useLayoutEffect` 里把 `IconContextInjectionOutline16` 渲染进 `display:none` 的模板 div，取 `outerHTML` 作 mask 源码（**必须补 `xmlns`**，否则 data: URI 里的 SVG 按 HTML 解析、mask 静默失效）；
+2. 挂载点在 `useLayoutEffect` 里把 `IconContextInjectionOutline16` 渲染进 `display:none` 的模板 div，取图标源码作 mask：**0.2.2 起必须优先用 `primitives.ICON_SYMBOLS`**（按 `data-icon` / `<use href>` 查到符号 id，取完整 SVG），因为组件 `outerHTML` 只有 `<use>`、直接当 mask 会空白；旧线没有该导出时退回 `outerHTML` 并 **必须补 `xmlns`**（否则 data: URI 里的 SVG 按 HTML 解析、mask 静默失效）；
 3. `patchSettingsNavIcon(doc, source, label)` 在 `nav button` 里按 `textContent.trim() === '额外上下文'` 精确匹配（前缀相同的行不会误伤），给按钮打 `data-dec-nav-icon`、写内联 CSS 变量，并挂 `MutationObserver` 以便壳层重建导航后补回来；
 4. 样式（`.dec-nav-icon-template` + `[data-dec-nav-icon]` 三条规则）隐藏原 svg，用 `::before` + `mask` 画图标。`::before` 是 flex item 而**不是绝对定位**：尺寸/间距沿用壳层布局，壳层改内边距也不会错位；图形用 `currentColor`，选中/悬停/深色主题配色继续跟随壳层；
 5. **样式表由插件级 `installStyles(ctx)` 注入（在 `apply()` 里），任何组件都不负责它**：按 `style[data-dec-owner="dsh-extra-context-v1"]` 认领自己那份样式、写 `data-plugin`，元素存活但文本过期时重写文本，并用 `ctx.effect` 做**引用计数**（HMR 先卸旧 fiber 再 materialize 新的，计数保证窗口内样式不被提前移除；归零才移除，副作用可逆）。
@@ -125,7 +129,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ## 配置与安装
 
-- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.2.1-alpha.2 <0.2.2`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
+- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.2.2-alpha.2 <0.2.3`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
 - `cordis.patch.yml`：一行 `insert`。**新增插件首次安装必须重启 `dsh web`**——bundle 列表只在启动时读取（`patchReload: live` 只热重载 patch 文件，不重读 bundle 列表）。
 - `install.sh` / `uninstall.sh`：兼容性检查（范围外拒绝安装）+ `npm run publish:check` + 官方 `dsh plugin --profile` 管理；卸载保留 profile 配置里的用户数据。
 
@@ -144,7 +148,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 - 界面几何与一致性：图标按钮内容必须同型（回退文本 `'✕'` → 失败）且同尺寸档、规则行字数必须是字符数（回退 `byteLength` → 失败）、计数单位必须是「个字符」（行内退回 `N 字` → 失败，且断言整页不出现裸露的 `N 字`）、预览容器边框足够可见（新增 `border-l1` 规则必须被扫到，只查第一条匹配规则会漏）、客户端 `normalizeSettings` 必须去重、错误边界必须真的接在渲染树上。
 - 预览分区（注入缺陷验证过）：卡片必须**恰好两段** `['dec-preview-text','dec-preview-cost']`，把 `.dec-preview-note` 塞回去 → 2 个用例红；「它写在每次对话的最前面，优先于其他说明」必须出现在标题下方的 `.dec-intro-line` 里，从那里删掉 → 1 个用例红（同时守着"卡片里不得再出现这句"）。
 - 开关与 `label` 移除（本轮新增的护栏，全部**注入缺陷验证过**）：primitives 桩把 `Switch` 渲染成 `type: 'switch'`，于是"用的是官方组件还是自绘控件"在渲染树上可判定——①去掉 `.dec-master{margin-left:auto}` → 顶部排版用例红；②把总开关/行内开关换回自绘按钮或原生 checkbox → 4 个用例红（含 `dec-check` 残留检测）；③行内开关丢掉 `dec-row-switch` 定位类 → 4 个用例红；④行内开关被按下 `disabled: true` → 「写入进行中不得禁用输入控件」用例红；⑤新增分段时把 `label` 写回去 → 2 个用例红（添加分段的字段清单断言 + 脏数据用例）。另外 `decode`、`buildStatus`、`normalizeSettings` 与真实 schemastery 的 `toJSON()` 各有一条"不得再出现 `label`"的断言。
-- 导航图标补丁：挂载点/CSS 变量/dataset 键**三处同源**（各自写一遍字面量就会静默失效）、必须补 `xmlns`、可回滚（引用计数递减、断开 MutationObserver、重建后补回）、`apply` 必须注册 `settings.action`、样式必须插件级注入（删掉 `apply()` 里的 `installStyles(ctx)` → 单测与 `tools/dsh-icons/verify-nav-icon.js` 的 `stylesInjected/originalIconHidden/maskApplied/squareIconBox` 四项同时失败）、样式表引用计数必须递减而不是清零。
+- 导航图标补丁：挂载点/CSS 变量/dataset 键**三处同源**（各自写一遍字面量就会静默失效）、0.2.2 sprite 图标必须经 `ICON_SYMBOLS` 还原成自包含 mask（残留 `<use>` 会空白）、必须补 `xmlns`、可回滚（引用计数递减、断开 MutationObserver、重建后补回）、`apply` 必须注册 `settings.action`、样式必须插件级注入（删掉 `apply()` 里的 `installStyles(ctx)` → 单测与 `tools/dsh-icons/verify-nav-icon.js` 的 `stylesInjected/originalIconHidden/maskApplied/squareIconBox` 四项同时失败）、样式表引用计数必须递减而不是清零。
 
 测试基建的两个坑（写在 `test/client.test.js` 顶部，勿简化）：**React 桩必须按组件实例分池**——曾用“全局游标 + 全局数组”，父子组件 hook 槽位互相推挤，同一 `useRef` 位置在不同渲染轮次返回不同对象，看起来像产品缺陷、实际是桩的错；**`useCallback` 桩必须真记忆化**——曾写成 `useCallback(fn) { return fn }`，回调标识每轮变化，`useEffect([flush])` 的清理每轮重跑，“打字过程中不得写设置”的守卫因此恒为真。
 
@@ -173,7 +177,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ```bash
 npm run check       # node --check ×4 + bash -n ×2（bash 不在 PATH 时本机跑不通，CI 用 ubuntu）
-npm test            # 75 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
+npm test            # 76 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
                     #        落位、形态与禁用策略）、label 移除、写入时机与重试、预览口径、
                     #        状态路由鉴权、字段级合并、错误边界、图标对齐与字数口径、
                     #        导航图标补丁、样式表注入与引用计数、Windows 装载路径（file URL）、
@@ -186,7 +190,7 @@ npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象�
 - **压缩摘要补充指令的四条护栏**（实现事实 5，逐条**注入缺陷验证过**）：①去掉 `purpose` 筛选 → 「其它 purpose 不得被改动」用例红；②把追加改成替换 `options.messages` → 「DSH 英文摘要指令必须还在原位」用例红；③去掉 try/catch → 「冻结 options 必须原样放行」用例红；④把 `llmCtx.on('llm/stream')` 换成别的钩子 → 契约锚点用例红。
 - **Windows 装载路径的两条护栏**（真实缺陷：`import(绝对路径)` 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，见实现事实 1）：①`test/host.test.js` 里"装载 schemastery 必须经 file URL"用**假 DSH 根 + 桩 schemastery** 走 `applyCompatibleRuntime`，装载失败时 `state.registers` 为 0 → 必红（已在 Windows 上注入缺陷验证过）；②`test/manifest.test.js` 断言宿主源码必须写成 `await import(pathToFileURL(resolved).href)`。另外 `REAL_DSH_MANIFEST` 的探测已补 Windows 分支（原先只跑 POSIX 的 `command -v dsh`，于是依赖它的"真实 schemastery 全链路"用例在 Windows 上被整体 skip —— 这正是缺陷溜到用户机器上的原因）；伪造 DSH 根的目录软链在 Windows 用 `junction`（`symlink(..., 'dir')` 需要开发者模式，EPERM）。
 - **已在真实部署验证**：`GET /dsh-extra-context/status`、设置页分区、设置写盘、预览与消耗提示，以及“新建会话自动带上最新上下文”（用真实子代理逐字核对过 system prompt 内容）。
-- **导航图标补丁在真实浏览器里量过**（固定场景已固化进工作区工具）：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 用壳层原样抽取的导航 CSS + 真实 bundle（极简 React 垫片挂到真 DOM，保证 ref/`outerHTML`/`getComputedStyle` 都是真的）搭出与设置面板同构的 `nav button` 结构，并自动探测本插件的补丁契约（`data-dec-nav-icon` / `var(--dec-nav-icon-mask)` / 用 `display:none` 隐藏原 svg），契约与代码不同源时直接报错。量测结果：补丁行与壳层原生行的 `labelOffsetLeft/Top` 相同（36/9），原 svg `display:none`、`::before` 为 16×16 且 `mask-image` 是 data URI，壳层其他行保持齿轮且无任何 dataset 痕迹。**这不是实机设置页**，实机观感仍需用户刷新页面目视确认。
+- **导航图标补丁在真实浏览器里量过**（固定场景已固化进工作区工具）：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 用壳层原样抽取的导航 CSS + 真实 bundle（极简 React 垫片挂到真 DOM，保证 ref/`outerHTML`/`getComputedStyle` 都是真的）搭出与设置面板同构的 `nav button` 结构，并自动探测本插件的补丁契约（`data-dec-nav-icon` / `var(--dec-nav-icon-mask)` / 用 `display:none` 隐藏原 svg），契约与代码不同源时直接报错。量测结果：补丁行与壳层原生行的 `labelOffsetLeft/Top` 相同（0.2.2 为 38/9，0.2.1 时为 36/9），原 svg `display:none`、`::before` 为 16×16 且 `mask-image` 是 data URI，壳层其他行保持齿轮且无任何 dataset 痕迹。**这不是实机设置页**，实机观感仍需用户刷新页面目视确认。
 - 仍未实机验证：客户端 bundle 的裸单包路径 `/plugins/<id>/client.js` 取不到（`dsh-client-modules` 只广告/应答 combo URL `/plugins/??<id>/client.js&rev=<rev>`），所以“客户端是否加载”只能靠页面现象判断，不能用 curl 断言。
 - **两个已知的闸门缺口**，与插件代码无关：①`npm run check` 的 `bash -n install.sh/uninstall.sh` 依赖 PATH 里有 bash；②`npm run pack:check` 读 `npm pack --dry-run --json`，npm 12 起该输出是**以包名为键的对象**、而脚本按数组解构（`const [pack] = JSON.parse(output)`）→ `object is not iterable`。CI 与发布跑 ubuntu，不受影响。
 

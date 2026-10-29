@@ -16,7 +16,7 @@ import {
   runDshPluginRemove
 } from '../lib/profile-manager.js'
 
-const TEST_DSH_VERSION = '0.2.1-alpha.2'
+const TEST_DSH_VERSION = '0.2.2-alpha.2'
 const FIGMA_PATCH = `# Your patch layer\n# >>> Figma Desktop MCP\n- insert:\n    - id: mcp-figma-desktop\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: figma\n# <<< Figma Desktop MCP\n`
 const ROW = { id: 'dsh-demo-local', name: 'dsh-demo-local' }
 
@@ -500,38 +500,38 @@ test('force-kills a hung uninstall command after its timeout', async (t) => {
 })
 
 test('accepts the compatible DSH release line and rejects adjacent lines', () => {
-  assert.deepEqual(classifyDshVersion('0.2.1-alpha.2+build.1'), {
+  assert.deepEqual(classifyDshVersion('0.2.2-alpha.2+build.1'), {
     supported: true,
     verified: true,
-    normalized: '0.2.1-alpha.2'
+    normalized: '0.2.2-alpha.2'
   })
-  // 0.2.1-alpha.2 是当前的逐版本验证版本：本插件用到的契约包逐个核过
+  // 0.2.2-alpha.2 是当前的逐版本验证版本：本插件用到的契约包逐个核过
   // （profile patch 事务与写锁、官方 removeBundle 语义、webServer、requestRejection、
   // settings.section、include 行 id 与 EntryTree.sep、dsh-hmr 的 profile 重组与清单缓存）。
   // 同线内其它版本仍允许启动，但只给一条告警，运行时的结构与能力检查继续 fail closed。
-  assert.deepEqual(classifyDshVersion('0.2.1-alpha.3'), {
+  assert.deepEqual(classifyDshVersion('0.2.2-alpha.3'), {
     supported: true,
     verified: false,
-    normalized: '0.2.1-alpha.3'
+    normalized: '0.2.2-alpha.3'
   })
-  assert.deepEqual(classifyDshVersion('0.2.1-beta.1'), {
+  assert.deepEqual(classifyDshVersion('0.2.2-beta.1'), {
     supported: true,
     verified: false,
-    normalized: '0.2.1-beta.1'
+    normalized: '0.2.2-beta.1'
   })
   // 下界是 alpha.2：同线内 beta/rc 与正式版都在门内，更小的 alpha 序列号在门外。
-  assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false)
-  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.1-rc.1').verified, false)
-  assert.equal(classifyDshVersion('0.2.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.1').verified, false)
+  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false)
+  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
+  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, false)
+  assert.equal(classifyDshVersion('0.2.2').supported, true)
+  assert.equal(classifyDshVersion('0.2.2').verified, false)
   // 相邻发布线一律拒绝：上一线的用户留在上一线的插件版本上。
   assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false)
   assert.equal(classifyDshVersion('0.2.0').supported, false)
   assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false)
-  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false)
+  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false)
   assert.equal(classifyDshVersion('invalid').supported, false)
-  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.1-alpha.2 <0.2.2')
+  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.2-alpha.2 <0.2.3')
 })
 
 test('resolves and classifies the running DSH package', async (t) => {

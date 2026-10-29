@@ -20,28 +20,28 @@ import {
 } from '../lib/index.js'
 import { unwrapModule } from '../lib/dsh.js'
 
-test('版本门：线内通过、线外拒绝，且只把已核对过的 0.2.1-alpha.2 当逐版本验证版本', () => {
-  assert.deepEqual(classifyDshVersion('0.2.1-alpha.2'), {
+test('版本门：线内通过、线外拒绝，且只把已核对过的 0.2.2-alpha.2 当逐版本验证版本', () => {
+  assert.deepEqual(classifyDshVersion('0.2.2-alpha.2'), {
     supported: true,
     verified: true,
-    normalized: '0.2.1-alpha.2'
+    normalized: '0.2.2-alpha.2'
   })
-  assert.deepEqual(classifyDshVersion('0.2.1-alpha.3'), {
+  assert.deepEqual(classifyDshVersion('0.2.2-alpha.3'), {
     supported: true,
     verified: false,
-    normalized: '0.2.1-alpha.3'
+    normalized: '0.2.2-alpha.3'
   })
   // alpha.3 落在兼容线内但没逐版本核对过 —— 只允许"带警告运行"，不能算已验证版本
-  assert.equal(classifyDshVersion('0.2.1-alpha.1').supported, false, '下界是 alpha.2，同线内更低的 alpha 在门外')
-  assert.equal(classifyDshVersion('0.2.1-alpha.0').supported, false, '同上，序列号低于下界')
-  assert.equal(classifyDshVersion('0.2.1-beta.1').supported, true, 'beta 的 channel 优先级高于 alpha 下界')
-  assert.equal(classifyDshVersion('0.2.1-rc.1').supported, true, 'rc 的 channel 优先级高于 alpha 下界')
-  assert.equal(classifyDshVersion('0.2.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.1').verified, false, '正式版尚未逐版本核对，按带警告处理')
-  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, '上一发布线不再支持')
+  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, '下界是 alpha.2，同线内更低的 alpha 在门外')
+  assert.equal(classifyDshVersion('0.2.2-alpha.0').supported, false, '同上，序列号低于下界')
+  assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta 的 channel 优先级高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true, 'rc 的 channel 优先级高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.2').supported, true)
+  assert.equal(classifyDshVersion('0.2.2').verified, false, '正式版尚未逐版本核对，按带警告处理')
+  assert.equal(classifyDshVersion('0.2.1').supported, false, '上一发布线不再支持')
   assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, '更早的发布线也不支持')
   assert.equal(classifyDshVersion(undefined).supported, false)
-  assert.equal(classifyDshVersion('0.2.1+build9').supported, true, '构建元数据不影响判定')
+  assert.equal(classifyDshVersion('0.2.2+build9').supported, true, '构建元数据不影响判定')
 })
 
 test('设置条目 id 与包名同源（客户端 bundle 里的字面量必须一致）', () => {
@@ -77,15 +77,17 @@ test('同源判定：loopback + sec-fetch-site + origin/host 三者一致', () =
 test('客户端请求必须同时满足 DSH 鉴权、同源与固定客户端头', () => {
   const request = (headers, address = '127.0.0.1') => ({ headers, socket: { remoteAddress: address } })
   const ok = request({ host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080', [CLIENT_HEADER]: '1' })
-  assert.equal(clientRequestRejection(ok, undefined), undefined)
-  assert.equal(clientRequestRejection(request({ host: 'h', origin: 'http://h' }), undefined), 403)
-  assert.equal(clientRequestRejection({ ...ok, headers: { ...ok.headers, [CLIENT_HEADER]: '0' } }, undefined), 403)
+  assert.equal(clientRequestRejection(ok, undefined), 401, '连接层不可用时必须 fail closed')
+  // 连接层放行之后，同源与固定客户端头仍然是第二道门槛。
+  const passing = { requestRejection: () => undefined }
+  assert.equal(clientRequestRejection(request({ host: 'h', origin: 'http://h' }), passing), 403)
+  assert.equal(clientRequestRejection({ ...ok, headers: { ...ok.headers, [CLIENT_HEADER]: '0' } }, passing), 403)
   assert.equal(
     clientRequestRejection(ok, { requestRejection: () => 401 }),
     401,
     'DSH 自身的鉴权结论优先返回'
   )
-  assert.equal(clientRequestRejection(ok, { requestRejection: () => undefined }), undefined)
+  assert.equal(clientRequestRejection(ok, passing), undefined)
 })
 
 /** 造一个够用的请求对象（可 async iterate + headers）。 */
@@ -175,7 +177,7 @@ test('statusPayload：与配置文件同名的托管条目要给出即时提示�
   const state = {
     csrfToken: 'tok',
     runtime: 'ready',
-    version: '0.2.1-alpha.2',
+    version: '0.2.2-alpha.2',
     versionSupported: true,
     module: {},
     moduleStrategy: 'loader-import',

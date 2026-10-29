@@ -6,13 +6,14 @@
 
 ### 兼容发布线（工作区规则）
 
-兼容发布线 `>=0.2.1-alpha.2 <0.2.2`：**一个插件版本只服务它逐包核对过契约的那一条 DSH 发布线**，不为同一个版本维护跨线实现，也不把版本号当"能力开关"：
+兼容发布线 `>=0.2.2-alpha.2 <0.2.3`：**一个插件版本只服务它逐包核对过契约的那一条 DSH 发布线**，不为同一个版本维护跨线实现，也不把版本号当"能力开关"：
 
-- 范围外（`0.2.0` 一线与 `0.2.2` 起，含 `0.2.2` 的 prerelease）保持 **inert**：不注册路由、不碰 registry、不做 legacy 迁移；`install.sh` 同样拒绝安装。上一线用户应留在上一线的插件版本。
-- 线内后续 prerelease（`0.2.1-alpha.|beta.|rc.N` 里够到或高于 `alpha.2` 的那些，以及 `0.2.1` 正式版）带警告运行，能力探测仍是权威判定：探测不到的能力各自 fail closed（501/503）并在页面上写明原因，其余功能照常——**绝不因为版本号让整页 404**。
+- 范围外（`0.2.1` 一线与 `0.2.3` 起，含 `0.2.3` 的 prerelease）保持 **inert**：不注册路由、不碰 registry、不做 legacy 迁移；`install.sh` 同样拒绝安装。上一线用户应留在上一线的插件版本。
+- 线内后续 prerelease（`0.2.2-alpha.|beta.|rc.N` 里够到或高于 `alpha.2` 的那些，以及 `0.2.2` 正式版）带警告运行，能力探测仍是权威判定：探测不到的能力各自 fail closed（501/503）并在页面上写明原因，其余功能照常——**绝不因为版本号让整页 404**。
+- **`0.2.2-alpha.2`（2026-10-28，跨线，最小兼容修复）**：逐包规范化 diff 后，`dsh-workspace`、`dsh-api-workspace-controller`、`dsh-atomic-write` 与 0.2.1-rc.4 **逐字相同**；`dsh-session-persistence-jsonl` 只在 `list()` 结果里新增 `location` 字段；`dsh-agent-loop` 的 factory 卸载顺序与 0.2.1 同构（cancel 多一个 `keepInbox` 选项，插件调用只传 reason 仍合法）；`dsh-session` 新增的「announce 完成前只读」约束不在这条删除链路上。隔离 `DSH_HOME` + 0.2.2-alpha.2 宿主实测：`/dsh-chat-archive-manager/status` 返回 200，`deletionSupported:true`、`sessionQuiescenceSupported:true`、`restorationSupported:true`，说明 `SessionStore instanceof Map`、`detachEntered`、`inbox.hasPending`、`whenIdle`、`scope.dispose`、`handle.close` 这组私有探针全部在新版成立；设置页「归档管理」分区真实渲染、0 控制台报错。**业务代码未改**，本轮只换版本门与清单。**随后用户反馈设置菜单图标空白**（2026-10-29）：0.2.2 的图标是 sprite 壳，组件 `outerHTML` 只有 `<use href="#…">`，直接作 mask 会引用独立文档里不存在的符号；已改为优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG（`selfContainedNavIcon()`），旧线无该导出时退回 `outerHTML`。
 - 支持新版本 DSH 的正确做法：重新读源码核对契约差异 → 补适配与回归测试 → 同步四处同源声明（`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 的 `DSH_COMPATIBILITY_RANGE`/`DSH_VERIFIED_VERSIONS`、本文档）→ 发新版本。`test/manifest.test.js`、`test/install.test.js`、`test/host.test.js` 有同源与范围断言守卫。
-- 运行时的版本分类（`classifyDshVersion`）与 `install.sh` 的 `is_compatible_dsh_version()` 语义逐字对应，且都从**发布线 + 下界**派生：`lib/index.js` 是 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`，`install.sh` 是同样的常量加一份 `prerelease_rank()`。`0.2.1` 与 `0.2.1-{alpha,beta,rc}.N` 里够到或高于 `alpha.2` 的版本在范围内，其余不在。status 里回传 `dshVersion`/`dshVersionVerified` 供页面提示。
-  **下界不是 alpha 时不能沿用旧的写法**：`channel !== 'alpha' || seq >= 1` 会把 `0.2.0-alpha.9`/`0.2.0-beta.9`/`0.2.0-rc.1` 全判成兼容，必须做 channel 优先级比较。反过来**下界是 alpha 时同样不能把下界写进正则**：`0.2.1-alpha.0`/`0.2.1-alpha.1` 低于 `alpha.2` 必须被挡住，而同线内的 `beta`/`rc`（如 `0.2.1-rc.1`）都高于 alpha 下界、必须在门内——只有"发布线 + `{channel, sequence}` 下界"这一组常量能同时表达这两边。
+- 运行时的版本分类（`classifyDshVersion`）与 `install.sh` 的 `is_compatible_dsh_version()` 语义逐字对应，且都从**发布线 + 下界**派生：`lib/index.js` 是 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`，`install.sh` 是同样的常量加一份 `prerelease_rank()`。`0.2.2` 与 `0.2.2-{alpha,beta,rc}.N` 里够到或高于 `alpha.2` 的版本在范围内，其余不在。status 里回传 `dshVersion`/`dshVersionVerified` 供页面提示。
+  **下界不是 alpha 时不能沿用旧的写法**：`channel !== 'alpha' || seq >= 1` 会把 `0.2.1-alpha.9`/`0.2.1-beta.9`/`0.2.1-rc.1` 全判成兼容，必须做 channel 优先级比较。反过来**下界是 alpha 时同样不能把下界写进正则**：`0.2.2-alpha.0`/`0.2.2-alpha.1` 低于 `alpha.2` 必须被挡住，而同线内的 `beta`/`rc`（如 `0.2.2-rc.1`）都高于 alpha 下界、必须在门内——只有"发布线 + `{channel, sequence}` 下界"这一组常量能同时表达这两边。
 
 ### 跨版本必须成立的契约
 
@@ -24,7 +25,7 @@
 - **`revision`**：历史会话用全语料哈希（`historicalCorpusRevision`），只对未迁移会话生效；本插件在 `lstatCurrentGenerationArtifact()` 阶段先拒，删除路径的严格相等判定不受影响。
 - **`list()`**：静默跳过 `SessionPersistenceCorruptionError`、zstd header 损坏改抛该类——损坏会话可能从列表消失而不是报错。
 
-逐版本逐包核对记录（`0.1.7-alpha.1` 起 5 轮）见 [`docs/compat-log.md`](../docs/compat-log.md)。
+逐版本逐包核对记录（`0.1.7-alpha.1` 起 6 轮）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
 ### 造隔离会话数据的硬约束
 
@@ -69,7 +70,7 @@ DSH 会保留**本进程 resume 过的每一个会话**直到进程退出：agen
 - 只有**完全空闲**才卸载：`phase.kind === 'idle'`、`status === 'idle'`、`inbox.hasPending === false`；否则抛 `session-busy`(409)。`whenIdle()` 有 30s 上限（`QUIESCE_TIMEOUT_MS`），超时只放弃本次删除，不进入半卸载状态。
 - 顺序固定为 factory 的 `dispose()`：`cancel({kind:'disposed'})` → `await whenIdle()` → `scope.dispose()` → 关闭 tracker 里该 id 的写句柄（`handle.close()` 自身幂等）→ `agents.detachEntered(entry)` → `sessions.detachEntered(entry)`（两者都幂等，factory 之后真正的 teardown 因此是安全 no-op）。
 - **卸载必须发生在所有只读校验之后**：`preflight()` 先只做 `planSessionQuiescence()`（零副作用），只有在归档集合、唯一 snapshot、后代、artifact/witness 全部通过后才调用 `quiesceSession()`；执行前**重新**断言一次空闲，防止校验期间落进来的 prompt 被误杀。失败一律停留在 preflight 阶段，不写 journal、不进入 quarantine。
-- 依赖字段名（`store`/`detachEntered`/`phase`/`status`/`inbox`/`cancel`/`whenIdle`/`scope`）是私有契约，`0.2.1-alpha.2` 已重新核对（形状未变，factory 的 dispose **成功路径顺序**逐行相同；唯一变化是 `scope.dispose()` 挪进独立 `try/catch`，插件出错即停在 preflight，仍是更保守的子集）；禁止在结构不匹配时猜测执行。
+- 依赖字段名（`store`/`detachEntered`/`phase`/`status`/`inbox`/`cancel`/`whenIdle`/`scope`）是私有契约，`0.2.2-alpha.2` 已重新核对（形状未变；factory 的 dispose 顺序仍是 cancel → whenIdle → scope.dispose → handle.close → detach，`0.2.2` 只是把 `handle.close` 改成可选链并把 `detachAgent/detachSession` 收进同一个 `try` 块）；禁止在结构不匹配时猜测执行。
 - factory 自己的 `dispose()` 闭包**不可达**（只在 `agents.resume()` 的 handle 上，而 `dsh-api-session-controller` 取走 `.agent` 后丢弃它），所以这里复刻它的步骤而不调用它。该闭包仍留在 `FactoryOwnership.liveAgents` 中，将来在进程/插件卸载时执行一次：`cancel`/`whenIdle`/`scope.dispose`/`handle.close`/两个 `detachEntered` 全部幂等，因此那次执行是安全 no-op（代价是每次卸载在 ownership 里残留一个已 teardown 的闭包，仅存活到进程退出）。**禁止**改成自己调用 `handle.close()` 之外的任何“补一次清理”逻辑，那会破坏这个幂等前提。
 
 删除与恢复必须共用一个 mutation coordinator，整个 registry operation 串行，不能只各自单飞。Persistence tombstone wrapper 必须覆盖 `create/open/stat/list` 入口（两代签名与返回键集相同）、记录每个 ID 与全局 listing 已准入的 in-flight Promise，并在 tombstone 后 drain 再 rename；新调用必须 fail closed。恢复 exact own descriptor，原方法来自 prototype 时清理 instance wrapper，且只在当前成员仍归本插件所有时恢复。disposer 先关闭新请求、等待 operation tail，再撤 patch；它不根据 journal 做文件恢复。
@@ -84,7 +85,7 @@ DSH 会保留**本进程 resume 过的每一个会话**直到进程退出：agen
 - 注册到 list slot `settings.section`：ID `archived-chats`、order `140`（插件分区一律 ≥ 100，排在 DSH 自带分区之后。本发布线的内置分区是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20，最大的内置项是 agent-presets 20；同 slot 的连续分配见根 `AGENTS.md`，本包排最后）、导航标签 `SECTION_TITLE`（“归档管理”，与页面标题同源常量）；client manifest 依赖 `dsh-client-ui-settings-general`，确保 section slot 已声明。导航图标 helper 与分区同号。
 - **图标名不要写死成一个名字，且档位词 Regular 优先**：`0.1.7` 把官方图标从数字档位改名成档位词（`IconArchiveOutline20`→`IconArchiveOutlineRegular`、`IconFolderOpen16`→`IconFolderOpenRegular`、`IconTriangleRightFill14`→`IconTriangleRightFillRegular`），旧数字名在本版本构建里**不存在**，`require` 回来是 `undefined`、图标静默变空白。bundle 顶部用 `iconOf('…Regular', '…Medium', '…16')` 逐名取第一个存在的导出，全缺时退化成空组件（不让整个 bundle 挂掉）。
   **为什么 Regular 排第一**：`…Medium` 与 `…Regular` 是同一基础组件的两个包装器，几何完全一样，只差 `strokeWidth`（0.1.7 构建里 `Medium` 传 `1.3`、`Regular` 传 `1.0`），而官方客户端各处用的是 Regular——排错顺序插件图标会比相邻壳层图标重约 30%。`test/client.test.js` 的 `both-tier-words` 模式（两档并存时断言挑 Regular）钉住这条，`check.js` 只看「链上至少有一个名字存在」，不看顺序。
-- 本发布线的 section contract 不接受 icon，Settings shell 对未知 ID 固定回落齿轮。插件在 `settings.action` 注册不可见的 `dsh-chat-archive-manager.nav-icon` helper，用官方归档图标生成 mask，只给标签严格等于 `SECTION_TITLE` 的 nav button 加带引用计数的 `data-dac-archive-nav` 标记（标题改名时此处必须同步，否则图标补丁静默失效）；不得替换 React 管理的 SVG/子节点，关闭 Settings 或卸载时必须恢复。
+- 本发布线的 section contract 不接受 icon，Settings shell 对未知 ID 固定回落齿轮。插件在 `settings.action` 注册不可见的 `dsh-chat-archive-manager.nav-icon` helper，用官方归档图标生成 mask（**0.2.2 起必须优先从 `ICON_SYMBOLS` 还原自包含 SVG**：组件 `outerHTML` 只有 `<use>`，直接作 mask 会空白），只给标签严格等于 `SECTION_TITLE` 的 nav button 加带引用计数的 `data-dac-archive-nav` 标记（标题改名时此处必须同步，否则图标补丁静默失效）；不得替换 React 管理的 SVG/子节点，关闭 Settings 或卸载时必须恢复。
 
 - 页面顺序固定为标题行 → 说明段 → 工具栏 → 操作行 → 列表（说明紧跟标题，交互控件在说明之下）；标题是无图标单行 `h2`，可见计数以 8px 间距紧跟标题，`0..99` 原样显示、超过 99 统一显示 `99+ 条聊天`。只有永久删除继续使用显式二次确认 Modal。不得重新注册 `sidebar.footer.action` 或修改 Cordis 底部入口。
 

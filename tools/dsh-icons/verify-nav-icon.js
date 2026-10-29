@@ -187,13 +187,16 @@ function settingsNavCss(root) {
   const clientPath = path.join(root, 'node_modules/@deepseek-ai/dsh-client-ui-settings-general/lib/client.js')
   if (!fs.existsSync(clientPath)) throw new Error(`找不到设置页通用插件的产物：${clientPath}`)
   const source = fs.readFileSync(clientPath, 'utf8')
-  for (const match of source.matchAll(/const (css\$\d+) = "([^"]+)"/gu)) {
-    if (!match[2].includes('navCell')) continue
+  // 0.2.2 的壳层 CSS 里开始出现转义引号（grid-template 等），所以字符串字面量不能
+  // 再用 `"([^"]+)"` 粗取——它会在第一个 `\"` 处截断、navCell 整段被漏掉。
+  for (const match of source.matchAll(/const (css\$\d+) = "((?:[^"\\]|\\.)*)"/gu)) {
+    const css = JSON.parse(`"${match[2]}"`)
+    if (!css.includes('navCell')) continue
     // 混淆前缀（例如 `VOzbGW_`）由构建生成，不能写死：从 CSS 里第一个类名取出来，
     // 全串替换成 fixture 用的 `sn-`。取错了会静默丢样式——量出来就是"图标错位"（踩过）。
-    const prefix = /\.[A-Za-z0-9]+_/u.exec(match[2])?.[0].slice(1)
+    const prefix = /\.[A-Za-z0-9]+_/u.exec(css)?.[0].slice(1)
     if (prefix === undefined) throw new Error('设置页样式里取不到类名前缀（壳层结构可能变了）')
-    const stripped = match[2].split(prefix).join('sn-')
+    const stripped = css.split(prefix).join('sn-')
     if (!stripped.includes('.sn-navCell{')) throw new Error('设置页样式里没有 .sn-navCell 规则（壳层结构可能变了）')
     return stripped
   }
@@ -441,6 +444,21 @@ try {
     const textRect = text.getBoundingClientRect()
     const pseudo = getComputedStyle(button, '::before')
     const svgStyle = svg === null ? null : getComputedStyle(svg)
+    const maskImage = String(pseudo.maskImage || pseudo.webkitMaskImage || '')
+    // 0.2.2 起图标是 sprite 壳：组件 outerHTML 只有 <use href="#…">，直接当 mask
+    // 会得到一张引用不存在符号的独立文档（图标空白）。这里必须验证 mask 是自包含图形，
+    // 不能只验证"有 mask-image"——那会让这个真实缺陷静默通过（2026-10-29 实测踩到）。
+    let maskSelfContained = false
+    const maskPrefix = 'url("data:image/svg+xml,'
+    if (maskImage.startsWith(maskPrefix) && maskImage.endsWith('")')) {
+      try {
+        const decoded = decodeURIComponent(maskImage.slice(maskPrefix.length, -2))
+        maskSelfContained = !decoded.includes('<use')
+          && ['<path', '<rect', '<circle', '<line', '<polyline', '<polygon', '<ellipse'].some((tag) => decoded.includes(tag))
+      } catch {
+        maskSelfContained = false
+      }
+    }
     return {
       labelOffsetLeft: +(textRect.left - buttonRect.left).toFixed(2),
       labelOffsetTop: +(textRect.top - buttonRect.top).toFixed(2),
@@ -448,7 +466,8 @@ try {
       originalIconOpacity: svgStyle === null ? 'absent' : svgStyle.opacity,
       marked: button.hasAttribute('data-' + PATCH.attribute) ? 'yes' : 'no',
       maskVariableInline: button.style.getPropertyValue(PATCH.maskVariable).slice(0, 24),
-      maskImage: String(pseudo.maskImage || pseudo.webkitMaskImage || '').slice(0, 40),
+      maskImage: maskImage.slice(0, 40),
+      maskSelfContained,
       pseudoWidth: pseudo.width,
       pseudoHeight: pseudo.height
     }
@@ -468,7 +487,7 @@ try {
     stylesInjected: result.stylesInjected,
     geometryMatches: result.shellRow.labelOffsetLeft === result.patchedRow.labelOffsetLeft && result.shellRow.labelOffsetTop === result.patchedRow.labelOffsetTop,
     originalIconHidden: PATCH.hideBy === 'display' ? result.patchedRow.originalIconDisplay === 'none' : result.patchedRow.originalIconOpacity === '0',
-    maskApplied: result.patchedRow.marked === 'yes' && result.patchedRow.maskImage.startsWith('url("data:image/svg+xml,'),
+    maskApplied: result.patchedRow.marked === 'yes' && result.patchedRow.maskSelfContained === true,
     squareIconBox: result.patchedRow.pseudoWidth === result.patchedRow.pseudoHeight && result.patchedRow.pseudoWidth !== 'auto',
     shellRowUntouched: result.shellRow.marked === 'no'
   }
@@ -615,9 +634,10 @@ async function measureFixture(htmlPath, options = {}) {
   let browserWs
   const seen = []
   child.stderr.on('data', (chunk) => {
-    const text = String(chunk)
-    seen.push(text)
-    browserWs ??= /DevTools listening on (ws:\/\/\S+)/u.exec(text)?.[1]
+    seen.push(String(chunk))
+    // 按累计文本匹配，不按单个 chunk：Chrome 的 "DevTools listening on ..." 可能被拆成
+    // 多个 data 事件（实测 156 上偶发），逐 chunk 匹配会永远等不到地址。
+    browserWs ??= /DevTools listening on (ws:\/\/\S+)/u.exec(seen.join(''))?.[1]
   })
 
   // 先等子进程真的退出，再删 profile 目录。SIGTERM 之后 Chrome 仍在往 userDataDir 里落盘，
@@ -689,7 +709,7 @@ async function measureFixture(htmlPath, options = {}) {
     if (failed.length > 0) {
       throw new Error(`几何验证未通过：${failed.join('、')}`)
     }
-    console.log(`${TOOL_NAME}: 六项检查全部通过（位置一致、原 svg 被盖住、mask 生效、方块尺寸一致、壳层行未被动过）`)
+    console.log(`${TOOL_NAME}: 六项检查全部通过（位置一致、原 svg 被盖住、mask 自包含且生效、方块尺寸一致、壳层行未被动过）`)
   } finally {
     await stop()
   }

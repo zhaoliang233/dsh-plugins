@@ -49,17 +49,17 @@ function createFakeCtx() {
  * 「更小的 alpha 序号必须挡住」是这一轮下界换 channel 后新增的两条判据。
  */
 const VERSION_MATRIX = [
-  { version: '0.2.1-alpha.2', supported: true, verified: true },
-  { version: '0.2.1-alpha.2+build.1', supported: true, verified: true, normalized: '0.2.1-alpha.2' },
-  { version: '0.2.1-alpha.3', supported: true, verified: false },
-  { version: '0.2.1-beta.1', supported: true, verified: false },
-  { version: '0.2.1-rc.1', supported: true, verified: false },
-  { version: '0.2.1', supported: true, verified: false },
-  { version: '0.2.1-alpha.1', supported: false, verified: false },
-  { version: '0.2.0', supported: false, verified: false },
-  { version: '0.2.0-rc.2', supported: false, verified: false },
-  { version: '0.2.2', supported: false, verified: false },
+  { version: '0.2.2-alpha.2', supported: true, verified: true },
+  { version: '0.2.2-alpha.2+build.1', supported: true, verified: true, normalized: '0.2.2-alpha.2' },
+  { version: '0.2.2-alpha.3', supported: true, verified: false },
+  { version: '0.2.2-beta.1', supported: true, verified: false },
+  { version: '0.2.2-rc.1', supported: true, verified: false },
+  { version: '0.2.2', supported: true, verified: false },
   { version: '0.2.2-alpha.1', supported: false, verified: false },
+  { version: '0.2.1', supported: false, verified: false },
+  { version: '0.2.1-rc.4', supported: false, verified: false },
+  { version: '0.2.3', supported: false, verified: false },
+  { version: '0.2.3-alpha.1', supported: false, verified: false },
   { version: undefined, supported: false, verified: false },
   { version: '', supported: false, verified: false }
 ]
@@ -83,7 +83,7 @@ test('判定逻辑从发布线 + 下界派生：range 反推回来必须与常�
   assert.equal(matched[1], DSH_RELEASE_LINE, 'range 的下界必须落在 DSH_RELEASE_LINE 这条线上')
   assert.equal(matched[2], DSH_RELEASE_FLOOR.channel, 'range 的下界 channel 必须与 DSH_RELEASE_FLOOR 同源')
   assert.equal(Number(matched[3]), DSH_RELEASE_FLOOR.sequence, 'range 的下界序列号必须与 DSH_RELEASE_FLOOR 同源')
-  // 发布线只覆盖一个 patch 系列：上界必须是下一条线（`0.2.1` → `<0.2.2`）。
+  // 发布线只覆盖一个 patch 系列：上界必须是下一条线（`0.2.2` → `<0.2.3`）。
   const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
   assert.equal(matched[4], nextPatch, 'range 的上界必须是下一条发布线')
   // 下界所在的 channel 由 DSH_RELEASE_FLOOR 决定：同 channel 的更高序号与更高的
@@ -142,7 +142,7 @@ test('范围内已核对版本：装配且不告警', async () => {
 })
 
 test('范围内未核对版本：继续运行但必须告警（能力探测仍是权威判定）', async () => {
-  for (const version of ['0.2.1', '0.2.1-alpha.3']) {
+  for (const version of ['0.2.2', '0.2.2-alpha.3']) {
     const { ctx, state } = createFakeCtx()
     await applyForVersion(ctx, version)
     assert.deepEqual(state.injected, [['configEditor', 'webServer', 'connection']], `${version}：同线未核对版本必须继续运行`)
@@ -186,8 +186,8 @@ test('readDshPackage：从 CLI 入口向上 4 层内命中包根，找不到就�
 })
 
 test('DSH_COMPATIBILITY_RANGE / 清单常量与声明的一致（四处同源的第一处）', () => {
-  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.1-alpha.2 <0.2.2')
-  assert.equal(DSH_RELEASE_LINE, '0.2.1')
+  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.2-alpha.2 <0.2.3')
+  assert.equal(DSH_RELEASE_LINE, '0.2.2')
   assert.deepEqual(DSH_RELEASE_FLOOR, { channel: 'alpha', sequence: 2 })
-  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.1-alpha.2', '0.2.1-rc.2'])
+  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.2-alpha.2'])
 })

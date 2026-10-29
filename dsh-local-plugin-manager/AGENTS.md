@@ -2,7 +2,7 @@
 
 ## 定位与边界
 
-面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.1-alpha.2 <0.2.2` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.1-alpha.2` 与 `0.2.1-rc.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
+面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.2-alpha.2 <0.2.3` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.2-alpha.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
 
 **为什么是独立分区，而不是官方插件分区里的一个 tab**（0.1.8 之前别改回去）：
 
@@ -96,8 +96,8 @@ plugin --profile web remove <server-derived-name> --config.minimumReleaseAge=0
 ## Client
 
 - `client.js` 是手写 lazy-CJS bundle，无 JSX/TypeScript/import；`exports.inject = ['slots']`；`package.json#dsh.client.inject` 依赖 `@deepseek-ai/dsh-client-ui-settings-general`（声明 `settings.section` 的包；换分区落点时必须同步改这里）。
-- 注册 `settings.section`：`id: 'plugin-dev'`、`order: 110`、`label: '插件开发'`。插件贡献的设置入口一律排到 DSH 自带项之后（`settings.section` / `settings.general.item` / `settings.plugins.tab` 的 order 都 ≥ 100）；DSH `0.2.1-alpha.2` 的内置分区 order 仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（`0.1.7` 三版、`0.2.0-rc.2`、`0.2.1-alpha.2` 三次核对一致），本包的 110 仍排在全部内置分区之后。**同 slot 内各插件不复用同一档**：extra-context 100 / 本包 110 / default-tuner 120 / mcp-console 130 / chat-archive-manager 140（权威表在根 `AGENTS.md`，新增插件往下顺延）。注意 **`settings.general.item` 的内置上限已经越过 100**（`settings-session-log` 90、`current-version` 100），`settings.section` 与它不是同一个 slot，所以这里不冲突；升级 DSH 后仍要重新读一遍内置项的 order 上限。
-- **导航图标只能走 DOM 补丁**：`settings.section` 的注册选项只有 id/order/label，没有 icon；壳层 `navIcon(id)` 只给官方 id 配图标，未知 id 一律回落齿轮，本分区会与官方「插件」撞脸。实现是 `patchSettingsNavIcon()`（原 svg 只做占位，图标用 `::before` + mask 画，配色继续跟随壳层），挂载点注册在 **`settings.action`**——它随设置面板挂载，面板一开就存在；不要挂在分区组件里，分区要等用户点开那一行才渲染，图标会晚一步才对（`dsh-extra-context` 踩过）。图标取 `IconCodeOutlineMedium`（`iconOf` 候选链兜底）。壳层未来若支持在 slot 选项里声明图标，这段补丁应立刻删掉。
+- 注册 `settings.section`：`id: 'plugin-dev'`、`order: 110`、`label: '插件开发'`。插件贡献的设置入口一律排到 DSH 自带项之后（`settings.section` / `settings.general.item` / `settings.plugins.tab` 的 order 都 ≥ 100）；DSH `0.2.2-alpha.2` 的内置分区 order 仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（`0.1.7` 三版、`0.2.0-rc.2`、`0.2.1-alpha.2` 三次核对一致），本包的 110 仍排在全部内置分区之后。**同 slot 内各插件不复用同一档**：extra-context 100 / 本包 110 / default-tuner 120 / mcp-console 130 / chat-archive-manager 140（权威表在根 `AGENTS.md`，新增插件往下顺延）。注意 **`settings.general.item` 的内置上限已经越过 100**（`settings-session-log` 90、`current-version` 100），`settings.section` 与它不是同一个 slot，所以这里不冲突；升级 DSH 后仍要重新读一遍内置项的 order 上限。
+- **导航图标只能走 DOM 补丁**：`settings.section` 的注册选项只有 id/order/label，没有 icon；壳层 `navIcon(id)` 只给官方 id 配图标，未知 id 一律回落齿轮，本分区会与官方「插件」撞脸。实现是 `patchSettingsNavIcon()`（原 svg 只做占位，图标用 `::before` + mask 画，配色继续跟随壳层；**0.2.2 起 mask 源码必须优先从 `ICON_SYMBOLS` 还原自包含 SVG**，组件 `outerHTML` 只有 `<use>`，直接作 mask 会空白），挂载点注册在 **`settings.action`**——它随设置面板挂载，面板一开就存在；不要挂在分区组件里，分区要等用户点开那一行才渲染，图标会晚一步才对（`dsh-extra-context` 踩过）。图标取 `IconCodeOutlineMedium`（`iconOf` 候选链兜底）。壳层未来若支持在 slot 选项里声明图标，这段补丁应立刻删掉。
 - 控件与标记一律用官方 primitives：行开关是 `Switch`（`checked`/`onChange`/`label`/`disabled`/`title`），确认弹窗与「重试 / 刷新页面」是 `Button`（取消 `outline`，卸载 `primary` + 只覆盖按钮色 token 的 `.dlpm-danger-button`），行徽标是 `Tag`（身份 `outline`、已启用 `success`、已禁用 `quiet`、部分启用 `warning`；只借 `.dlpm-tag` 做 `flex:none` 布局），图标用 `IconRefreshOutlineMedium`/`IconTrashOutlineMedium`/`IconLoadingOutlineMedium`/`IconWarningOutlineMedium`，永久卸载必须经过 Modal 确认；管理器自身行禁用开关和卸载按钮。**不要为这些控件自绘外观 CSS 或 `role=switch` 按钮**：几何、调色板、焦点环与危险色都随 primitives 走，自绘一套只会在官方换皮肤后留下不会跟着变的第二套外观（`test/client.test.js` 拦 `dlpm-switch`/`dlpm-button`/`dlpm-badge` 之类的残留）。Client 只显示 Host DTO，不自行推导路径、bundle 或 patch 所有权。
 - 只使用当前 Inspect 公布的主题 token；样式和网络请求必须随组件/插件卸载清理。注入的 `<style>` 按引用计数共享并必须打 `data-plugin="dsh-local-plugin-manager"`（未打标签的样式会被别的 bundle 认领、热更新时误删；机制见根 `AGENTS.md`）。client HMR 重载只丢弃 fiber 而不跑旧 disposer，所以 `apply` 在元素仍在但文本过期时会重写样式文本。mutation 用同步 `actionRef` 单飞，开始时中止并递增 epoch 使旧 status GET 失效，防止旧快照覆盖 mutation 响应。
 - 每行在名称与版本/路径之间渲染 DTO 的 `description`：最多两行（`-webkit-line-clamp:2`），`title` 给全文。层级固定为名称（14/500/primary）> 说明（13/`label-secondary`，配 `color-mix` 7% 自混底板，浅色深色主题都不写死颜色）> 版本与路径（12/`label-tertiary`，纯元信息）；缺失占位「未提供说明」不画底板并小一档，避免空说明行假装成重点。
@@ -122,7 +122,9 @@ status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 t
 - **profile 记录的依赖值必须归一到绝对路径**：pnpm 会原样记录 `link:../src/foo` 或 `link:~/x`，读侧必须用 `dependencySpec()` 同款归一，否则相对路径的本地插件会被判成不可管理。
 - **0.2.1 起移除 `link:` 插件可以真的进程内生效**：`ResolutionRouter.replace()` 放开了 profile 作用域那条「必须重启」的硬门，因此在 `link:` 插件停掉之后移除 profile 映射与 `localPackageNames` 不再要求重启进程。
 
-逐版本逐项核对记录（`0.1.7-alpha.2` 起 4 轮，含三处新结构逐行核对与 45/24/20/47 项验收数据）见 [`docs/compat-log.md`](../docs/compat-log.md)。
+**`0.2.2-alpha.2`（2026-10-28，跨发布线，最小兼容修复）**：`dsh-plugin-manager` 的 `writePluginEnabled()` 主体与 `dependencySpec()` 仍与 0.2.1 同构（启用写显式 `false`、命中行就地改、`writeFileAtomic(..., { mode: 384 })` 都未变）；`dsh-atomic-write` 的 `lib/` 与 0.2.1-rc.4 **逐字相同**；`dsh-hmr` 的 profile 配置监听与 manifest 缓存失效仍在；`dsh-app-boot` 新增的 `dsh.bundle.platforms` 校验对本包无影响（无该字段 = 全平台放行）。隔离 `DSH_HOME` + 0.2.2-alpha.2 宿主实测：`/dsh-local-plugin-manager/status` 200、`dshVersion:"0.2.2-alpha.2"`、`verifiedVersion:true`，6 个 `link:` 插件全部 `manageable:true`；设置页「插件开发」分区真实渲染；三个导航图标补丁在真实 GUI 里均生效。`npm install` 已把 `@deepseek-ai/dsh-atomic-write` 与 lockfile 同步到 `~0.2.2-alpha.2`。**业务代码未改**，只换版本门、依赖范围与清单（单测 48 项，新增 sprite mask 回归）。**随后用户反馈设置菜单图标空白**（2026-10-29）：0.2.2 的图标是 sprite 壳，组件 `outerHTML` 只有 `<use href="#…">`；已改为优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG（`navIconSymbolSource()`），旧线无该导出时退回 `outerHTML`。
+
+逐版本逐项核对记录（`0.1.7-alpha.2` 起 6 轮，含三处新结构逐行核对与 45/24/20/47 项验收数据）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
 ## 验证
 
@@ -176,5 +178,5 @@ npm run publish:check   # check + test + pack:check（唯一发布闸门）
 ## 发布与安装路线
 
 - 用户路线是官方命令 `dsh plugin --profile web add dsh-local-plugin-manager`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线，它会先 `npm install` 再跑 `npm run publish:check`。
-- **本包有运行时依赖，且它们是对齐官方的关键**：`@deepseek-ai/dsh-atomic-write`（`~0.2.1-alpha.2`，profile 写锁 + 原子提交）与 `yaml`（`^2.9.0`，patch 编辑）。锁是**文件系统级**的（`<锚点>.lock` + `wx`），因此即使装的是另一个补丁版本也仍与宿主互斥；但锁路径约定若在发布线之间变化就会失配——跨 `0.2.1` 时已重新核对（该包 lib 逐字相同，锁与 `mode` 都没动），跨 `0.2.2` 前要再核一次。release 工作流必须在 `npm publish` 之前显式安装依赖，否则 `prepublishOnly` 的测试会以 `ERR_MODULE_NOT_FOUND` 失败（0.1.4 就是这样没发出去的，根仓库 release 工作流已补上依赖安装步骤，改动它时不要删掉）。**改依赖范围必须跟着 `npm install` 并把 `package-lock.json` 一起提交**：CI 与 release 在有 lockfile 时跑 `npm ci`，范围与 lock 失配会以 `EUSAGE` 停在“安装依赖”这一步（2026-10-10 的 0.4.0 首次 tag 就是这样失败的，两个 workflow 都没产出任何发布物）；本机 `publish:check` 用已装好的 `node_modules`，察觉不到这种失配。
+- **本包有运行时依赖，且它们是对齐官方的关键**：`@deepseek-ai/dsh-atomic-write`（`~0.2.2-alpha.2`，profile 写锁 + 原子提交）与 `yaml`（`^2.9.0`，patch 编辑）。锁是**文件系统级**的（`<锚点>.lock` + `wx`），因此即使装的是另一个补丁版本也仍与宿主互斥；但锁路径约定若在发布线之间变化就会失配——跨 `0.2.1` 与 `0.2.2` 时都已重新核对（该包 lib 逐字相同，锁与 `mode` 都没动），跨 `0.2.3` 前要再核一次。release 工作流必须在 `npm publish` 之前显式安装依赖，否则 `prepublishOnly` 的测试会以 `ERR_MODULE_NOT_FOUND` 失败（0.1.4 就是这样没发出去的，根仓库 release 工作流已补上依赖安装步骤，改动它时不要删掉）。**改依赖范围必须跟着 `npm install` 并把 `package-lock.json` 一起提交**：CI 与 release 在有 lockfile 时跑 `npm ci`，范围与 lock 失配会以 `EUSAGE` 停在“安装依赖”这一步（2026-10-10 的 0.4.0 首次 tag 就是这样失败的，两个 workflow 都没产出任何发布物）；本机 `publish:check` 用已装好的 `node_modules`，察觉不到这种失配。
 - 发布：`npm run publish:check`（`verify` 的 `check` + `test`，再加 `pack:check` 的 tarball 白名单）是发布闸门，`prepublishOnly` 已绑定它；`scripts/` 不进发布物（`files` 白名单里没有它），`scripts/check-pack.js` 因此是纯开发期校验。`.github/workflows/ci.yml` 在 Node 20/22 上执行同一闸门，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-local-plugin-manager-v<版本>` tag 后经 npm trusted publishing（OIDC）完成（`private: true` 会被工作流拒绝，本包已改为可公开发布）。

@@ -75,10 +75,29 @@ const watchdog = setTimeout(() => {
   fail(`脚本超过 ${WATCHDOG_MS / 1000} 秒仍未结束（疑似某个 await 不落定）。${currentStep()}`)
 }, WATCHDOG_MS)
 
+/**
+ * 宿主状态接口的会话 cookie。0.2.2 起路由必须经过连接层鉴权（没有会话 cookie 就是 401），
+ * 而 Node 的 fetch 不共享浏览器的 HttpOnly cookie，所以先用带 token 的 URL 换一份。
+ */
+let sessionCookie = ''
+async function acquireSessionCookie() {
+  try {
+    const response = await fetch(url, { redirect: 'manual' })
+    const cookies = typeof response.headers.getSetCookie === 'function' ? response.headers.getSetCookie() : []
+    sessionCookie = cookies.map((item) => item.split(';', 1)[0]).join('; ')
+  } catch {
+    sessionCookie = ''
+  }
+  if (sessionCookie === '') console.warn('警告：没有拿到宿主会话 cookie，状态核对可能被 401 拒绝')
+}
+
 async function hostStatus() {
-  const response = await fetch(`http://127.0.0.1:${statusPort}/dsh-mcp-console/status`, {
-    headers: { 'x-dsh-mcp-console-client': '1' }
-  })
+  const headers = { 'x-dsh-mcp-console-client': '1' }
+  if (sessionCookie !== '') headers.cookie = sessionCookie
+  const response = await fetch(`http://127.0.0.1:${statusPort}/dsh-mcp-console/status`, { headers })
+  if (response.status !== 200) {
+    throw new Error(`宿主状态接口返回 ${response.status}（会话 cookie ${sessionCookie === '' ? '缺失' : '已带'}）`)
+  }
   return await response.json()
 }
 
@@ -293,6 +312,7 @@ window.__gui = {
 
 enterStep('导航到页面')
 const cdp = await connect()
+await acquireSessionCookie()
 await cdp.send('Runtime.enable')
 await cdp.send('Page.enable')
 await cdp.send('Page.navigate', { url })

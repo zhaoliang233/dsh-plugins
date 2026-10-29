@@ -61,11 +61,11 @@ export const CLIENT_HEADER = 'x-dsh-extra-context-client'
  * 兼容发布线。与 `package.json#dshCompatibility.range` / `engines.dsh` /
  * `install.sh` 的 `DSH_COMPATIBILITY_RANGE` **同源**。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
 /** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
-export const DSH_RELEASE_LINE = '0.2.1'
+export const DSH_RELEASE_LINE = '0.2.2'
 /**
- * 兼容线下界（`0.2.1-alpha.2`）：同线内更小的 alpha 序列号低于下界，判为不支持；
+ * 兼容线下界（`0.2.2-alpha.2`）：同线内更小的 alpha 序列号低于下界，判为不支持；
  * 更高档位（beta/rc）与更高序列号在门内。跨线时改这三个常量即可，判定逻辑不用动。
  */
 export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
@@ -93,7 +93,7 @@ const DEFAULT_ENTRY_PATH = fileURLToPath(import.meta.url)
  * @param {unknown} version
  * @returns {{supported: boolean, verified: boolean, normalized?: string}}
  */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2']
 
 export function classifyDshVersion(version) {
   if (typeof version !== 'string') return { supported: false, verified: false }

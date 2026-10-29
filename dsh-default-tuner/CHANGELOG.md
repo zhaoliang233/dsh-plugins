@@ -1,5 +1,14 @@
 # 变更记录
 
+## [未发布]
+
+### 变更
+
+- 兼容线由 DSH `>=0.2.1-alpha.2 <0.2.2` **整体换到** `>=0.2.2-alpha.2 <0.2.3`（逐版本验证 `0.2.2-alpha.2`）。上一线的用户留在上一线的插件版本，不维护分叉实现。
+- **业务代码一行未改**：0.2.2 上 `configEditor.edit()/configuration()/entries()`、`sessionTitle.get/refresh()`、`sessions.get/list`、`settings.describe()`、`engines.dsh` 执法链逐项复核后全部成立；目标条目的 id、name 与 5+3 个 required 字段默认值均未变。唯一变化是官方把 `sessionProjections.stateOf(session, key)` 标成 deprecated（旧路径仍保留、可用），本插件读 `titleInput` 投影的方式不受影响。
+- 隔离宿主实测（0.2.2-alpha.2）：状态路由 200、写入/恢复默认落盘与 `--dump-config` 一致、页面分区与输入框正常、控制台零错误。
+
+
 ## [0.3.2] - 2026-10-20
 
 ### 变更

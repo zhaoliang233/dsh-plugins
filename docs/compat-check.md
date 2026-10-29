@@ -24,14 +24,14 @@
 
 | 等级 | 插件 | 当前线 | 为什么是这个等级 |
 |---|---|---|---|
-| L1 | `dsh-default-workspace` | `0.2.1` | 公开 `workspaceRegistry` + 一个 slot；唯一私有触碰是客户端 `workspaces` 的 `rename/delete/insertBefore` 补丁（fail closed、可摘除） |
-| L1 | `dsh-extra-context` | `0.2.1` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
-| L2 | `dsh-auto-load-history` | `0.2.1` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
-| L2 | `dsh-local-plugin-manager` | `0.2.1` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
-| L2 | `dsh-default-tuner` | `0.2.1` | 代码量本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到（原名 `dsh-default-overrides`） |
-| L3 | `dsh-chat-archive-manager` | `0.2.1` | 依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
-| L3 | `dsh-mcp-console` | `0.2.1` | 动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收（原名 `dsh-mcp-manager`） |
-| L3 | `dsh-sticky-user-bubble` | `0.2.1` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
+| L1 | `dsh-default-workspace` | `0.2.2` | 公开 `workspaceRegistry` + 一个 slot；唯一私有触碰是客户端 `workspaces` 的 `rename/delete/insertBefore` 补丁（fail closed、可摘除） |
+| L1 | `dsh-extra-context` | `0.2.2` | 条目 config + `settings.section`/`settings.action`；唯一 DOM 触碰是导航图标补丁，全程静默降级 |
+| L2 | `dsh-auto-load-history` | `0.2.2` | 会话 API（`loadThrough`/`loadOlder`/`SessionSnapshot`）+ 一处 `scrollTop` 锚点补偿（几何） |
+| L2 | `dsh-local-plugin-manager` | `0.2.2` | 契约面跨 `dsh-app-boot` / `dsh-plugin-manager` / `dsh-atomic-write` 三个包 |
+| L2 | `dsh-default-tuner` | `0.2.2` | 代码量本属 L1，但它**整块改写 profile 补丁**（写坏 → 目标条目 `fiber.state=3`，只能手改文件救回），且关键结论要隔离宿主 + 真实路由（cookie + CSRF）才拿得到（原名 `dsh-default-overrides`） |
+| L3 | `dsh-chat-archive-manager` | `0.2.2` | 依赖 `AgentRegistry`/`detachEntered` 等私有运行态字段，带**永久删除事务** |
+| L3 | `dsh-mcp-console` | `0.2.2` | 动态挂载 + 凭据 + 对账引擎；52 条真机 GUI 验收（原名 `dsh-mcp-manager`） |
+| L3 | `dsh-sticky-user-bubble` | `0.2.2` | 气泡克隆 + 裁剪边界 + padding 等几何假设，必须靠隔离宿主量 `getBoundingClientRect()` |
 | L3 | `dsh-mobile-compat` | `0.2.0` | 壳层 DOM + 几何 + 客户端包哈希矩阵；跨线必须重跑整张浏览器尺寸矩阵，**上一线结论一条都不能继承** |
 
 ### 固定动作

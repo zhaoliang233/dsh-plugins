@@ -25,18 +25,18 @@ export const PLUGIN_NAME = 'dsh-local-plugin-manager'
  * 兼容发布线。与 `package.json#dshCompatibility.range` / `engines.dsh` /
  * `install.sh` 的 `DSH_COMPATIBILITY_RANGE` **同源**。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
 /** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
-export const DSH_RELEASE_LINE = '0.2.1'
+export const DSH_RELEASE_LINE = '0.2.2'
 /**
- * 兼容线下界（`0.2.1-alpha.2`）：同线内更低 channel（本线里 beta/rc 更高，所以只可能是
+ * 兼容线下界（`0.2.2-alpha.2`）：同线内更低 channel（本线里 beta/rc 更高，所以只可能是
  * 更小的 alpha 序列号）都低于下界，判为不支持。跨线时只改这三个常量，判定逻辑不用动。
  */
 export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
 /** prerelease channel 的先后顺序；下标即优先级。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2']
 export const DEFAULT_PROFILE = 'web'
 
 // state.json 只保留卸载墓碑；禁用状态的真源是 profile patch 的覆盖项本身。

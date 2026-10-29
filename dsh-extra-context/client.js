@@ -362,6 +362,26 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 0.2.2 起官方图标改成 sprite 壳：组件渲染出的 `<svg>` 只有
+     * `<use href="#dsw-icon-…">`，直接拿 outerHTML 当 mask 会得到一份引用不存在
+     * 符号的独立文档，图标整块空白（用户看到的"设置菜单图标没了"）。
+     * primitives 同时导出 `ICON_SYMBOLS`（符号 id → 完整 SVG 字符串），优先用它
+     * 还原成自包含 SVG；旧线没有这个导出时退回 outerHTML。
+     */
+    function navIconSymbolSource(svg) {
+      if (svg === null || svg === undefined) return ''
+      const declared = typeof svg.getAttribute === 'function' ? svg.getAttribute('data-icon') : null
+      const use = typeof svg.querySelector === 'function' ? svg.querySelector('use') : null
+      const href = use !== null && use !== undefined && typeof use.getAttribute === 'function' ? use.getAttribute('href') : null
+      const key = String(declared || href || '').replace(/^#/u, '')
+      const symbols = primitives?.ICON_SYMBOLS
+      if (key !== '' && symbols !== null && typeof symbols === 'object' && typeof symbols[key] === 'string') {
+        return symbols[key]
+      }
+      return navIconMaskSource(typeof svg.outerHTML === 'string' ? svg.outerHTML : '')
+    }
+
+    /**
      * 给设置页导航里本插件那一行换上专属图标。
      *
      * 为什么必须自己改 DOM（这是"壳层不给我们图标"的直接后果）：
@@ -435,8 +455,8 @@ window.__ModuleLoader__.load({
      */
     function installNavIconPatch(template, doc) {
       const svg = template !== null && template !== undefined && typeof template.querySelector === 'function' ? template.querySelector('svg') : null
-      if (svg === null || svg === undefined || typeof svg.outerHTML !== 'string') return () => {}
-      const source = navIconMaskSource(svg.outerHTML)
+      if (svg === null || svg === undefined) return () => {}
+      const source = navIconSymbolSource(svg)
       if (source === '') return () => {}
       return patchSettingsNavIcon(doc, source, SECTION_LABEL)
     }
@@ -1024,6 +1044,7 @@ window.__ModuleLoader__.load({
       ExtraContextSection,
       // 导航图标补丁：DOM 在浏览器里，测试只能用注入的假 document / 假模板驱动这几个函数
       navIconMaskSource,
+      navIconSymbolSource,
       patchSettingsNavIcon,
       installNavIconPatch
     })

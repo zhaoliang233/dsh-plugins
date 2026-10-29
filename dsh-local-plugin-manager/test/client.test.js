@@ -87,6 +87,9 @@ function instantiate(options = {}) {
     Modal: types.Modal,
     Switch: types.Switch,
     Tag: types.Tag,
+    ICON_SYMBOLS: {
+      'dsw-icon-code-outline-medium': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0"/></svg>'
+    },
     ...Object.fromEntries(Object.entries(iconExports).map(([exported, local]) => [exported, types[local]]))
   }
   const plugin = definition.factory((id) => {
@@ -531,6 +534,25 @@ test('masks the settings nav row with the plugin icon and reverts it on dispose'
       const namespaced = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
       assert.equal(internals.navIconMaskSource(namespaced), namespaced, '已经有 xmlns 时不得重复插入')
       assert.equal(internals.navIconMaskSource(undefined), '')
+    }
+  })
+})
+
+test('resolves a sprite icon into a self-contained nav mask', () => {
+  // 0.2.2 起图标是 sprite 壳（outerHTML 只有 <use>）；mask 必须从 ICON_SYMBOLS
+  // 还原成带 path 的自包含 SVG，否则图标整块空白。
+  withDocument({
+    body(harness) {
+      const { navIconSymbolSource } = harness.plugin.__internals
+      const symbol = 'dsw-icon-code-outline-medium'
+      const svg = {
+        outerHTML: `<svg data-icon="${symbol}"><use href="#${symbol}"></use></svg>`,
+        getAttribute(name) { return name === 'data-icon' ? symbol : null },
+        querySelector() { return null }
+      }
+      const source = navIconSymbolSource(svg)
+      assert.equal(source.includes('<path'), true)
+      assert.equal(source.includes('<use'), false)
     }
   })
 })

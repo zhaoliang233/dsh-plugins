@@ -394,6 +394,101 @@ function serializeSvg(node, idPrefix, depth = 0) {
 }
 
 /**
+ * 0.2.2 起图标改为 sprite 形式：`ICON_SYMBOLS` 是一张冻结的
+ * `dsw-icon-<name>-<weight>` → SVG 字符串表，导出的 `IconXxxMedium/Regular` 只是
+ * `T(name, weight)` 生成、渲染 `<use href="#…">` 的壳。此时继续按组件求值只能拿到
+ * 一个不自包含的 `<use>`（符号定义在别处），所以直接从 sprite 取完整 SVG。
+ *
+ * @param source - 前端 chunk 源码。
+ * @param exports - primitives 冻结导出对象里的 `导出名 → 变量名` 表。
+ * @returns 规范化键（去掉连字符、转小写）→ SVG 字符串；不是 sprite 形态时返回 null。
+ */
+function spriteTable(source, exports) {
+  const symbolsVariable = exports.get('ICON_SYMBOLS')
+  if (symbolsVariable === undefined) return null
+  const symbolsDefinition = definitionOf(source, symbolsVariable)
+  if (symbolsDefinition === null) return null
+  const artworkMatch = /Object\.entries\(([A-Za-z0-9_$]+)\)/u.exec(symbolsDefinition)
+  if (artworkMatch === null) return null
+  const artworkVariable = artworkMatch[1]
+  const artworkDefinition = definitionOf(source, artworkVariable)
+  if (artworkDefinition === null) return null
+
+  // 线宽常量也是导出项（`ICON_REGULAR_STROKE` / `ICON_MEDIUM_STROKE`），
+  // 求值 artwork 表时按它们的真实变量名注入。
+  const strokeNames = []
+  const strokeValues = []
+  for (const [exportName, fallback] of [['ICON_REGULAR_STROKE', 1], ['ICON_MEDIUM_STROKE', 1.3]]) {
+    const variable = exports.get(exportName)
+    const raw = variable === undefined ? null : definitionOf(source, variable)
+    const value = raw === null ? fallback : Number(raw)
+    if (!Number.isFinite(value)) return null
+    if (variable !== undefined) {
+      strokeNames.push(variable)
+      strokeValues.push(value)
+    }
+  }
+  let artwork
+  try {
+    artwork = new Function(...strokeNames, `return (${artworkDefinition})`)(...strokeValues)
+  } catch {
+    return null
+  }
+  if (artwork === null || typeof artwork !== 'object') return null
+
+  const regular = strokeValues[0] ?? 1
+  const medium = strokeValues[1] ?? 1.3
+  const table = new Map()
+  for (const [key, value] of Object.entries(artwork)) {
+    if (typeof value?.svg !== 'function') continue
+    for (const [weight, stroke] of [['regular', regular], ['medium', medium]]) {
+      try {
+        table.set(normalizeSpriteKey(`${key}${weight}`), value.svg(stroke))
+      } catch {
+        // 单个 artwork 求值失败只让对应图标变成 unrenderable
+      }
+    }
+  }
+  return table.size === 0 ? null : table
+}
+
+function normalizeSpriteKey(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]/gu, '')
+}
+
+/** 把一个已渲染好的 SVG 字符串整理成 icons.json 的图标记录。 */
+function iconRecord(name, svg) {
+  const viewBox = /viewBox="([^"]+)"/u.exec(svg)?.[1] ?? ''
+  const viewBoxNumbers = viewBox.split(/\s+/u).map(Number)
+  const canvasSize = viewBoxNumbers.length === 4 && viewBoxNumbers.every((value) => Number.isFinite(value))
+    ? { width: viewBoxNumbers[2], height: viewBoxNumbers[3] }
+    : null
+  // 两条尺寸信息都记下来，它们会不一致（实测数据，别当成等价）：
+  // - `tier` 取名字末尾的数字（14/16/20…），就是官方图标集的分档，
+  //   「同一行图标必须同档」按它判断；`IconTreeCorner8x10` 是「8x10 连接线」，
+  //   末尾的 10 不是档位，按复合尺寸处理（null）；
+  // - `canvasSize` 是 viewBox 的宽高，也就是**画布真相**：
+  //   `IconInspectOutline12` 名字写 12、viewBox 却是 16×16；
+  //   `IconRightUpOutline14` 名字 14、viewBox 是 8×14（窄字形）。
+  //   换图标前用预览页按真实尺寸看一眼，别只信名字。
+  // 档位后缀有两种命名法：0.1.6 的数字（14/16/20）与 0.1.7 的档位词（Medium/Regular）。
+  const tierWord = /(Medium|Regular|Small|Large)$/u.exec(name)
+  const tierMatch = /(\d+)x(\d+)$/u.test(name) ? null : /(\d+)$/u.exec(name)
+  const tier = tierMatch !== null ? Number(tierMatch[1]) : (tierWord === null ? null : tierWord[1])
+  return {
+    name,
+    tier,
+    canvasSize,
+    sizeMismatch: typeof tier === 'number' && canvasSize !== null && canvasSize.width === canvasSize.height && canvasSize.width !== tier,
+    viewBox,
+    keywords: KEYWORDS[name] ?? [],
+    usedBy: [],
+    usedByPlugins: [],
+    svg
+  }
+}
+
+/**
  * 提取全部图标并渲染成 SVG。
  *
  * 图标定义会引用同模块的其它标识符，压缩器的版本决定它们的形状：
@@ -405,6 +500,22 @@ function extractIcons(source, exports) {
   const icons = []
   const unrenderable = []
   const constantExports = []
+
+  // 0.2.2+：sprite 表是自包含的完整 SVG，导出名与 sprite 键一一对应。
+  const sprite = spriteTable(source, exports)
+  if (sprite !== null) {
+    for (const [name] of exports) {
+      if (!name.startsWith('Icon')) continue
+      const svg = sprite.get(normalizeSpriteKey(name.slice('Icon'.length)))
+      if (svg === undefined) {
+        unrenderable.push({ name, reason: 'sprite-not-found' })
+        continue
+      }
+      icons.push(iconRecord(name, svg))
+    }
+    icons.sort((left, right) => left.name.localeCompare(right.name))
+    return { icons, unrenderable, constantExports }
+  }
 
   const referenced = new Set()
   const iconDefinitions = new Map()
@@ -494,34 +605,7 @@ function extractIcons(source, exports) {
     }
     // 预览页自己控制显示尺寸：统一换成 100% 宽高，交给容器缩放
     svg = svg.replace(/width="\d+"/u, 'width="100%"').replace(/height="\d+"/u, 'height="100%"')
-    const viewBox = /viewBox="([^"]+)"/u.exec(svg)?.[1] ?? ''
-    const viewBoxNumbers = viewBox.split(/\s+/u).map(Number)
-    const canvasSize = viewBoxNumbers.length === 4 && viewBoxNumbers.every((value) => Number.isFinite(value))
-      ? { width: viewBoxNumbers[2], height: viewBoxNumbers[3] }
-      : null
-    // 两条尺寸信息都记下来，它们会不一致（实测数据，别当成等价）：
-    // - `tier` 取名字末尾的数字（14/16/20…），就是官方图标集的分档，
-    //   「同一行图标必须同档」按它判断；`IconTreeCorner8x10` 是「8x10 连接线」，
-    //   末尾的 10 不是档位，按复合尺寸处理（null）；
-    // - `canvasSize` 是 viewBox 的宽高，也就是**画布真相**：
-    //   `IconInspectOutline12` 名字写 12、viewBox 却是 16×16；
-    //   `IconRightUpOutline14` 名字 14、viewBox 是 8×14（窄字形）。
-    //   换图标前用预览页按真实尺寸看一眼，别只信名字。
-    // 档位后缀有两种命名法：0.1.6 的数字（14/16/20）与 0.1.7 的档位词（Medium/Regular）。
-    const tierWord = /(Medium|Regular|Small|Large)$/u.exec(name)
-    const tierMatch = /(\d+)x(\d+)$/u.test(name) ? null : /(\d+)$/u.exec(name)
-    const tier = tierMatch !== null ? Number(tierMatch[1]) : (tierWord === null ? null : tierWord[1])
-    icons.push({
-      name,
-      tier,
-      canvasSize,
-      sizeMismatch: typeof tier === 'number' && canvasSize !== null && canvasSize.width === canvasSize.height && canvasSize.width !== tier,
-      viewBox,
-      keywords: KEYWORDS[name] ?? [],
-      usedBy: [],
-      usedByPlugins: [],
-      svg
-    })
+    icons.push(iconRecord(name, svg))
   }
 
   icons.sort((left, right) => left.name.localeCompare(right.name))

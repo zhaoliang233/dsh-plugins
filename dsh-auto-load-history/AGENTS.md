@@ -28,7 +28,7 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }`：**至少 50 条消息且至少 2 个 turn 起点，最多 500 条**，`dsh-api-session-controller/lib/types/client/sessions/session.js:19`/`:20`）和回合导航未加载圆点的 `loadThrough(seq)`（同选项上限 500、下限改为 200，循环到覆盖目标 seq，同文件 `:22`/`:25`/`:338`）。两者在 rc.2 前是**固定 50 / 200**，现在是 turn 对齐的区间——插件只依赖「一次调用推进多少 seq」，不依赖页大小本身。服务端 `paginate` 仍用 `cut > 0` 决定 `hasMore`（`lib/types/history.js:425`，0.1.7-rc.2 时是 `:445`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。顶部按钮的渲染条件是 `hasMore && …`（`dsh-client-ui-chat/lib/client.js:5271`，0.1.7 时是 `:5179`），因此**按钮消失就是 `hasMore === false` 的可观测等价物**。
 
-## 依赖的契约（0.1.7-alpha.1、0.1.7-rc.2、0.2.0-rc.2 与 0.2.1-alpha.2 已核对，下表行号取自 0.2.0-rc.2）
+## 依赖的契约（0.1.7-alpha.1 起各线已核对，0.2.2-alpha.2 于 2026-10-28 复核；下表行号取自 0.2.0-rc.2）
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
@@ -101,12 +101,13 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 ## 发布线
 
-`>=0.2.1-alpha.2 <0.2.2`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫（改一处漏一处会变红）。
+`>=0.2.2-alpha.2 <0.2.3`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫（改一处漏一处会变红）。
 
-**版本门从常量派生**（2026-10-01 跨线时照抄已跨线的 `dsh-extra-context`）：判定逻辑不再内联 `0.1.7` 与 `alpha` 字面量，而是读 `DSH_RELEASE_LINE`（`0.2.1`）+ `DSH_RELEASE_FLOOR`（`{ channel: 'alpha', sequence: 2 }`）+ `PRERELEASE_CHANNELS`；`install.sh` 里有一份等价的 shell 版（含 `prerelease_rank()`）。旧写法 `channel !== 'alpha' || seq >= 1` 只能表达「下界是 alpha」，下界换成 rc 后必须改成 channel 优先级比较，否则 `0.2.0-alpha.9` 会被误判成兼容。跨线时只改常量与清单，判定逻辑不动。
+**版本门从常量派生**（2026-10-01 跨线时照抄已跨线的 `dsh-extra-context`）：判定逻辑不再内联 `0.1.7` 与 `alpha` 字面量，而是读 `DSH_RELEASE_LINE`（`0.2.2`）+ `DSH_RELEASE_FLOOR`（`{ channel: 'alpha', sequence: 2 }`）+ `PRERELEASE_CHANNELS`；`install.sh` 里有一份等价的 shell 版（含 `prerelease_rank()`）。旧写法 `channel !== 'alpha' || seq >= 1` 只能表达「下界是 alpha」，下界换成 rc 后必须改成 channel 优先级比较，否则 `0.2.0-alpha.9` 会被误判成兼容。跨线时只改常量与清单，判定逻辑不动。
 
 **逐版本核对记录**
 
+- `0.2.2-alpha.2`（2026-10-28，从 `>=0.2.1-alpha.2 <0.2.2` 整体跨到 `>=0.2.2-alpha.2 <0.2.3`；换线不是放宽上界，0.2.1 线整段出局）：`npm pack` 拉下 0.2.1-rc.4 与 0.2.2-alpha.2 全量包，抹掉版本号后逐文件比对。本插件的契约面**全部保持**：`loadOlder()`/`loadThrough(seq)` 的实现与签名逐字相同；`SessionSnapshot` 仍带 `openState/removed/hasMore/loadingOlder`；会话作用域 list slot `conversation.session.header.actions` 仍是 `{ kind: "list", scope: "session" }`；`[data-conversation-scroll]` 仍是 `scrollBody` 上的属性；`data-chat-anchor-key`（5 处）、`data-turn-tail`、`ctx.sessions.binding(id).session/.eventSource`、`settings.general.item`（内置上限仍是 `current-version` 100，本插件 110 仍在最后）全部成立。`dsh-client-ui-chat` 的「加载更早」按钮块仍是 `hasMore && …`、`disabled: loadingOlder`、`onClick: scroll.loadEarlier`，只是行号搬移。**隔离宿主 + 真实浏览器实测**（`DSH_HOME=/tmp/dsh-022-verify/home`、0.2.2-alpha.2、端口 3913、headless Chrome 156/CDP 9393、1512×813，用户的 3080 全程未触碰）：打开 4356 行的长会话，1 秒内从 200 行开始自动补齐到 2668 → 4356 行，`hasMore` 变 false（「加载更早」按钮消失），滚动位置保持在底部、0 控制台报错；设置 → 通用「会话历史」开关真实存在且排在 `current-version` 之后，关闭后 `localStorage` 立即写 `false`、再打开写回 `true`。**业务代码未改**，本轮只换版本门与清单。
 - `0.2.1-alpha.2`（2026-10-10，从 `>=0.2.0-rc.2 <0.2.1` 整体跨到 `>=0.2.1-alpha.2 <0.2.2`；换线不是放宽上界，0.2.0 线整段出局）：用 `npm pack` 拉下两版的逐个契约包（28 个包 × 2 版，逐文件 sha256），**new 侧 28 个包与运行安装 `diff -rq` 全树逐字一致**（自证取到同一份代码）。**上表 10 行契约逐个在 0.2.1-alpha.2 的实际安装包里重读确认，全部成立，业务代码一字未改**：
 
   1. **四个文件逐字相同**：`dsh-api-session-controller` 的 `lib/types/client/contract/session.d.ts`（`loadOlder` `:126`、`loadThrough` `:139`）、`lib/types/client/sessions/session.js`（实现 `:313`/`:338`、结算 `prependWindow` `:392`）、`lib/types/client/contract/snapshot.d.ts`（四字段 `:68-72`）、`lib/types/history.js`（服务端 `paginate` 仍 `cut > 0`）——sha256 两版一致。
@@ -152,7 +153,7 @@ npm run publish:check     # check + test + pack:check
 
 单元测试覆盖（38 个；跨线时新增一条四处同源守卫，2026-10-19 新增一条「补偿落在落地当帧」）；偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、**补偿先同步落一次再在随后两帧复验（且复验是空操作，不会二次修正）**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
 
-历次浏览器实测数据（`0.1.6-alpha.2` / `0.1.7-rc.2` / `0.2.0-rc.2` / `0.2.1-rc.2`）见 [`docs/compat-log.md`](../docs/compat-log.md)：当前轮的判据、数据与仪器自身的两个坑在 J6。
+历次浏览器实测数据（`0.1.6-alpha.2` / `0.1.7-rc.2` / `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.2-alpha.2`）见 [`docs/compat-log.md`](../docs/compat-log.md)：当前轮的判据、数据与仪器自身的两个坑在 J6。
 
 GUI 验证清单（挂载并重启后）：
 

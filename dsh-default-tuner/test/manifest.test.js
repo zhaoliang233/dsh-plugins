@@ -73,12 +73,12 @@ test('兼容发布线「四处同源」：package.json ⟷ lib ⟷ install.sh �
   assertCompatLine('README.md', read('README.md'), '逐版本验证', /逐版本验证：\s*`([^`]+)`/u)
 
   // 范围外必须 inert：行为用例在 test/version-gate.test.js，这里只确认运行时门确实存在
-  // （曾经的缺陷正是声明齐全、四处同源，却完全没有实现）。本插件这一轮跨到 0.2.1 线，
-  // 所以「上一线」与「下一条线」都必须在门外，旧线的 0.2.0-rc.2 不再兼容。
+  // （曾经的缺陷正是声明齐全、四处同源，却完全没有实现）。本插件这一轮跨到 0.2.2 线，
+  // 所以「上一线」与「下一条线」都必须在门外，旧线的 0.2.1 不再兼容。
   assert.equal(typeof host.classifyDshVersion, 'function', '宿主必须实现版本门')
-  assert.equal(host.classifyDshVersion('0.2.1-alpha.2').supported, true, '已核对的本线版本必须在门内')
-  assert.equal(host.classifyDshVersion('0.2.0-rc.2').supported, false, '上一发布线必须被挡在门外')
-  assert.equal(host.classifyDshVersion('0.2.2').supported, false, '下一发布线必须被挡在门外')
+  assert.equal(host.classifyDshVersion('0.2.2-alpha.2').supported, true, '已核对的本线版本必须在门内')
+  assert.equal(host.classifyDshVersion('0.2.1').supported, false, '上一发布线必须被挡在门外')
+  assert.equal(host.classifyDshVersion('0.2.3').supported, false, '下一发布线必须被挡在门外')
 })
 
 // 跨线时四处必须同时改：package.json 的 range 与 engines.dsh、install.sh 的五个版本门常量，
@@ -90,7 +90,7 @@ test('发布线、下界与清单在 lib / install.sh / package.json 三处逐�
   assert.equal(host.DSH_COMPATIBILITY_RANGE, manifest.dshCompatibility.range)
   assert.equal(host.DSH_COMPATIBILITY_RANGE, manifest.engines.dsh, 'engines.dsh 必须与声明的 range 同源')
   assert.deepEqual(host.VERIFIED_DSH_VERSIONS, manifest.dshCompatibility.verifiedVersions)
-  // 上界由发布线自身派生：0.2.1 线只服务 <0.2.2。
+  // 上界由发布线自身派生：0.2.2 线只服务 <0.2.3。
   const nextPatch = host.DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
   assert.equal(
     host.DSH_COMPATIBILITY_RANGE,

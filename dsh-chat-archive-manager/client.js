@@ -34,6 +34,27 @@ window.__ModuleLoader__.load({
     const IconTriangleRightFill14 = iconOf('IconTriangleRightFillRegular', 'IconTriangleRightFillMedium', 'IconTriangleRightFill14')
     const { Modal } = primitives
 
+    /**
+     * 0.2.2 起官方图标是 sprite 壳：组件渲染出的 `<svg>` 只有
+     * `<use href="#dsw-icon-…">`，直接拿 outerHTML 当 mask 会得到一份引用不存在
+     * 符号的独立文档，图标整块空白。`ICON_SYMBOLS` 提供符号 id → 完整 SVG 的映射，
+     * 优先用它还原自包含 SVG；旧线没有这个导出时退回 outerHTML（并补 xmlns）。
+     */
+    function selfContainedNavIcon(svg) {
+      if (svg === null || svg === undefined) return ''
+      const declared = typeof svg.getAttribute === 'function' ? svg.getAttribute('data-icon') : null
+      const use = typeof svg.querySelector === 'function' ? svg.querySelector('use') : null
+      const href = use !== null && use !== undefined && typeof use.getAttribute === 'function' ? use.getAttribute('href') : null
+      const key = String(declared || href || '').replace(/^#/u, '')
+      const symbols = primitives?.ICON_SYMBOLS
+      if (key !== '' && symbols !== null && typeof symbols === 'object' && typeof symbols[key] === 'string') {
+        return symbols[key]
+      }
+      const outer = typeof svg.outerHTML === 'string' ? svg.outerHTML : ''
+      if (outer === '') return ''
+      return outer.includes('xmlns=') ? outer : outer.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
+    }
+
     const STATUS_PATH = '/dsh-chat-archive-manager/status'
     const DELETE_PATH = '/dsh-chat-archive-manager/delete'
     const RESTORE_PATH = '/dsh-chat-archive-manager/restore'
@@ -43,7 +64,7 @@ window.__ModuleLoader__.load({
     /** Settings navigation label and page heading; the nav-icon patch matches this exact text. */
     const SECTION_TITLE = '归档管理'
     /**
-     * 设置分区 order。DSH `0.2.1-alpha.2` 自带分区是
+     * 设置分区 order。DSH `0.2.2-alpha.2` 自带分区是
      * account −10 / general 0 / models 10 / plugins 15 / agent-presets 20
      * （0.1.6 的最大项 archived-sessions 25 已被 DSH 删除），
      * **插件分区一律 ≥ 100**：排在内置之后，不插队、也不与内置并列
@@ -620,9 +641,8 @@ window.__ModuleLoader__.load({
         if (typeof document === 'undefined' || typeof window === 'undefined') return undefined
         const svg = templateRef.current?.querySelector?.('svg')
         if (svg === null || svg === undefined) return undefined
-        const source = svg.outerHTML.includes('xmlns=')
-          ? svg.outerHTML
-          : svg.outerHTML.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
+        const source = selfContainedNavIcon(svg)
+        if (source === '') return undefined
         const mask = `url("data:image/svg+xml,${encodeURIComponent(source)}")`
         const touched = new Set()
 

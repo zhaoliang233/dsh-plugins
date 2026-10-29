@@ -9,6 +9,10 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| M2（2026-10-29，L3 跨线） | `0.2.1-rc.2 → 0.2.2-alpha.2` | `dsh-mcp-console` 换到 `>=0.2.2-alpha.2 <0.2.3`。逐包 diff：`dsh-mcp-client` 只有 resources 能力判定的 15 行、Config/导出不变；`cordis` 只新增 `fiber.rawConfig/resolveConfig/effectiveConfig`；`ctx.loader.import`、`loader/volatile-update`、`ctx.tools.view()`、`entry.fiber.config` 都还在；设置类客户端包除 locale 外逐字相同。隔离宿主（3915）+ 真机 GUI **52/52**（导入、凭据、增删改、20 工具浮层与滚动、停用/删除、手写行未被触碰）。**实测抓到一个真实鉴权缺口**：`webCtx.get('connection')` 在 0.2.2 上返回 undefined（服务 fiber 尚未 active），`/status` 无 cookie 也回 200；改为把 `connection` 作为 `inject` 依赖并 fail closed（401），`gui-flow.mjs` 补会话 cookie 换取 |
+| M1（2026-10-29，L2 跨线） | `0.2.1-rc.2 → 0.2.2-alpha.2` | `dsh-default-tuner` 换到 `>=0.2.2-alpha.2 <0.2.3`。逐包 diff：`dsh-config-editor` 只把 `waterfall + resolveConfig` 换成 `fiber.resolveConfig()`（公开 API 不变）；`dsh-session-title` 的 Config / `refresh()` 不变，投影注册改成 `Service.init` 里 await 并保留 handle，`stateOf(session,key)` 标 deprecated 但旧路径可用；`dsh-base` 的 `session-title-llm` / `session-title` 默认值与实验 bundle 的替代条目逐字未变。隔离宿主（3914）：`/status` 401→200、8 个输入框全可用、占位符 `4096/4096/60000/5/10/80/5/40`、写入与 `--dump-config` 一致、reset 逐字节一致；装实验 session-titles bundle 后 `activeId=optional-session-title-all-prompts` / `followed=true` / `maxOutputTokens=64`，GUI 0 报错 |
+
+| K1（2026-10-28，跨线） | `0.2.1-rc.3 → 0.2.2-alpha.2` | 用户指定 6 个插件（`auto-load-history` / `chat-archive-manager` / `default-workspace` / `extra-context` / `local-plugin-manager` / `sticky-user-bubble`）整体换到 `>=0.2.2-alpha.2 <0.2.3`。逐包规范化 diff + 0.2.2 隔离宿主 + 真实 GUI：6 个插件的 Host 路由/状态、boot graph、设置分区与导航图标全部正常，长会话自动补齐 200→4356 行、吸顶气泡 `state=ready`，0 控制台报错；业务代码一字未改，只修版本门、测试/文档、`dsh-atomic-write` 依赖与图标提取工具（0.2.2 改成 sprite） |
 | J6（2026-10-19，L2 实跑） | `0.2.1-rc.2` | `dsh-auto-load-history` 补上实跑（隔离宿主 3911 + headless Chrome 155/CDP 9391）：补齐到 `hasMore === false`（773→70510px / 4350 行，4.2–4.6s）、总开关关后回到默认分页（30s 稳在 200 行）、开关再开无需刷新即补齐，三项判据全过、控制台 0 报错。**顺带量出并修掉一个真实缺陷**：锚点补偿晚两帧，首个 prepend 会把读者位置推开 19173px 并保持 29–31ms（3/3 命中）；改成「落地当帧先补一次 + 随后两帧复验」后跨度 0.5px、偏差帧 0，帧间隔无退化 |
 | J5（2026-10-19，收尾） | `0.2.1-rc.2` | 把 J1 遗留的「5 个插件尚未把 rc.2 列入验证清单」补齐：`auto-load-history` / `default-tuner` / `default-workspace` / `extra-context` / `local-plugin-manager` 的四处声明（`package.json`、lib 的 `VERIFIED_DSH_VERSIONS`、`install.sh`、插件文档）全部加上 `0.2.1-rc.2`，测试里的硬编码断言同步。**不采信 J1 的历史结论**：每个插件点名的契约符号重新在全仓探针一遍，再逐个写进各自 `AGENTS.md` 的新 rc.2 小节。五个插件 `classifyDshVersion('0.2.1-rc.2')` 由 `{supported:true, verified:false}` 变为 `verified:true`（启动时不再打「未逐条核对」警告），`evaluatePluginCompatibility()` 全返回 `undefined`，`publish:check` 全绿（37/54/19/75/47）。**业务代码一字未改，未提交、未发版** |
 | J4（2026-10-19，修正） | 不涉及版本 | 修掉 J1 查出的两处 `settings.section` order 并列（**违反根 `AGENTS.md`「同一 slot 不复用同一档」**）：五个插件改成 100/110/120/130/140 连续分配（`extra-context` 100 / `local-plugin-manager` 110 / `default-tuner` 120 / `mcp-console` 130 / `chat-archive-manager` 140，后者的 `NAV_ICON_ORDER` 跟随），测试里的硬编码断言与文档同步；五个插件 `publish:check` 全绿。**改动触及 5 个 `client.js`，必须在用户机器生效就得按 minor 发版——发版待用户授权** |
@@ -35,6 +39,134 @@
 | 例行（2026-09-28） | `0.1.7-alpha.2 → 0.1.7-rc.2` | L1 两个插件推进；L2/L3 交接 |
 
 ---
+
+## M2：L3 跨线 `dsh-mcp-console` 到 `0.2.2`（2026-10-29，`0.2.1-rc.2 → 0.2.2-alpha.2`）
+
+用户要求把剩下两个仍在 `0.2.1` 线的插件也处理掉；`dsh-mobile-compat` 按用户决定暂不处理（官方 0.2.2 已自带移动端适配）。本轮先做逐包 diff 与离线网，再在隔离宿主上实跑。
+
+### 契约面（逐包，读的是 0.2.2 实际安装包）
+
+| 包 | 相对 `0.2.1-rc.2` | 结论 |
+|---|---|---|
+| `dsh-mcp-client` | `lib/index.js` 仅 15 行：`resources/list` 与 `resources/templates/list` 先看 `getServerCapabilities()?.resources`，没有就回空列表 | Config schema、`apply`、`createMcpToolDefinition`、`inject`、`name`、`serverName` 预留、`fiber.dispose()`、超时默认值全部不变 |
+| `cordis` 4.0.6-alpha.1 | 只新增 `fiber.rawConfig` / `resolveConfig()` / `effectiveConfig`；`config` 仍发布同一个校验对象 | `ctx.plugin()`、`ctx.effect`、`fiber.dispose`、`ctx.inject` 不变 |
+| `cordis-plugin-loader` | 新增 `.cordis/resolve.mjs` 原生 ESM 解析器；`import()` 签名与 `loader/volatile-update` 保持 | `ctx.loader.import` 与 volatile 对账不变 |
+| `dsh-settings` | 投影改读 `entry.fiber.effectiveConfig`（与 `config` 是同一对象） | `describe/configure/.volatile()` 不变 |
+| `dsh-tools` | 大改（执行器拆分、工具集/条件注册），`view(scope)` 仍返回 `{visible, registrations, knownNames, restrictableNames}` | 插件只读 `visible` 里的工具名，契约成立 |
+| `dsh-config-editor` | 只把 `waterfall + resolveConfig` 换成 `fiber.resolveConfig(next)` | `entries/configuration/edit/documentPath` 不变 |
+| `dsh-client-ui-settings` / `-settings-plugins` | 除新增 locale 文件外**逐字相同** | `configForms.get()`、`remote.credentials` 数据面不变 |
+| `dsh-client-ui-settings-general` | 设置弹窗改 grid（移动端断点）、`navCell` 结构不变 | 导航图标补丁在 0.2.2 上六项全过，label 偏移 38/9 |
+
+### 实跑与真实缺陷
+
+隔离环境：`DSH_HOME=/tmp/dsh-022-remain/home-mcp`、0.2.2-alpha.2、端口 3915、headless Chrome 156/CDP 9336；profile 里手写两行 `dsh-mcp-client`（`patchy2` 的带 token URL + Authorization，另一个 20 工具 stdio fixture），用户 3080 全程未触碰。
+
+- 修复前 `/dsh-mcp-console/status` **无 cookie 也回 200**（只校验同源 + 固定头），与验收判据「未认证 401」不符。根因不是路由逻辑，而是 `registerRoutes` 在 `ctx.inject(['webServer'])` 回调里 `webCtx.get('connection')` 抓一次：cordis 的 `get(name, strict)` 在服务 fiber 未 active（state !== 2）时返回 undefined，而 `webServer` 与 `connection` 是兄弟服务、启动顺序没有保证。0.2.1 线上这一抓恰好拿到了服务，所以历史验收没暴露。
+- 修复：`ctx.inject(['webServer', 'connection'])` 等 `connection` 就绪；`clientRequestRejection` 在连接层不可用时 **fail closed（401）**，不再退化。修后实测：无 cookie 401、有 cookie 200、有 cookie 无固定头 403、错 CSRF 403。
+- `scripts/gui-flow.mjs` 同步补会话 cookie（Node fetch 拿不到浏览器 HttpOnly cookie，先用带 token 的 URL 换一份），并在状态接口非 200 时给出可读错误而不是 `servers.length` 的 TypeError。
+- 真机 GUI **52/52**：设置导航出现「MCP 服务器」且图标补丁只改本行、分区渲染、导入带凭据形态、保存前验证、20 工具浮层与滚动、编辑/停用/删除、手写两行全程未被触碰。
+
+### 改了什么（未发版、未提交）
+
+`package.json` / `engines.dsh` / `lib/dsh.js` 五常量 / `install.sh` 五常量 / `test/host.test.js` / `test/manifest.test.js` / README / AGENTS / CHANGELOG 换到 `>=0.2.2-alpha.2 <0.2.3`；`lib/index.js` 的 connection 注入与 fail closed、`scripts/gui-flow.mjs` 的会话 cookie 是**本轮唯一的业务代码改动**。
+
+### 未覆盖
+
+- 用户 3080 上的真机观感：`lib/index.js` 改了，必须重启 `dsh web` 才生效。
+- 真实 MCP 端点（figma/jira）在 0.2.2 上的长连接稳定性未重跑（隔离环境里 URL 行是失败重连的假端点）。
+
+## M1：L2 跨线 `dsh-default-tuner` 到 `0.2.2`（2026-10-29，`0.2.1-rc.2 → 0.2.2-alpha.2`）
+
+### 契约面（逐包）
+
+| 包 / 条目 | 相对 `0.2.1-rc.2` | 结论 |
+|---|---|---|
+| `dsh-config-editor` | 只把 `fiber.ctx.waterfall('internal/config') + resolveConfig` 换成 `fiber.resolveConfig(next)` | `edit()` 的公开行为（整块替换、`fiber.state !== 2` 拒绝、`!!js` 重建、reconcile 回写）不变 |
+| `dsh-session-title` | Config schema、`refresh(session, signal)`、`get()` 不变；投影注册移进 `Service.init` 并 await，保留 handle | 读 `titleInput` 的旧路径 `sessionProjections.stateOf(session, key)` 标 deprecated 但保留 legacy 行为 |
+| `dsh-session-title-first-prompt-llm` | 逐字节相同 | 白名单 5 个字段与提示不变 |
+| `dsh-base/cordis.patch.yml` | `session-title-llm` 仍是 `targetWords 5 / targetCjkCharacters 10 / maxInputBytes 4096 / maxOutputTokens 4096 / timeoutMs 60000` | 默认值未漂移 |
+| `dsh-experimental-session-titles-bundle` | 仍禁用 `session-title-llm`、插入 `optional-session-title-all-prompts`（`maxOutputTokens: 64`） | 候选跟随仍然必要 |
+| `dsh-app-boot` | `evaluatePluginCompatibility()` 的 `engines.dsh` 优先逻辑不变；新增 `dsh.bundle.platforms` 校验 | 本插件无 `platforms` 字段，全平台放行 |
+
+### 隔离宿主实测
+
+`DSH_HOME=/tmp/dsh-022-remain/home`、端口 3914、headless Chrome 156/CDP 9335。
+
+- 基础组合：`/status` 未认证 401、带 cookie 200；8 个输入框全可用，占位符 `4096 / 4096 / 60000 / 5 / 10 / 80 / 5 / 40`；控制台 0 报错。
+- 写入路径：`apply session-title-llm.maxInputBytes=12288` → 补丁写入完整 5 字段块；`dsh --profile web --dump-config` 独立核对一致；`reset` 后补丁与写入前逐字节一致（补丁里另有 `dsh-default-tuner` 条目，验证了注释与其他条目保留）。
+- 候选跟随：把 `@deepseek-ai/dsh-experimental-session-titles-bundle` 加进隔离 profile 并重启，`/status` 回 `activeId='optional-session-title-all-prompts'` / `followed=true` / `writable=true`，`maxOutputTokens` 默认值是实验条目的 **64**；写入落在替代条目、reset 逐字节恢复。
+- 已知边界复现：补丁里只有本插件一个条目时，`reset` 会把顶部注释一起删掉（官方 `configEditor.edit()` + `yaml` 的既有行为，文档已记）。
+
+### 改了什么（未发版、未提交）
+
+`package.json` / `engines.dsh` / `lib/index.js` 五常量 / `install.sh` 五常量 / `test/version-gate.test.js` / `test/manifest.test.js` / README / AGENTS / CHANGELOG 换到 `>=0.2.2-alpha.2 <0.2.3`；业务代码一行未改。
+
+### 未覆盖
+
+- 真机 3080：宿主半体改动需重启 `dsh web`；重启后页面刷新即可。
+- 标题重算的 `fallback` 会话列表仍用单测覆盖（隔离环境无模型凭证，造不出 provider 成功/兜底截断的真实会话）。
+
+## K1：6 个插件跨到 `0.2.2` 线（2026-10-28，`0.2.1-rc.3 → 0.2.2-alpha.2`）
+
+用户要求按最新 DSH `0.2.2-alpha.2` 先把 6 个插件的兼容性改好，目标是最小兼容修复；本机仍在 `0.2.1-rc.3`，所以验证用隔离 `DSH_HOME` + 临时安装的 `0.2.2-alpha.2`，用户的 3080 全程未触碰。
+
+### 版本关系与 diff 方法
+
+- 本地运行：`0.2.1-rc.3`；旧线最后发布：`0.2.1-rc.4`；新线：`0.2.2-alpha.2`。
+- 用 `npm install @deepseek-ai/dsh@0.2.1-rc.4` 与 `@0.2.2-alpha.2` 各装一棵全量依赖树（306 个共同包、26 个新增包、1 个移除包、302 个包版本号变化），抹掉 `0.2.1-rc.4` / `0.2.2-alpha.2` 与 `cordis`/`schemastery` 版本号后再 `diff -rq`。
+- 这次最大的「非契约」变化是**图标交付方式换了**：前端产物改为 `ICON_SYMBOLS` sprite + `T(name, weight)` 壳，原来的组件求值提取器全部报 `T is not defined`。按固定动作「工具自己坏了也算兼容性问题」先修 `tools/dsh-icons`（新增 sprite 解析、`definitionOf` 不动），`build.js` 重新生成 192 个图标（Medium/Regular 各 96），`check.js` 无漂移、工作区插件导入全部存在；`verify-nav-icon.js` 的 CSS 提取正则也补了转义引号（0.2.2 的 shell CSS 开始出现 `\"`）。
+
+### 契约面结论（逐包）
+
+| 包 | 0.2.2 相对 0.2.1-rc.4 | 结论 |
+|---|---|---|
+| `dsh-api-session-controller` | `loadOlder()`/`loadThrough()` 实现与签名逐字相同；`SessionSnapshot` 四字段仍在；`SessionBinding` 不变 | `auto-load-history` / `chat-archive-manager` 不受影响 |
+| `dsh-client-ui-chat` | `data-chat-anchor-key` 5、`data-turn-tail`、`data-chat-flow` 等计数不变；「加载更早」按钮块仍是 `hasMore && …`；CSS 默认 flow gap 6→4、`.EvIC1a_scroll` 改 `clip auto` | `sticky` 的 `MIN_PUSH_GAP=16` 与实测 `top=92` 覆盖了这两处 |
+| `dsh-client-ui-conversation` | `[data-conversation-scroll]` 仍是 `scrollBody`；`conversation.session.header.actions` 仍是 session-scope list；`data-composer-seat` 仍是 scrollport 直接子元素 | 两插件契约成立 |
+| `dsh-client-ui-settings-general` | 设置弹窗改成 grid：`navTitle` 移出 `nav`、`.content` 包裹层删除；`navCell` 结构与内置 order 不变（section 上限 20、general 上限 100） | 4 个导航图标补丁 + 3 个设置分区继续成立 |
+| `dsh-client-ui-workspace` / `-sidebar` | `workspaces.rename/delete/insertBefore/refresh`、`startSession(workspaceId, options)`、`{clearPreviousDraft:false}` 复用语义、`sidebar.footer.action` 均在；新增 access-control 只挡 UI 入口 | `default-workspace` 不受影响 |
+| `dsh-workspace` / `dsh-api-workspace-controller` / `dsh-atomic-write` | 与 0.2.1-rc.4 **逐字相同** | `default-workspace` / `local-plugin-manager` 不受影响 |
+| `dsh-plugin-manager` / `dsh-hmr` / `dsh-app-boot` | `writePluginEnabled()` 主体、`dependencySpec()`、profile 配置监听与 manifest 缓存失效均保持；`app-boot` 只新增 `dsh.bundle.platforms` 校验与 startup diagnostics | `local-plugin-manager` 不受影响；本工作区 bundle 无 `platforms` 字段 = 全平台放行 |
+| `dsh-agent-loop` / `dsh-session` / `dsh-session-persistence-jsonl` | factory 卸载顺序仍是 cancel → whenIdle → scope.dispose → handle.close → detach；`detachEntered`/`inbox.hasPending` 仍在；JSONL `list()` 只新增 `location`；`dsh-session` 新增「announce 前只读」 | `chat-archive-manager` 删除链路的私有探针全部成立 |
+| `dsh-system-prompt` / `dsh-settings` / `cordis-plugin-loader` / `dsh-compaction-basic` / `dsh-llm` | `section()`/`interpolate`、`describe()`/`configure()`/`.volatile()`、`summarizeWithLlm()`/`COMPACTION_INSTRUCTION`/`llm/stream` waterfall、surface 节点 0 保护均保持 | `extra-context` 不受影响 |
+
+### 离线网
+
+- 6 个插件 `npm test`：**285 项全过**（38 / 78 / 19 / 75 / 47 / 28），版本门矩阵按 `0.2.2` 线重设（下界 alpha.2、上一线 `0.2.1` 与下一线 `0.2.3` 在门外）。
+- `node tools/dsh-icons/build.js --dsh <0.2.2 安装>` → 192 个图标；`check.js` 无漂移。
+- 4 个带导航图标补丁的插件 `verify-nav-icon.js --measure` **六项全过**（label 偏移与壳层原生行一致：38/9；原 svg 隐藏、mask 生效、`::before` 16×16）。
+
+### 隔离宿主 + 真实 GUI
+
+环境：`DSH_HOME=/tmp/dsh-022-verify/home`、0.2.2-alpha.2、端口 3913、headless Chrome 156/CDP 9393、1512×813；6 个插件以绝对 `link:` 挂载，长会话从用户 `~/.dsh` **只读复制**。
+
+- 5 个 Host 半体状态路由全部 200：`chat-archive-manager`（`deletionSupported/sessionQuiescenceSupported/restorationSupported` 全 true）、`default-workspace`、`extra-context`（`writable:true`）、`local-plugin-manager`（`dshVersion:"0.2.2-alpha.2"`、6 个插件 `manageable:true`）；`auto-load-history` 无 Host 路由，`/status` 404 是设计。
+- boot graph 6 个包全部在列；设置页分区顺序：通用 → 模型 → 内置插件 → Agent 预设 → 额外上下文 → 插件开发 → 归档管理；`data-dec-nav-icon` / `data-dlpm-nav-icon` / `data-dac-archive-nav` 各 1 个，真实渲染生效。
+- `auto-load-history`：打开 4356 行长会话，200 → 2668 → 4356 行，1 秒内开始、3 秒内 `hasMore=false`（「加载更早」消失），底部跟随，0 控制台报错；设置 → 通用「会话历史」行排在 `current-version` 之后，开关读写 `localStorage` 正常。
+- `sticky-user-bubble`：滚到中段后 `state="ready"`，clone 宽 401.09 / 高 42 / top 92（阅读线），10 次采样稳定，0 报错。
+- `default-workspace`：侧边栏「新建通用会话」按钮存在、受管 Workspace 状态正确；`local-plugin-manager` / `extra-context` / `chat-archive-manager` 三个设置分区都能打开并渲染。
+
+### 改了什么（未发版、未提交）
+
+- 6 个插件：`package.json#dshCompatibility` / `engines.dsh` / `install.sh` 五常量 / lib 五常量 / 测试断言 / README/AGENTS 全部换到 `>=0.2.2-alpha.2 <0.2.3`，`verifiedVersions` 只列 `0.2.2-alpha.2`。
+- `dsh-local-plugin-manager`：`@deepseek-ai/dsh-atomic-write` 升到 `~0.2.2-alpha.2`，`package-lock.json` 已同步。
+- `tools/dsh-icons`：新增 0.2.2 sprite 提取（`spriteTable()`）、修 shell CSS 转义引号解析；`icons.json`/`preview.html` 重新生成。
+- 首轮 6 个插件业务代码一字未改；2026-10-29 的菜单图标修复只改了 4 个插件的 mask 生成（见下）。
+
+### 2026-10-29 后续修复：设置菜单图标空白
+
+用户升级后反馈「设置页面的几个菜单图标已经没了」。根因是 0.2.2 把图标改成 sprite：组件渲染出的 `<svg>` 只有 `<use href="#dsw-icon-…">`，四个插件把它的 `outerHTML` 直接做 `::before` 的 mask，得到一份**引用不存在符号的独立 SVG 文档**，mask 渲染为空白（标记、dataset、`::before` 尺寸全都在，所以上一轮的 `verify-nav-icon` 误判为通过）。
+
+- 修复：`dsh-extra-context` / `dsh-chat-archive-manager` / `dsh-local-plugin-manager` / `dsh-mcp-console` 的 mask 生成改为优先读 `primitives.ICON_SYMBOLS`（按 `data-icon` 或 `<use href>` 的符号 id 取完整 SVG），旧线没有该导出时退回 `outerHTML` 并补 `xmlns`。
+- 仪器修复：`verify-nav-icon.js` 的 `maskApplied` 原来只检查 `mask-image` 非空，现改为**解码 data URI 并拒绝残留 `<use>`、要求至少一个真实图形节点**；四个插件复跑六项全过。
+- 真实 GUI 复核：隔离 0.2.2 宿主 + 1512×813 无头 Chrome，设置菜单七行全部有图标；三个插件行的 `::before` `mask-image` 已含 `<path>`、不含 `<use>`，截图人工确认。
+- 回归测试：`dsh-extra-context` 与 `dsh-local-plugin-manager` 各加一条 sprite → 自包含 mask 的单测（76 / 48 项全过）。
+
+### 未覆盖
+
+- `chat-archive-manager` 的**真实永久删除**没在 0.2.2 上重跑（隔离环境可做，但会真删会话目录，属于可破坏操作；能力探测已证明私有 ABI 齐全）。
+- `extra-context` 的压缩摘要语言 A/B 仍未跑（历史未覆盖项）。
+- 设置页之外的 3080 观感、`sticky` 的折叠动画瞬时、`default-workspace` 的改名/删除保护点击仍需用户在真机确认。
 
 ## J6：`dsh-auto-load-history` 的实跑验证 + 锚点补偿的量化修复（2026-10-19，`0.2.1-rc.2`）
 

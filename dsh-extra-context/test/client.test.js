@@ -220,6 +220,9 @@ function primitivesFor(naming) {
           IconTriangleRightFillMedium: triangleRightFill,
           IconContextInjectionOutlineMedium: contextInjection
         }),
+    ICON_SYMBOLS: {
+      'dsw-icon-context-injection-outline-medium': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0"/></svg>'
+    },
     Switch: switchStub
   }
 }
@@ -1206,6 +1209,22 @@ test('导航图标补丁：前置条件不满足时安静退化，绝不抛错',
   const once = navIconMaskSource('<svg xmlns="http://www.w3.org/2000/svg" width="16"></svg>')
   assert.equal(once.match(/xmlns=/gu).length, 1, 'xmlns 不得重复插入')
   assert.equal(navIconMaskSource(''), '', '空源码返回空串（调用方据此跳过补丁）')
+})
+
+test('导航图标 mask 在 0.2.2 的 sprite 图标下必须自包含', () => {
+  // 0.2.2 的图标是 sprite 壳：outerHTML 只有 <use href="#…">，直接当 mask 会得到
+  // 一张引用不存在符号的独立文档（用户看到"设置菜单图标没了"）。必须优先用
+  // primitives.ICON_SYMBOLS 还原成带路径的自包含 SVG。
+  const { navIconSymbolSource } = loadPlugin().__internals
+  const symbol = 'dsw-icon-context-injection-outline-medium'
+  const svg = {
+    outerHTML: `<svg data-icon="${symbol}"><use href="#${symbol}"></use></svg>`,
+    getAttribute(name) { return name === 'data-icon' ? symbol : null },
+    querySelector() { return null }
+  }
+  const source = navIconSymbolSource(svg)
+  assert.equal(source.includes('<path'), true, 'mask 必须包含真实图形，而不是 <use> 引用')
+  assert.equal(source.includes('<use'), false, 'mask 里不得留下 sprite 引用')
 })
 
 test('导航补丁的挂载点与样式必须三处同源（选择器 / 变量名 / dataset 键）', async () => {

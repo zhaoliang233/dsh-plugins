@@ -397,8 +397,14 @@ export function apply(ctx, config = {}) {
  * @param {{profileTargets: () => any[], reconcile: (reason: string) => Promise<void>, settingsView: () => any, log: (level: string, message: string) => void}} hooks
  */
 function registerRoutes(ctx, state, hooks) {
-  ctx.inject(['webServer'], (webCtx) => {
-    const connection = typeof webCtx.get === 'function' ? webCtx.get('connection') : undefined
+  // `connection` 必须作为**注入依赖**等待就绪，不能在 `ctx.inject(['webServer'])` 的回调里
+  // 用 `ctx.get('connection')` 抓一次：cordis 的 `get(name, strict)` 在服务 fiber 还没
+  // active（state !== 2）时直接返回 undefined，而 webServer 与 connection 是兄弟服务，
+  // 谁先就绪没有保证。2026-10-29 在 0.2.2 隔离宿主上实测到这条：抓到的 connection 是
+  // undefined，于是 `/status` 没有经过连接层鉴权（无 cookie 也回 200）。改成注入后
+  // 由 cordis 等到服务就绪，鉴权结论才拿得到。
+  ctx.inject(['webServer', 'connection'], (webCtx) => {
+    const connection = webCtx.connection
     const webServer = webCtx.webServer
     if (typeof webServer?.register !== 'function') return
 
@@ -593,10 +599,10 @@ export function sameOriginRequest(req) {
  * @returns {number | undefined} 非空即拒绝时的状态码
  */
 export function clientRequestRejection(req, connection) {
-  if (typeof connection?.requestRejection === 'function') {
-    const rejection = connection.requestRejection(req)
-    if (rejection !== undefined) return rejection
-  }
+  // 连接层是这类路由的鉴权来源：拿不到就 fail closed，不能退化成"只校验同源 + 固定头"。
+  if (typeof connection?.requestRejection !== 'function') return 401
+  const rejection = connection.requestRejection(req)
+  if (rejection !== undefined) return rejection
   return sameOriginRequest(req) && requestHeader(req, CLIENT_HEADER) === '1' ? undefined : 403
 }
 

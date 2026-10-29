@@ -1,7 +1,7 @@
 # dsh-mcp-console — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.1`，兼容线 `>=0.2.1-alpha.2 <0.2.2`；逐版本验证过 `0.2.1-alpha.2` 与 `0.2.1-rc.2`（单测 104 项 + 真机 GUI 52/52 连跑两轮 + 鉴权/CSRF + 动态挂载与凭据链实测 + 导航图标六项）。上一线 `0.2.0` 的用户留在上一线的插件版本。
+> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`；逐版本验证过 `0.2.2-alpha.2`（单测 104 项 + 真机 GUI 52/52 + 鉴权/CSRF + 动态挂载与凭据链实测 + 导航图标六项）。上一线 `0.2.1` 的用户留在上一线的插件版本。
 
 ## 一句话
 
@@ -26,7 +26,7 @@
 | 官方设置写入的落盘位置就是 profile 的 patch（`profileContext.patchPath`）：`withFileLock(package.json)` + YAML Document 保注释 + `!!js` tag 还原，只改**自己条目**的 `config`，写后 `reconcileProfilePatches` | `dsh-config-editor/lib/index.js:85-125` |
 | 设置条目要在 `settings.describe()` 里出现，才可写（否则客户端快照 `status:'unavailable'`、动作控件禁用）；`settings.configure({auto:false}, fiber)` 用来声明「本实例自带设置页」 | `dsh-settings/lib/index.js` 的 `describe/configure` |
 | 设置页导航图标只能做 DOM 补丁：壳层 `navIcon(id)` 只白名单 4 个官方 id，`settings.section` 没有 `icon` 选项 | `dsh-client-ui-settings-general/lib/client.js` 的 `rows`/`navIcon`；完整手法见 `dsh-extra-context/AGENTS.md`「实现事实 4」 |
-| `ctx.webServer.register({kind,path,handler})` 重复路径 throw；浏览器边界要先过 `connection.requestRejection`，再 loopback/同源/固定客户端头 | `dsh-host-webserver/lib/index.js:171-183`；`dsh-local-plugin-manager/AGENTS.md`「安全」 |
+| `ctx.webServer.register({kind,path,handler})` 重复路径 throw；浏览器边界要先过 `connection.requestRejection`，再 loopback/同源/固定客户端头。**`connection` 必须用 `ctx.inject` 等就绪，不能 `ctx.get('connection')` 抓一次**：cordis 的 `get(name, strict)` 在服务 fiber 未 active 时返回 undefined（2026-10-29 在 0.2.2 上实测到，路由因此跳过了连接层鉴权） | `dsh-host-webserver/lib/index.js:171-183`；`dsh-local-plugin-manager/AGENTS.md`「安全」；M2 |
 | Loader 条目暴露 `entry.options.{id,name,config}` 与 `entry.fiber.state`（`entry.disabled` 表示未启用） | `cordis-plugin-loader/lib/index.js:154-176`；`dsh-host-plugin-inventory/lib/index.js:110-117` |
 
 ## 隔离环境里的实机验证（机制层，已做）
@@ -47,9 +47,9 @@
 
 在隔离宿主上四项全过才算通过：`/status` 未认证 401、认证后 200；boot graph 中 `dsh-mcp-console` 出现 4 处（id/url/rev/inject）；`npm run gui:check` 52/52；凭据走 `credentials`、明文 0 次进入 profile 配置或请求载荷。
 
-同线的其它 prerelease 带警告运行、能力探测仍是权威判定；`0.2.1` 正式版按判据在门内，发布后把它加进 `VERIFIED_DSH_VERSIONS` 与 `install.sh` 清单。
+同线的其它 prerelease 带警告运行、能力探测仍是权威判定；`0.2.2` 正式版按判据在门内，发布后把它加进 `VERIFIED_DSH_VERSIONS` 与 `install.sh` 清单。
 
-逐轮实测记录（`0.1.7-alpha.2` / `0.1.7-rc.2` / `0.2.0-rc.2` / `0.2.1-alpha.2` / `0.2.1-rc.2`）见 [`docs/compat-log.md`](../docs/compat-log.md)。
+逐轮实测记录（`0.1.7-alpha.2` / `0.1.7-rc.2` / `0.2.0-rc.2` / `0.2.1-alpha.2` / `0.2.1-rc.2` / `0.2.2-alpha.2`）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
 ## 结构
 
@@ -77,7 +77,7 @@
 6. **状态接口不回显值**：`describeServer()` 只给 `envKeys`/`headerKeys`/`credentialRefs`，`targets.js` 对组合层条目额外做 URL 去查询串与 stdio 参数计数处理（组合层 `!!js` 求值后可能已经是明文）。
 7. **`serverName` 不做静默清洗**：非法字符必须由校验报出来，否则界面上的名字与实际挂载用的名字会不一致（`normalizeServer` 只 trim，`validateServer` 负责报错）。
 8. **样式由插件（`apply`）持有，不是组件**：按 `data-plugin` + `data-owner` 打标、引用计数清理，元素存活但文本过期时重写文本（HMR 先卸旧 fiber 再挂新 fiber，组件级注入会漏，见 `dsh-extra-context` 的同类踩坑）。
-9. **导航图标补丁三处必须同源**：`dataset.dmcNavIcon`、CSS 选择器 `[data-dmc-nav-icon]`、CSS 变量 `--dmc-nav-icon-mask`；引用计数落在按钮 dataset 上，按钮被壳层重建后由 `MutationObserver` 补回（`test/client.test.js` 有守护）。
+9. **导航图标补丁三处必须同源**：`dataset.dmcNavIcon`、CSS 选择器 `[data-dmc-nav-icon]`、CSS 变量 `--dmc-nav-icon-mask`；引用计数落在按钮 dataset 上，按钮被壳层重建后由 `MutationObserver` 补回（`test/client.test.js` 有守护）。**0.2.2 起图标是 sprite 壳**：组件 `outerHTML` 只有 `<use href="#…">`，直接作 mask 会空白；`navIconSymbolSource()` 优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG，旧线无该导出时退回 `outerHTML`。
 10. **`failOnStartupError` 默认关闭**（跟随 mcp-client 组合默认）：连不上仍挂载并自动重连，状态行显示最近日志；勾选后失败即记 `failed`。
 11. **写设置用一次原子 `mutate`**：`servers` 与 `enabled` 一起提交（`{op:'set', path:[...]}`），而不是两次 `set`——两次会有两个 revision 栅栏，中途失败就留下半套配置。
 
@@ -106,6 +106,8 @@
 21. **键名没有语义**：`KEY` 只是 credentials 存储的名字（`/^[A-Za-z_][A-Za-z0-9_]*$/`），用户随便取，同一个键可被多条服务器复用、也能命中已有环境变量。导入时 `credentialKeyFor()` 生成 `MCP_<SERVERNAME>_<FIELD>_<KEY>`（如 `MCP_JIRA_HEADERS_AUTHORIZATION`）**纯粹是自动命名**，代码里没有任何 jira/atlassian 专有分支（用户专门问过这点，别再让他误会）。
 
 22. **模块解析两级**：`ctx.loader.import` 优先（profile 锚点，源码与 registry 安装都行），失败再按 DSH 安装绝对路径 `createRequire().resolve()`；两级都失败则 `runtime = 'mcp-client-unavailable'`，此时只提供状态页、不挂载任何东西（fail closed，且不影响宿主启动）。
+
+23. **路由鉴权必须以连接层为准，且连接层不可用时 fail closed**（2026-10-29，M2）：0.2.2 隔离宿主上实测 `/status` 无 cookie 也回 200。根因是 `registerRoutes` 在 `ctx.inject(['webServer'])` 回调里 `webCtx.get('connection')` 抓一次，而 `webServer` 与 `connection` 是兄弟服务、谁先 active 没有保证——抓到的 `connection` 是 `undefined`，`clientRequestRejection` 于是只走了同源 + 固定头。修复：`ctx.inject(['webServer', 'connection'])` 等两者就绪，`clientRequestRejection` 在连接层缺失时直接 401（不再放行）。`scripts/gui-flow.mjs` 的交叉核对改用带 token 的 URL 换一份会话 cookie（Node fetch 不共享浏览器 HttpOnly cookie），状态接口非 200 时直接报可读错误。**以后新增任何宿主路由都照这个形状写，别用 `ctx.get` 探测鉴权服务。**
 
 ## 凭据写入这条链（2026-09-18 修过一个"点了没反应"的缺陷）
 
@@ -166,7 +168,7 @@ npm run check       # node --check ×10 + bash -n ×2
 npm test            # 104 项：store 13 / plan 10 / mount-manager 12 / targets 10 / host 14 / client 40 / manifest 5
 npm run pack:check  # 发布物 = 12 个文件
 npm run publish:check   # = verify + pack:check，已绑定 prepublishOnly
-npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（52/52；0.1.7-alpha.2、0.1.7-rc.2、0.2.0-rc.2、0.2.1-alpha.2 都是，后两条线各连跑两轮）
+npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（52/52；0.1.7-alpha.2、0.1.7-rc.2、0.2.0-rc.2、0.2.1-alpha.2、0.2.2-alpha.2 都是，后两条线各连跑两轮）
 ```
 
 > `gui:check` 跑的是**隔离宿主**：`DSH_HOME=/tmp/<隔离目录> dsh --profile web --port <非 3080> --no-open`（首次会初始化 profile），再装 `link:` 本插件并起无头 Chrome。**别用 `--port 0`**：脚本要从 URL 里取 `port`，随机端口它读不到。
@@ -177,13 +179,13 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   #
 - `test/client.test.js` 在 `node:vm` 沙箱里加载 bundle（React 用 `test/harness.js` 的**可渲染**运行时），验证 slot 注册、`configForms.get('dsh-mcp-console')` 的条目 id 绑定、导航补丁的三处同源与可回滚、样式注入与引用计数，以及**真渲染 + 真点击**的接线守卫：点「+」只开弹窗且不写设置且**没有单独的验证按钮**、点保存会先调一次 verify 且通过才写盘、验证失败时不落盘且原因就地显示、每次保存都重新验证（不复用上次结果）、编辑走同一弹窗且预填、宿主缺 `actions`/返回 `unknown action` 时提示重启并禁用保存、开关必须写回停用、删除必须先确认、写完必须等到宿主对账追上（不留在旧结论上）。
 - `test/harness.js` 是小 React 运行时（不是测试文件）。它按组件实例的树路径保存 hook 槽，支持 `createContext`/`useContext`、类组件（`children` 会并入 `props`）、以及**按依赖真记忆化**的 `useCallback`。五条踩坑：`render()` 返回数组要显式展平；`useCallback` 若永远返回第一次的函数，闭包会一直看着旧状态（`useCallback(id => status.servers.find(...), [status])` 会永远读到初始 null），看起来像产品缺陷、实际是桩的错；`inputByLabel` 找字段容器必须**按 class token 精确匹配**——`.dmc-field-row` 也包含 `dmc-field` 子串，用 `includes` 会命中外层行容器、取到同排第一个输入框，表现为"表单没预填/没写进去"；`useRef` 必须返回**ref 对象**（曾写成返回 `initial`，于是 `useRef(null)` 在测试里就是 `null`，组件一碰 `ref.current` 整个分区都渲染不出来）；函数组件的 `children` 用 props 形式传（`createElement(C, {children: x})`）时不能被位置参数的**空数组**覆盖（官方 `Tooltip` 就是 props 形式传 children 的）。宿主元素上的 `ref` 本桩不赋值（真实 React 首次渲染前也是 null），所以组件必须自己处理 `current === null`，用到 DOM 的行为（浮层尺寸、滚轮转发）由真机验收覆盖。
 - **GUI 脚本每次求值前都重新注入页内助手**：客户端 bundle 改动会触发 client HMR 重载页面，注入的 `window.__gui` 随之消失（脚本表现为 `__gui is not defined`）；`evaluate` 包装里先跑一次 `HELPERS` 是幂等且便宜的，比"注入一次管到底"稳。
-- `scripts/gui-flow.mjs`（`npm run gui:check`）是**真机 GUI 验收**：用 CDP 驱动无头 Chrome 打开隔离宿主，走「打开设置（先关掉首启引导弹层）→ 进分区 → 查行是不是一行 → 导入（带上 URL/命令与凭据占位符、页面不出现明文）→ 新增（弹窗，label 文案与同一行）→ 填错命令后点保存（自动验证失败、不落盘）→ 换本地 fixture 服务器再保存 → 悬停「已连接 · N 个工具」看完整清单、量它是否在面板内、滚轮滚动清单 → 编辑 → 停用 → 删除」，每步都用宿主状态接口交叉核对，真机里还走了一遍「点『凭据』→ 自己取键名 → 凭据区出现该键」。**必须先关引导弹层**，否则它盖住设置面板、悬停事件落不到插件元素上——弹层文案随发布线变（0.1.6 是「稍后配置」/「关闭」，0.1.7 的首启引导多了「继续」一步），所以脚本改成"循环点到没有可见 dialog 为止"并新增一条断言，只认旧文案会让浮层那几条假失败。定位弹窗要用 `.dmc-dialog`：设置面板本身也带 `role=dialog`，按 role 查会先命中它。
-- **导航图标补丁的几何**用工作区工具离线量过，每次换线都复跑：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-mcp-console --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure`，六项检查全通过（`stylesInjected` / `geometryMatches`（label 偏移 36,9 与壳层原生行一致）/ `originalIconHidden` / `maskApplied` / `squareIconBox`（::before 恰好 16×16）/ `shellRowUntouched`；`0.2.1-alpha.2` 上复跑同样六项全过）。为跑通它给固定场景补了 `createContext`/`useContext` 与 `ctx.effect`（详见 `tools/dsh-icons/README.md`），并用 `dsh-extra-context`、`dsh-chat-archive-manager` 回归确认没有改坏既有插件。
+- `scripts/gui-flow.mjs`（`npm run gui:check`）是**真机 GUI 验收**：用 CDP 驱动无头 Chrome 打开隔离宿主，走「打开设置（先关掉首启引导弹层）→ 进分区 → 查行是不是一行 → 导入（带上 URL/命令与凭据占位符、页面不出现明文）→ 新增（弹窗，label 文案与同一行）→ 填错命令后点保存（自动验证失败、不落盘）→ 换本地 fixture 服务器再保存 → 悬停「已连接 · N 个工具」看完整清单、量它是否在面板内、滚轮滚动清单 → 编辑 → 停用 → 删除」，每步都用宿主状态接口交叉核对（**0.2.2 起先用带 token 的 URL 换会话 cookie，否则状态接口 401**），真机里还走了一遍「点『凭据』→ 自己取键名 → 凭据区出现该键」。**必须先关引导弹层**，否则它盖住设置面板、悬停事件落不到插件元素上——弹层文案随发布线变（0.1.6 是「稍后配置」/「关闭」，0.1.7 的首启引导多了「继续」一步），所以脚本改成"循环点到没有可见 dialog 为止"并新增一条断言，只认旧文案会让浮层那几条假失败。定位弹窗要用 `.dmc-dialog`：设置面板本身也带 `role=dialog`，按 role 查会先命中它。
+- **导航图标补丁的几何**用工作区工具离线量过，每次换线都复跑：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-mcp-console --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure`，六项检查全通过（`stylesInjected` / `geometryMatches`（label 偏移 36,9 与壳层原生行一致）/ `originalIconHidden` / `maskApplied` / `squareIconBox`（::before 恰好 16×16）/ `shellRowUntouched`；`0.2.1-alpha.2`、`0.2.2-alpha.2` 上复跑同样六项全过，0.2.2 的 label 偏移为 38,9）。为跑通它给固定场景补了 `createContext`/`useContext` 与 `ctx.effect`（详见 `tools/dsh-icons/README.md`），并用 `dsh-extra-context`、`dsh-chat-archive-manager` 回归确认没有改坏既有插件。
 - **样式注入必须同步**：`installStyles` 先注入再登记 `ctx.effect` 清理。曾把注入整块放进 effect 回调，固定场景（无 effect）下样式永远进不了文档——这与 `dsh-extra-context` 踩过的「标记已打、CSS 未到」是同一个坑。
 - **本机真实宿主上已验证**（0.1.6 线，用户重启后；换线后由「验收判据」一节的隔离宿主实测取代）：`runtime=ready`、`settingsAvailable=true`、模块走 `loader-import`；`profileTargets` 正确列出用户 patch 里的 `figma`/`jira`（jira 的 `Authorization` 只给键名，`JIRA_MCP_BASIC` 的值与任何 `Basic ` 明文都不在载荷里）；无自定义客户端头 403、错误 CSRF 403。
 - **只读块（配置文件中的服务器）的文案不得出现实现细节**：曾经在页面上写「这些行来自 profile 的 cordis.patch.yml（含 !!js 表达式），本插件不修改该文件…」——用户直接反馈「很乱、说明描述了一些跟具体配置有关的信息，明显不合理」。现在页面上只有标题 +「只读 · 值不显示」，实现细节留在文档里；`test/client.test.js` 与 `scripts/gui-flow.mjs` 都断言渲染文本里不出现 `profile` / `cordis.patch.yml` / `!!js` / `本插件不修改`。
 - 只读块**不复用托管行的 `.dmc-row` 样式**，自己成卡片（`.dmc-targets`/`.dmc-target`）：两者层级不同，混用会让人以为它也是可编辑条目。
-- **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，52/52；`0.1.7-alpha.2`、`0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-alpha.2` 各通过，后两条线各连跑两轮）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmc-tools`/高度 <60px）；官方浮层的宽高都在 `.dmc-section` 之内（alpha.2 实测 `232x202` vs 面板 `464x389`，rc.2 实测 `279x205` vs `472x335`，`0.2.1-alpha.2` 实测 `250x261` vs `467x449`，都 `insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
+- **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，52/52；`0.1.7-alpha.2`、`0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-alpha.2`、`0.2.2-alpha.2` 各通过，后两条线各连跑两轮）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmc-tools`/高度 <60px）；官方浮层的宽高都在 `.dmc-section` 之内（alpha.2 实测 `232x202` vs 面板 `464x389`，rc.2 实测 `279x205` vs `472x335`，`0.2.1-alpha.2` 实测 `250x261` vs `467x449`，都 `insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
 - **验收脚本必须能自己"报死"，不能静默挂死**（2026-09-29 实测踩到）：第一次在 rc.2 上跑 `gui:check` 时，脚本推进到「填服务器名」之后**整整 10 分钟没有任何输出也不退出**（`ps` 看着进程活着、CPU 0%、CDP socket 仍是 ESTABLISHED），最后只能手工杀掉。根因是脚本自己的超时清理写错了位置：
   ```js
   pending.set(next, { resolve, reject }); socket.send(...); setTimeout(() => { if (pending.delete(next - 1)) reject(...) }, 30000)
@@ -232,6 +234,6 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   #
 4. 保存成功但没有工具 → 看该行的最近日志（重连、tools/list 失败），以及服务器是否本来就无工具能力。
 5. 弹窗里写着"宿主进程还是旧版本"、保存按钮是灰的 → 宿主半体是旧的：请用户重启 `dsh web`（客户端刷新即新，宿主必须重启才加载）。
 6. 设置页红条说"宿主这一条没有可写的设置 schema"、写入被拒 → 状态接口看 `settingsAvailable`：为 `false` 说明 `Config` 没构造出来（schemastery 定位失败，宿主日志有 `dsh-mcp-console:` 前缀告警）或条目不在 `settings.describe()` 里（profile 组成里没有这一条）。
-7. 想确认宿主真实状态与支持的动作 → `curl -s -H 'x-dsh-mcp-console-client: 1' http://127.0.0.1:3080/dsh-mcp-console/status | python3 -m json.tool`（同源 + loopback 才放行；`actions` 字段就是宿主的能力清单）。
+7. 想确认宿主真实状态与支持的动作 → 先用带 token 的 URL 换会话 cookie（`curl -c /tmp/mcp-cookie.txt 'http://127.0.0.1:3080/?token=<token>'`），再 `curl -s -b /tmp/mcp-cookie.txt -H 'x-dsh-mcp-console-client: 1' http://127.0.0.1:3080/dsh-mcp-console/status | python3 -m json.tool`（同源 + loopback + 会话才放行；没有 cookie 是 401，`actions` 字段就是宿主的能力清单）。
 8. 判断"到底是客户端新还是宿主新" → 比一下宿主进程启动时间与 `lib/*.js` 的修改时间：
    `ps -o lstart= -p <pid>` vs `ls -l lib/*.js`。

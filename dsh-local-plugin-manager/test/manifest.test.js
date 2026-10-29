@@ -25,10 +25,10 @@ test('declares one compatible-release-line dual Host and Settings-section bundle
   assert.equal(manifest.engines.node, '>=20')
   // 运行时依赖固定为官方同一套实现：profile 写锁与原子提交用 dsh-atomic-write，
   // patch 编辑用官方也在用的 yaml（只有 Document API 能保注释地就地改覆盖项）。
-  // 依赖范围随发布线一起走：插件跑在 0.2.1 线上，写锁就必须是同一线的实现
+  // 依赖范围随发布线一起走：插件跑在 0.2.2 线上，写锁就必须是同一线的实现
   // （锁路径 `<锚点>.lock` + `wx` + mode 0o600 在整条 0.2.x 线上逐字相同，见 AGENTS.md）。
   assert.deepEqual(manifest.dependencies, {
-    '@deepseek-ai/dsh-atomic-write': '~0.2.1-alpha.2',
+    '@deepseek-ai/dsh-atomic-write': '~0.2.2-alpha.2',
     yaml: '^2.9.0'
   })
   assert.equal(manifest.files.includes('CHANGELOG.md'), true)
@@ -60,7 +60,7 @@ test('发布线、下界与验证清单在四处保持同源', () => {
   assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${DSH_RELEASE_FLOOR.channel}"`), true)
   assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${DSH_RELEASE_FLOOR.sequence}`), true)
   assert.deepEqual([...VERIFIED_DSH_VERSIONS], manifest.dshCompatibility.verifiedVersions)
-  // 上界由发布线自身派生：0.2.1 线只服务 <0.2.2。
+  // 上界由发布线自身派生：0.2.2 线只服务 <0.2.3。
   const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
   assert.equal(
     DSH_COMPATIBILITY_RANGE,

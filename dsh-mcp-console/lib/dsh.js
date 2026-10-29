@@ -21,11 +21,11 @@ import { dirname, join } from 'node:path'
  * 兼容发布线。与 `package.json#dshCompatibility.range` / `engines.dsh` /
  * `install.sh` 的 `DSH_COMPATIBILITY_RANGE` **同源**。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.1-alpha.2 <0.2.2'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
 /** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
-export const DSH_RELEASE_LINE = '0.2.1'
+export const DSH_RELEASE_LINE = '0.2.2'
 /**
- * 兼容线下界（`0.2.1-alpha.2`）：同线内更小序列号的 alpha，以及整条 0.2.1
+ * 兼容线下界（`0.2.2-alpha.2`）：同线内更小序列号的 alpha，以及整条 0.2.2
  * 的 beta/rc 之前的版本都低于下界，判为不支持。跨线时改这几个常量即可，
  * 判定逻辑不用动。
  */
@@ -33,13 +33,13 @@ export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
 /** prerelease channel 的先后顺序；下标即优先级。 */
 const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
 /** 逐版本核对过的 DSH 版本（其它同线版本带警告运行）。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.1-alpha.2', '0.2.1-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2']
 
 /**
  * 判定 DSH 版本是否落在已核对契约的兼容线内。
  *
  * 只按版本号形状判定，不猜「看起来差不多」的版本：正式版与
- * `0.2.0-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律
+ * `0.2.2-{alpha,beta,rc}.N` 里够到或高于下界的那些算同线，其余一律
  * `supported: false`。下界是 rc 时必须比较 channel 优先级——旧的
  * `channel !== 'alpha' || seq >= N` 写法会把 `0.2.0-alpha.9` 判成兼容。
  *

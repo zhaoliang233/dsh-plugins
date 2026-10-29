@@ -63,7 +63,7 @@ test('发布线、下界与验证清单在四处保持同源', () => {
   assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_CHANNEL="${DSH_RELEASE_FLOOR.channel}"`), true)
   assert.equal(installScript.includes(`DSH_RELEASE_FLOOR_SEQUENCE=${DSH_RELEASE_FLOOR.sequence}`), true)
   assert.deepEqual([...VERIFIED_DSH_VERSIONS], manifest.dshCompatibility.verifiedVersions)
-  // 上界由发布线自身派生：0.2.1 线只服务 <0.2.2。
+  // 上界由发布线自身派生：0.2.2 线只服务 <0.2.3。
   const nextPatch = DSH_RELEASE_LINE.replace(/(\d+)$/u, (digits) => String(Number(digits) + 1))
   assert.equal(
     DSH_COMPATIBILITY_RANGE,
@@ -89,25 +89,25 @@ test('安装脚本的兼容范围与逐版本验证清单必须与宿主、manif
 // 再比序号，旧的 `channel !== 'alpha' || seq >= N` 写法会把更低的 alpha 判成兼容）。
 test('版本门把同线内低于下界的 prerelease 一律挡在门外', () => {
   const cases = [
-    ['0.2.1-alpha.2', true],
-    ['0.2.1-alpha.3', true],
-    ['0.2.1-alpha.10', true],
-    ['0.2.1-beta.1', true],
-    ['0.2.1-rc.1', true],
-    ['0.2.1', true],
-    ['0.2.1+build.7', true],
-    ['0.2.1-alpha.1', false],
-    ['0.2.1-alpha.0', false],
-    ['0.2.0-rc.2', false],
-    ['0.2.0', false],
+    ['0.2.2-alpha.2', true],
+    ['0.2.2-alpha.3', true],
+    ['0.2.2-alpha.10', true],
+    ['0.2.2-beta.1', true],
+    ['0.2.2-rc.1', true],
+    ['0.2.2', true],
+    ['0.2.2+build.7', true],
     ['0.2.2-alpha.1', false],
-    ['0.2.1-alpha.2-beta.1', false],
+    ['0.2.2-alpha.0', false],
+    ['0.2.1', false],
+    ['0.2.1-rc.4', false],
+    ['0.2.3-alpha.1', false],
+    ['0.2.2-alpha.2-beta.1', false],
     [undefined, false]
   ]
   for (const [version, supported] of cases) {
     assert.equal(classifyDshVersion(version).supported, supported, `classifyDshVersion(${String(version)}).supported`)
   }
-  assert.equal(classifyDshVersion('0.2.1-alpha.2').verified, true)
-  assert.equal(classifyDshVersion('0.2.1-alpha.3').verified, false, '同线内未逐条核对的版本只带警告运行')
-  assert.equal(classifyDshVersion('0.2.1').verified, false, '正式版尚未逐版本核对，按带警告处理')
+  assert.equal(classifyDshVersion('0.2.2-alpha.2').verified, true)
+  assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false, '同线内未逐条核对的版本只带警告运行')
+  assert.equal(classifyDshVersion('0.2.2').verified, false, '正式版尚未逐版本核对，按带警告处理')
 })

@@ -1,5 +1,12 @@
 # 变更记录
 
+## 未发布（换线到 DSH 0.2.2）
+
+- 兼容线由 `>=0.2.1-alpha.2 <0.2.2` **整体换到** `>=0.2.2-alpha.2 <0.2.3`（逐版本验证 `0.2.2-alpha.2`）。上一线的用户留在上一线的插件版本，不维护分叉实现。
+- **业务代码一字未改**：0.2.2 的契约面（动态挂载/卸载、`loader/volatile-update` 对账、凭据解析与写入、设置写入、只读投影、导航图标补丁）逐项复核后全部成立；`dsh-mcp-client` 的 Config/导出只多了一处 resources 能力判定，`cordis` 只新增 `fiber.rawConfig/resolveConfig/effectiveConfig`，`ctx.tools.view()`、`entry.fiber.config`、`ctx.loader.import` 与 `ctx.plugin` 都还在。
+- 隔离宿主实测（0.2.2-alpha.2）：状态路由与鉴权、真机 GUI 52/52、导航图标六项几何全过。
+
+
 ## 未发布（改名 + 换线到 DSH 0.2.1）
 
 本插件**还没有发布过**，因此没有版本号可写——这一节只记录已经落在源码里的变更。

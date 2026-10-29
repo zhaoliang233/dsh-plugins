@@ -52,7 +52,7 @@ open /tmp/dsh-nav-icon-fixture/index.html
 
 | 时机 | 跑什么 | 看什么 |
 |---|---|---|
-| 给插件加了/改了设置页导航图标 | `verify-nav-icon.js --plugin <插件> --measure` | `checks` 全为 true：位置一致、原 svg 被盖住、mask 生效、方块尺寸一致 |
+| 给插件加了/改了设置页导航图标 | `verify-nav-icon.js --plugin <插件> --measure` | `checks` 全为 true：位置一致、原 svg 被盖住、mask 生效**且 mask 里是自包含图形（不含 `<use>` sprite 引用）**、方块尺寸一致 |
 | DSH 升级/降级后 | `check.js` | 有漂移就 `build.js` 重新生成，review `icons.json` 的 diff：**我们在用的图标有没有消失或变形** |
 | 给插件选/换图标前 | `open preview.html` | 按真实尺寸与深浅背景确认观感；确认它属于哪一档 |
 | 新增插件后 | `check.js` | 「插件 require 了不存在的图标」会直接失败——这类错在浏览器里只表现为图标空白，最难查 |
@@ -100,6 +100,7 @@ open /tmp/dsh-nav-icon-fixture/index.html
   `archived-sessions` 那一项随该设置页一起被 DSH 删除），其余 id 回落齿轮图标；
 - `settings.action` 与 `settings.section` 同属 `sidebar.settings` 的 children 表，随设置面板挂载/卸载——拿它当补丁挂载点，补丁的生命周期就与面板一致；
 - data: URI 里的 SVG **必须带 `xmlns`**，否则按 HTML 解析、mask 静默失效（图标整块空白）。
+- **0.2.2 起图标是 sprite 壳**：组件 `outerHTML` 只有 `<use href="#dsw-icon-…">`，直接当 mask 会得到一张引用不存在符号的独立文档（图标空白）。必须优先从 primitives 的 `ICON_SYMBOLS` 还原完整 SVG；`verify-nav-icon.js` 的 `maskApplied` 会拦下残留 `<use>` 的 mask。
 
 补丁的**几何正确性**可以用 `verify-nav-icon.js` 离线验证（真实壳层 CSS + 真实 bundle + 真 DOM，量 label 偏移/隐藏方式/mask/样式注入），
 该脚本**不替插件注入样式**——"标记打好了但 CSS 还没进文档"正是踩过的坑，代注入会把它掩盖掉；
@@ -131,6 +132,7 @@ open /tmp/dsh-nav-icon-fixture/index.html
   - **求值桩要同时提供 React**：rc.2 新增的 `IconArchiveOffOutline` 在 artwork 里调 `j.useId()`（`j` 是壳层里的 React 别名，与 JSX 工厂 `l` 不是同一个名字），而求值桩原先只有 jsx-runtime → `j is not defined`。现在 `evaluateIconDefinition` 除了 JSX 工厂别名，还会探测 `X.useXxx(` 形式的 hook 别名并一起绑定，`jsxRuntime` 桩补了 `useId`（返回固定串，静态 SVG 必须可复现）。裸 `jsx(`/`jsxs(` 调用也一并认（部分产物不压缩这几个名字）。
   - **序列化必须自己兜住异常**：`serializeSvg` 会继续展开函数组件，等于执行模块内部代码；它原先**不在** try 里，一个图标炸掉就让整个提取以运行期错误结束 —— `check.js` 只会打一句 `j is not defined`，连 drift 都算不出来。现在单个图标失败降级成 `unrenderable`，其余照常产出。
   - **`verify-nav-icon.js` 的清理要等子进程退出**：`stop()` 在 `kill('SIGTERM')` 之后立刻 `rmSync` profile 目录，Chrome 还在落盘时会以 `ENOTEMPTY` 让整轮验证退出 1（与插件无关的假失败）。现在先等 `exit`（超时升 `SIGKILL`）再删，删除本身也带重试。
+  - **Chrome 调试地址要按累计缓冲匹配**：`DevTools listening on ws://…` 可能被拆成多个 stderr `data` 事件（Chrome 156 实测），逐 chunk 跑正则永远等不到地址，表现为连续的「Chrome 没有公布调试地址」。现在改为在 `seen.join('')` 上匹配。
 
 ## 实现上的坑（已踩过，改脚本前先读）
 
