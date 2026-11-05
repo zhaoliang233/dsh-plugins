@@ -40,11 +40,13 @@
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 const { spawn } = require('node:child_process')
 
 const { locateDshRoot, shellBundle, primitivesModule, extractIcons, WORKSPACE_ROOT, TOOL_NAME } = require('./build.js')
 
-const OUT_DIR = '/tmp/dsh-nav-icon-fixture'
+// 固定场景的产物放在系统临时目录：Windows 上没有 `/tmp`，写死会落到当前盘符根（`C:\tmp`）。
+const OUT_DIR = path.join(os.tmpdir(), 'dsh-nav-icon-fixture')
 
 function argValue(argv, name, fallback) {
   const index = argv.indexOf(`--${name}`)
@@ -582,9 +584,18 @@ function main(argv) {
   console.log(`${TOOL_NAME}: 无头量测请加 --measure（会驱动无头 Chrome 读回 checks），或手工打开上面的页面`)
 }
 
-/** 默认的 Chrome 路径（macOS 安装位置）；找不到就用 --chrome 指定。 */
+/** 默认的 Chrome 路径：按平台探测常见安装位置；都找不到时用 `--chrome` 指定。 */
 function defaultChromePath() {
-  return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  const candidates = process.platform === 'darwin'
+    ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+    : process.platform === 'win32'
+      ? [
+          path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+          path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+          path.join(process.env.LOCALAPPDATA ?? '', 'Google', 'Chrome', 'Application', 'chrome.exe')
+        ]
+      : ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser']
+  return candidates.find((candidate) => candidate !== '' && fs.existsSync(candidate)) ?? candidates[0]
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -693,7 +704,8 @@ async function measureFixture(htmlPath, options = {}) {
     const page = await connectCdp(pageWs)
     await page.send('Page.enable')
     await page.send('Runtime.enable')
-    await page.send('Page.navigate', { url: `file://${htmlPath}` })
+    // 必须走 file URL：Windows 上 `` `file://${htmlPath}` `` 会得到 `file://C:\…`，Chrome 打开后什么都不执行。
+    await page.send('Page.navigate', { url: pathToFileURL(htmlPath).href })
     const evaluate = (expression) => page.evaluate(expression)
 
     let report

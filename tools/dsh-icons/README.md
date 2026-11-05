@@ -25,15 +25,17 @@ open tools/dsh-icons/preview.html
 
 # 4) 插件给设置页导航加了图标时，验证补丁的几何（不需要真实 GUI）
 node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure
-open /tmp/dsh-nav-icon-fixture/index.html
+#    固定场景产物在 <os.tmpdir()>/dsh-nav-icon-fixture/index.html，可直接打开目视对照
 ```
 
-`--measure` 会自己拉起无头 Chrome（macOS 默认路径，可用 `--chrome <路径>` 指定）把固定场景量完，
+`--measure` 会自己拉起无头 Chrome（默认路径按平台探测：macOS 的 `/Applications/...`、Windows 的
+`Program Files` 三处、Linux 的 `/usr/bin/{google-chrome,chromium}`；都找不到才用 `--chrome <路径>` 指定）把固定场景量完，
 打印六项 `checks`，任何一项不通过就以非零退出——可以直接当断言用（只收掉它自己按
 `--user-data-dir` 拉起的那个 Chrome，不碰你正在用的浏览器）。不带 `--measure` 时只生成页面
-（`/tmp/dsh-nav-icon-fixture/index.html`），由你打开目视对照。
+（`<os.tmpdir()>/dsh-nav-icon-fixture/index.html`），由你打开目视对照。
 
 指定别的 DSH 安装（例如并行装的另一个版本）：`node tools/dsh-icons/build.js --dsh /path/to/@deepseek-ai/dsh`。
+Windows 上 `bash` 解析不到 `dsh` 时也用 `--dsh` 显式给 `@deepseek-ai/dsh` 包根。
 
 ## 产物
 
@@ -43,7 +45,7 @@ open /tmp/dsh-nav-icon-fixture/index.html
 | `preview.html` | 自包含预览页（数据内嵌，无 fetch，可直接 `file://` 打开）。搜索（名字/中文关键词/使用方，多词=同时包含）、档位筛选、16/24/32/48px 真实尺寸切换、深浅背景、点击复制图标名。 |
 | `build.js` | 提取 + 生成。详见文件头注释。 |
 | `check.js` | 漂移检查，可当 CI 用。 |
-| `verify-nav-icon.js` | 导航图标补丁的**几何验证固定场景**：真实壳层导航 CSS + 真实插件 bundle + 迷你 React 垫片挂到真 DOM，量出"补丁后"与"壳层原生"是否占同一位置/同一尺寸，并检查样式表是否由插件**自己**注入。产物 `/tmp/dsh-nav-icon-fixture/index.html`；加 `--measure` 自动量完并按 `checks` 决定退出码。 |
+| `verify-nav-icon.js` | 导航图标补丁的**几何验证固定场景**：真实壳层导航 CSS + 真实插件 bundle + 迷你 React 垫片挂到真 DOM，量出"补丁后"与"壳层原生"是否占同一位置/同一尺寸，并检查样式表是否由插件**自己**注入。产物 `<os.tmpdir()>/dsh-nav-icon-fixture/index.html`；加 `--measure` 自动量完并按 `checks` 决定退出码。 |
 
 `icons.json` 与 `preview.html` **是生成物、要提交**：它们是"当时那份 DSH 构建"的证据，diff 就是升级影响面。
 改完 `build.js`（例如补 `keywords`）要重新生成，别手工改这两个文件。
