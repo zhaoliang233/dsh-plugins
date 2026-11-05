@@ -10,7 +10,7 @@
 
 最近一次 `0.2.2-alpha.2`（2026-10-28）：`dsh-workspace` 与 `dsh-api-workspace-controller` 的 `lib/` 与 0.2.1-rc.4 逐字相同；`startSession(workspaceId, { clearPreviousDraft: false })` 仍走复用空白会话分支；`sidebar.footer.action` 仍是 root list slot。隔离宿主实测 `/status` 200、侧边栏入口渲染、boot graph 含本包。业务代码未改。
 
-未覆盖：独立入口与受管 Workspace 的实机点击。
+**`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-workspace`、`dsh-api-workspace-controller`（`unarchiveSession`/`pinnedSessionIds`/`rename`/`delete`/`insertBefore`/`startSession`）与 `dsh-atomic-write` 逐字相同；`dsh-client-ui-workspace` 只改工作区菜单（`Menu` → `data-context-menu-trigger`）与对话框，`[role="treeitem"][data-row-key^="workspace:"]`、`aria-expanded`、`session:`/`empty`/`overflow:` 前缀、`ctx.workspaces.*` 服务均未变。隔离宿主（`DSH_HOME=/tmp/dsh-022rc1/home`、端口 3971）实测：`/dsh-default-workspace/status` 带 cookie 200、启动图含本包、设置面板分区渲染、0 控制台报错。未覆盖：独立入口与受管 Workspace 的实机点击。
 
 ## 结构
 

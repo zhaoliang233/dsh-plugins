@@ -1,9 +1,11 @@
 # dsh-extra-context — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对的是 `0.2.2-alpha.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对的是 `0.2.2-alpha.2` 与 `0.2.2-rc.1`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
 
 ## 逐版本核对记录
+
+**`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-system-prompt` 只在 `SECTION_ORDERS` 新增 `TOOL_APPLY_PATCH`/`TOOL_SCHEDULE` 两个常量，`section()`/`ScopedLayers`/`interpolate:false`/`renderPrompt` 未变；`dsh-settings.configure()` 把 owner 归一成 `owner.ctx.fiber`（`Fiber` 构造时即 `parent.extend({ fiber: this })`，`fiber.ctx.fiber === fiber`，本包传 `ctx.fiber` 结果不变）；`settings.section.icon` 槽与 `span.navIcon[aria-hidden=true]` 包装层仍在，DOM 补丁照旧生效。隔离宿主实测：`/status` 200 `writable:true`、真实 DOM 里 `data-dec-nav-icon` + `--dec-nav-icon-mask`（16×16）成立、原 svg `display:none`、0 控制台报错。业务代码未改。
 
 逐版本逐契约面核对记录（`0.1.7-rc.2` 起 6 轮）见 [`docs/compat-log.md`](../docs/compat-log.md) 的 F1 等轮次；本插件的**当前**契约以下面「已核对的契约」表为准。
 

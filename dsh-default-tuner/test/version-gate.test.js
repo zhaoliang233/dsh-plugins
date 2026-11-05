@@ -53,7 +53,7 @@ const VERSION_MATRIX = [
   { version: '0.2.2-alpha.2+build.1', supported: true, verified: true, normalized: '0.2.2-alpha.2' },
   { version: '0.2.2-alpha.3', supported: true, verified: false },
   { version: '0.2.2-beta.1', supported: true, verified: false },
-  { version: '0.2.2-rc.1', supported: true, verified: false },
+  { version: '0.2.2-rc.1', supported: true, verified: true },
   { version: '0.2.2', supported: true, verified: false },
   { version: '0.2.2-alpha.1', supported: false, verified: false },
   { version: '0.2.1', supported: false, verified: false },
@@ -189,5 +189,5 @@ test('DSH_COMPATIBILITY_RANGE / 清单常量与声明的一致（四处同源的
   assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.2-alpha.2 <0.2.3')
   assert.equal(DSH_RELEASE_LINE, '0.2.2')
   assert.deepEqual(DSH_RELEASE_FLOOR, { channel: 'alpha', sequence: 2 })
-  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.2-alpha.2'])
+  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.2-alpha.2', '0.2.2-rc.1'])
 })

@@ -21,9 +21,7 @@
     "policy": "compatible-release-line",
     "package": "@deepseek-ai/dsh",
     "range": ">=0.2.2-alpha.2 <0.2.3",
-    "verifiedVersions": [
-      "0.2.2-alpha.2"
-    ],
+    "verifiedVersions": ["0.2.2-alpha.2", "0.2.2-rc.1"],
     "futureVersionsRequireCapabilityChecks": true
   },
   "dsh": {

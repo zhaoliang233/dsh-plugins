@@ -1,7 +1,9 @@
 # dsh-mcp-console — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`；逐版本验证过 `0.2.2-alpha.2`（单测 104 项 + 真机 GUI 52/52 + 鉴权/CSRF + 动态挂载与凭据链实测 + 导航图标六项）。上一线 `0.2.1` 的用户留在上一线的插件版本。
+> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`；`0.2.2-alpha.2` 做过完整验证（单测 104 项 + 真机 GUI 52/52 + 鉴权/CSRF + 动态挂载与凭据链实测 + 导航图标六项）；`0.2.2-rc.1`（2026-11-05）做的是同线例行核对：逐包 diff + 隔离宿主路由/启动图/设置面板实测，**未重跑真机 GUI 52 项**。上一线 `0.2.1` 的用户留在上一线的插件版本。
+
+**`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-mcp-client`（Config/`createMcpToolDefinition`/超时默认值）与 `dsh-client-connection`（`requestRejection` 三段判据）逐字相同；`dsh-web-app` 只新增 `ui-file-actions`/`ui-context-menu` 两个客户端条目；`cordis` 4.1 的 `fiber.store` → `committed`/`provisions`、`entry.fiber` 改存 wrapper（`config`/`state`/`dispose` 走原型链，读取不受影响）都不改本包用法；`dsh-settings.configure()` 的 owner 归一化同样不影响传 `ctx.fiber`。隔离宿主实测 `/status` 200 `runtime:ready`、启动图含本包。未覆盖：真机 GUI 52 项与真实 MCP 端点长连接。
 
 ## 一句话
 

@@ -220,6 +220,7 @@ test('runtime version gate stays inert outside the audited release line', async 
   assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false)
   assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta is above an alpha floor')
   assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true, 'rc is above an alpha floor')
+  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true, '0.2.2-rc.1 已在 2026-11-05 逐条核对')
   assert.deepEqual(classifyDshVersion('0.2.2'), {
     supported: true, verified: false, normalized: '0.2.2'
   })

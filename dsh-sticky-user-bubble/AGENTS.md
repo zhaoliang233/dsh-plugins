@@ -81,6 +81,8 @@ clone 的 hover/focus 意图存在 effect 级 `cloneStateRef.current`（`{ updat
 
 逐版本逐项核对结果（`0.1.7-alpha.1` 起 4 轮，含六常量 × 四档 × 两场景的全部实测数值）见 [`docs/compat-log.md`](../docs/compat-log.md) 的 B4 / B7 / J2。
 
+**`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-client-ui-chat`/`-conversation` 的 18 段 CSS 里只有菜单浮层一段变化，滚动容器、flow 间距与 CSS 变量未动；`[data-conversation-scroll]`（chat 8 / conversation 3）、`[data-chat-flow]`（29）、`data-chat-anchor-key`（5）、`data-chat-flow-key`/`-kind`、`[data-composer-seat]`（3/1）、`data-ref-chip` 的出现次数与 alpha.2 完全相同；chat 的新增只有文件路径解析与右键菜单（`resolveFilePath`/`getTriggerProps`）。隔离宿主实测启动图含本包、`[data-dsh-sticky-user-bubble-host]` 存在、0 控制台报错。未覆盖：六个几何常量的真机复测（需构造长会话）。
+
 ## 已知限制与升级策略
 
 - 专用 bubble marker 仍是 ABI 首选；没有 marker 的评分 fallback 只在唯一可信时工作，DSH 改变 row/hover-root 结构后可能直接隐藏。

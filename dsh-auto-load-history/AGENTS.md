@@ -28,7 +28,7 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }`：**至少 50 条消息且至少 2 个 turn 起点，最多 500 条**，`dsh-api-session-controller/lib/types/client/sessions/session.js:19`/`:20`）和回合导航未加载圆点的 `loadThrough(seq)`（同选项上限 500、下限改为 200，循环到覆盖目标 seq，同文件 `:22`/`:25`/`:338`）。两者在 rc.2 前是**固定 50 / 200**，现在是 turn 对齐的区间——插件只依赖「一次调用推进多少 seq」，不依赖页大小本身。服务端 `paginate` 仍用 `cut > 0` 决定 `hasMore`（`lib/types/history.js:425`，0.1.7-rc.2 时是 `:445`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。顶部按钮的渲染条件是 `hasMore && …`（`dsh-client-ui-chat/lib/client.js:5271`，0.1.7 时是 `:5179`），因此**按钮消失就是 `hasMore === false` 的可观测等价物**。
 
-## 依赖的契约（0.1.7-alpha.1 起各线已核对，0.2.2-alpha.2 于 2026-10-28 复核；下表行号取自 0.2.0-rc.2）
+## 依赖的契约（0.1.7-alpha.1 起各线已核对，0.2.2-alpha.2 于 2026-10-28、0.2.2-rc.1 于 2026-11-05 复核；下表行号取自 0.2.0-rc.2）
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
@@ -44,6 +44,8 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 | `[data-conversation-scroll]` | 会话 shell 的 scrollport（`dsh-client-ui-conversation/lib/client.js:16338`，0.1.7 时是 `:16261`；容器样式 `overflow-y: auto`） | 只用于“读者是否在底部”的判断（取不到时的 fail open 行为见「已知限制」） |
 
 **已核对为移除/不采用**：`ctx.sessions.list.getSnapshot().current`、`sessions.open()/clear()`（0.1.6-alpha.2 已删）、`uiWorkspace.selection`（私有字段）、`sessions.retainInfo()` 的 `mainView` 计数（私有记账）。
+
+**`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-api-session-controller` 只有两处内部改动（`walkJsonValue` 重写、控制帧由单键改成 `frame.changes` 批量），`loadThrough`/`loadOlder`/`hasMore`/`loadingOlder`/`prependWindow` 符号计数与 alpha.2 完全相同；`dsh-client-ui-conversation` 的 `conversation.session.header.actions` 与 `[data-conversation-scroll]` 未变。隔离宿主实测启动图含本包、0 控制台报错。未覆盖：真机长会话补齐（需要真实模型会话）。
 
 ## 运行模型
 

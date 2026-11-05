@@ -14,7 +14,7 @@ test('keeps the Host half inert outside the audited release line', () => {
   assert.equal(classifyDshVersion('0.2.2-alpha.3').supported, true)
   assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false, 'same line but not individually verified')
   assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, false, 'a higher channel on the line runs with a warning')
+  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true, 'rc.1 was audited on 2026-11-05')
   // 下界是 alpha：同线内更小的 alpha 序列号一律在门外，beta/rc 在门内。
   assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, 'a smaller alpha sequence sits below the floor')
   assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta sits above the alpha floor')

@@ -12,7 +12,7 @@ test('keeps the Host half inert outside the audited release line', () => {
   assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false, 'same line but not individually verified')
   assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta sits above the alpha floor')
   assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, false, 'a higher channel on the line runs with a warning')
+  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true, '0.2.2-rc.1 已在 2026-11-05 逐条核对')
   assert.equal(classifyDshVersion('0.2.2-rc.2').supported, true)
   assert.equal(classifyDshVersion('0.2.2-rc.2').verified, false, 'a higher channel on the line runs with a warning')
   assert.equal(classifyDshVersion('0.2.2').supported, true, 'the stable release of the line stays inside')

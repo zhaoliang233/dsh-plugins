@@ -27,12 +27,12 @@ test('declares a publishable Web client bundle', () => {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
     range: '>=0.2.2-alpha.2 <0.2.3',
-    verifiedVersions: ['0.2.2-alpha.2'],
+    verifiedVersions: ['0.2.2-alpha.2', '0.2.2-rc.1'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.2-alpha.2 <0.2.3"'), true)
   assert.equal(
-    installScript.includes('DSH_VERIFIED_VERSIONS="0.2.2-alpha.2"'),
+    installScript.includes('DSH_VERIFIED_VERSIONS="0.2.2-alpha.2 0.2.2-rc.1"'),
     true,
     'install.sh must list exactly the verified versions (space separated)'
   )

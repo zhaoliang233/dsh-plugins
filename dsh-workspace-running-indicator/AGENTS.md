@@ -64,6 +64,8 @@ DSH `0.2.2-alpha.3` 的 `sidebar.workspaces` slot 只声明了 5 个子 slot，*
 
 **`uiSession` 不是公开 catalog 里的服务**，所以不写进 `inject`，用 `ctx.get('uiSession')` 探测：拿不到时降级为只用 `sessions.list.byId[id].running`（只显示「进行中」），其余状态静默缺席。
 
+**`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-client-ui-workspace` 的改动集中在工作区菜单（`Menu` → `data-context-menu-trigger`）与新增对话框；行结构契约未变——`[role="treeitem"][data-row-key^="workspace:"]`、`aria-expanded`、`session:`/`empty`/`overflow:` 前缀、`sessionStatuses()` 的 pending→warning / running→ongoing / completionUnread→done 顺序、`subagentCatalog` 投影、`uiSession.sessionStatus` 服务全部仍在（符号计数与 alpha.3 相同）。隔离宿主实测启动图含本包、页面 0 控制台报错；没有运行中会话时指示器不出现属预期（idle 不显示）。未覆盖：真实运行态下的显示与让位。
+
 ## 状态映射与优先级
 
 `sessionState()` 把一个会话映射成三种显示状态，顺序**照抄原生 `sessionStatuses()`**（`dsh-client-ui-workspace`）：

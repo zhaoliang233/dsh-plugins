@@ -522,7 +522,7 @@ test('accepts the compatible DSH release line and rejects adjacent lines', () =>
   // 下界是 alpha.2：同线内 beta/rc 与正式版都在门内，更小的 alpha 序列号在门外。
   assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false)
   assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, false)
+  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true)
   assert.equal(classifyDshVersion('0.2.2').supported, true)
   assert.equal(classifyDshVersion('0.2.2').verified, false)
   // 相邻发布线一律拒绝：上一线的用户留在上一线的插件版本上。

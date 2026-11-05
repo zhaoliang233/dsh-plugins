@@ -15,7 +15,7 @@
 
 ## 兼容发布线与版本门（2026-10-01 补，2026-10-10 跨到 0.2.1，2026-10-29 跨到 0.2.2）
 
-兼容线 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对清单 `0.2.2-alpha.2`（跨线当轮的逐包证据见 [`docs/compat-log.md`](../docs/compat-log.md) 的 M1 轮次）。
+兼容线 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对清单 `0.2.2-alpha.2 0.2.2-rc.1`（跨线当轮的逐包证据见 [`docs/compat-log.md`](../docs/compat-log.md) 的 M1 轮次）。
 
 **声明必须四处同源**：`package.json#dshCompatibility.range`（+ `engines.dsh`）⟷ `lib/index.js` 的 `DSH_COMPATIBILITY_RANGE` / `VERIFIED_DSH_VERSIONS`（发布线与下界从 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 派生）⟷ `install.sh` 的五个常量 `DSH_COMPATIBILITY_RANGE` / `DSH_VERIFIED_VERSIONS` / `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR_CHANNEL` / `DSH_RELEASE_FLOOR_SEQUENCE`（**多版本用空格分隔**，脚本按词分割消费）+ 一份等价的 `prerelease_rank()` ⟷ 本文件与 `README.md` 的兼容段。`test/manifest.test.js` 的「四处同源」用例按行解析这些赋值逐字比对（并且把 range 反推回发布线与下界），加版本时必须四边一起改。
 
@@ -39,6 +39,8 @@
 逐版本逐包核对记录（`0.1.7-rc.2` 起 4 轮，含两次发布的完整流水账与注入缺陷验证）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
 **0.2.2 跨线的一条新事实（2026-10-29，M1）**：`dsh-session-title` 把 `titleInput` 投影改成 `Service.init` 里 await 注册并保留 handle，`sessionProjections.stateOf(session, key)` 被标 deprecated（legacy 路径仍保留、0.2.2 隔离宿主实测可用）。本插件 `readTitleInputState()` 仍走旧路径；若未来官方移除 legacy 路径，应改读 `ctx.sessionTitle` 的域服务或自己保存注册 handle。其余契约（`configEditor`、`refresh()`、目标条目字段与默认值）逐项复核后全部成立，业务代码一行未改。
+
+**`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-config-editor`、`dsh-session-title`、`dsh-session-title-first-prompt-llm`、`dsh-experimental-session-titles-bundle` 逐字相同；`dsh-base` 只在 `tool-fs` 加 `applyPatch: false`、默认禁用 `fs-observation-policy`，`session-title-llm` 的 5 个默认值未漂移；`dsh-settings.configure()` 只把 owner 归一成 `owner.ctx.fiber`。隔离宿主实测 `/status` 200、`documentPath` 指向 profile 补丁、设置分区渲染、0 控制台报错。
 
 ## 为什么不是"把清单存进插件自己的配置"
 

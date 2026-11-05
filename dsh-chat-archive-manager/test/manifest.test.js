@@ -29,7 +29,7 @@ test('declares a publishable dual Host and browser bundle', () => {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
     range: '>=0.2.2-alpha.2 <0.2.3',
-    verifiedVersions: ['0.2.2-alpha.2'],
+    verifiedVersions: ['0.2.2-alpha.2', '0.2.2-rc.1'],
     futureVersionsRequireCapabilityChecks: true
   })
   assert.equal(manifest.dshCompatibility.range, DSH_COMPATIBILITY_RANGE)
@@ -58,6 +58,7 @@ test('keeps the runtime gate inert outside the verified release line', () => {
   assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false)
   assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta is above an alpha floor')
   assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true, 'rc is above an alpha floor')
+  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true, '0.2.2-rc.1 已在 2026-11-05 逐条核对')
   assert.equal(classifyDshVersion('0.2.2').supported, true)
   assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, 'a lower alpha sequence is below the floor')
   assert.equal(classifyDshVersion('0.2.2-alpha.0').supported, false, 'a lower alpha sequence is below the floor')

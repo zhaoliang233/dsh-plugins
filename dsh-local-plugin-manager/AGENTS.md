@@ -2,7 +2,9 @@
 
 ## 定位与边界
 
-面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.2-alpha.2 <0.2.3` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.2-alpha.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
+面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.2-alpha.2 <0.2.3` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.2-alpha.2`、`0.2.2-rc.1` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
+
+`0.2.2-rc.1`（2026-11-05，同线例行）已同样逐包核对：`dsh-atomic-write` 逐字相同；`dsh-plugin-manager` 只改了 `git ls-remote` 的 argv 记录与连接失败诊断经 install-log 回传，`writePluginEnabled`/`removeBundle`/`dependencySpec` 未动；`dsh-app-boot` 的 `evaluatePluginCompatibility` 逐字相同（服务实现改用 `impl.ctx.fiber`）；`dsh-hmr` 只把 `include.refresh()` 包进 `try/catch`，并把 `entry.fiber` 改存 `registry.plugin()` 返回的 wrapper（`Object.create(fiber)`，属性访问不变；官方自己的身份比较已改成 `entry.fiber.ctx.fiber`，本包不做身份比较）；`cordis` 4.1 把 `fiber.store` 换成 `committed`/`provisions`（本包不读）。
 
 **为什么是独立分区，而不是官方插件分区里的一个 tab**（0.1.8 之前别改回去）：
 
