@@ -95,7 +95,10 @@ window.__ModuleLoader__.load({
 .dlpm-rows-label{flex:none}
 .dlpm-rows-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dlpm-nav-icon-template{display:none}
+/* 0.2.2-alpha.3 起壳层把原图标包进 <span aria-hidden>：新结构要连包装层一起隐藏，旧结构保留兼容。 */
 [data-dlpm-nav-icon]>svg:first-child{display:none}
+[data-dlpm-nav-icon]>span[aria-hidden="true"]{display:none}
+[data-dlpm-nav-icon]>span[aria-hidden="true"] svg{display:none}
 [data-dlpm-nav-icon]::before{content:"";flex:none;width:16px;height:16px;background:currentColor;pointer-events:none;-webkit-mask:var(--dlpm-nav-icon-mask) center/16px 16px no-repeat;mask:var(--dlpm-nav-icon-mask) center/16px 16px no-repeat}
 @media(max-width:600px){.dlpm-row{grid-template-columns:minmax(0,1fr);gap:8px}.dlpm-actions{justify-content:flex-start}.dlpm-path{max-width:100%}}
 `

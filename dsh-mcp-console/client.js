@@ -190,7 +190,10 @@ window.__ModuleLoader__.load({
 .dmc-target-endpoint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
 .dmc-target-fields{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
 .dmc-nav-icon-template{display:none}
+/* 0.2.2-alpha.3 起壳层把原图标包进 <span aria-hidden>：新结构要连包装层一起隐藏，旧结构保留兼容。 */
 [data-dmc-nav-icon]>svg:first-child{display:none}
+[data-dmc-nav-icon]>span[aria-hidden="true"]{display:none}
+[data-dmc-nav-icon]>span[aria-hidden="true"] svg{display:none}
 [data-dmc-nav-icon]::before{content:"";flex:none;width:16px;height:16px;background:currentColor;pointer-events:none;-webkit-mask:var(--dmc-nav-icon-mask) center/16px 16px no-repeat;mask:var(--dmc-nav-icon-mask) center/16px 16px no-repeat}
 .dmc-empty,.dmc-loading{padding:30px 0;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
 .dmc-loading{display:flex;align-items:center;justify-content:center;gap:8px}

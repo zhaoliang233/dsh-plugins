@@ -99,7 +99,9 @@ window.__ModuleLoader__.load({
     const styleText = `
 .dac-nav-icon-template{display:none}
 [data-dac-archive-nav]{position:relative}
+/* 0.2.2-alpha.3 起壳层把原图标包进 <span aria-hidden>：隐藏内部的 svg，包装层保留占位（::before 是绝对定位的）。 */
 [data-dac-archive-nav]>svg:first-child{opacity:0}
+[data-dac-archive-nav]>span[aria-hidden="true"] svg{opacity:0}
 [data-dac-archive-nav]::before{content:"";position:absolute;left:12px;top:50%;width:16px;height:16px;transform:translateY(-50%);background:currentColor;pointer-events:none;-webkit-mask:var(--dac-archive-nav-mask) center/16px 16px no-repeat;mask:var(--dac-archive-nav-mask) center/16px 16px no-repeat}
 [data-dac-native-archive-hidden]{display:none!important}
 .dac-section{width:100%;max-width:720px;color:var(--dsw-alias-label-primary);display:flex;flex-direction:column;gap:12px}

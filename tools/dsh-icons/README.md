@@ -80,7 +80,7 @@ open /tmp/dsh-nav-icon-fixture/index.html
 
 ## 给设置页分区配自己的图标
 
-壳层**不支持**这件事，插件侧唯一的办法是可逆的 DOM 补丁——工作区里已经四份实现，手法分两代：
+0.2.2-alpha.3 起壳层新增 `settings.section.icon` slot；下面四份实现仍走可逆 DOM 补丁，是为了兼容 alpha.2。补丁必须同时处理旧结构（直接 `svg`）与 alpha.3 结构（`span.navIcon[aria-hidden]` 包装层及内部 svg），否则会出现「自定义图标 + 齿轮」两个：
 
 | 插件 | 实现位置 | 手法 | 样式表注入点 |
 |---|---|---|---|
@@ -95,8 +95,8 @@ open /tmp/dsh-nav-icon-fixture/index.html
 
 关键事实（都核对过 `dsh-client-ui-settings-general/lib/client.js`）：
 
-- `settings.section` 的注册选项只有 `id/order/label`，**没有 `icon`**；
-- 壳层 `navIcon(id)` 只白名单若干官方 id（`0.1.7` 里是 `models`/`agent-presets`/`plugins`/`account` 等，
+- `settings.section` 的注册选项只有 `id/order/label`，**没有 `icon`**；图标走独立的 `settings.section.icon` slot（0.2.2-alpha.3 起），注册项仍是 list/root/inline；
+- 壳层把 fallback 图标包进 `span.navIcon[aria-hidden=true]`（0.2.2-alpha.3），`navIcon(id)` 只白名单若干官方 id（`0.1.7` 里是 `models`/`agent-presets`/`plugins`/`account` 等，
   `archived-sessions` 那一项随该设置页一起被 DSH 删除），其余 id 回落齿轮图标；
 - `settings.action` 与 `settings.section` 同属 `sidebar.settings` 的 children 表，随设置面板挂载/卸载——拿它当补丁挂载点，补丁的生命周期就与面板一致；
 - data: URI 里的 SVG **必须带 `xmlns`**，否则按 HTML 解析、mask 静默失效（图标整块空白）。

@@ -5,8 +5,9 @@
  * 导航图标补丁的**几何验证固定场景**：在没有（或不想动）真实 GUI 的情况下，量出
  * 「插件补丁画出来的图标」与「壳层原生图标」是否占同一个位置、同一尺寸。
  *
- * 背景：设置页导航图标没有官方通道（`settings.section` 无 `icon` 选项，壳层 `navIcon(id)`
- * 只白名单 4 个官方 id），插件只能做可逆 DOM 补丁。补丁一旦错位/盖不住原 svg，
+ * 背景：0.2.2-alpha.3 起壳层把导航图标包进 `<span aria-hidden="true">`（并新增
+ * `settings.section.icon` slot，未知 id 仍回落齿轮）；本工具验证的是仍以 DOM 补丁实现的分区
+ * （兼容 alpha.2）。补丁一旦错位/盖不住原 svg，新结构下就是"图标 + 齿轮"两个并排。
  * 在真实页面上就是"两个图标叠着"或"图标跑到别处"——这类问题只有**真实布局**能发现，
  * 单测里的假 DOM 量不出来。所以这里把真实布局搬进一个可离线的页面：
  *
@@ -392,7 +393,13 @@ try {
       const button = document.createElement('button')
       button.type = 'button'
       button.setAttribute('class', 'sn-navCell' + (rowLabel.startsWith(SECTION_LABEL) ? ' sn-active' : ''))
-      button.appendChild(build(React.createElement(icons[iconName] ?? icons['IconSettingsOutline16'], { size: 16 })))
+      // 0.2.2-alpha.3 的正版结构：图标在 span.navIcon[aria-hidden] 里，不是 button 的直接子 svg。
+      // 固定场景必须跟着壳层走，否则"只隐藏直接子 svg"的旧规则会在这里假通过。
+      const iconWrap = document.createElement('span')
+      iconWrap.setAttribute('class', 'sn-navIcon')
+      iconWrap.setAttribute('aria-hidden', 'true')
+      iconWrap.appendChild(build(React.createElement(icons[iconName] ?? icons['IconSettingsOutline16'], { size: 16 })))
+      button.appendChild(iconWrap)
       const text = document.createElement('span')
       text.setAttribute('class', 'sn-navLabel')
       text.textContent = rowLabel

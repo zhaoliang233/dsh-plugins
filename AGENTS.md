@@ -17,7 +17,7 @@
 
 开发 **DeepSeek Harness（DSH）插件** 的工作区：用户提需求，agent 负责调研 DSH 内部机制、实现插件、编写挂载/卸载脚本并验证。
 
-共 **9 个插件**：**8 个已发布到公共 npm registry**，用户安装走官方命令；发布流程见「发布与分发（npm / OIDC）」。**1 个未发布**——`dsh-mcp-console`（原名 `dsh-mcp-manager`），走 `./install.sh` 的 `link:` 源码路线；它当前的**发布阻塞**（名字被第三方占用，不能发版）见 `dsh-mcp-console/AGENTS.md`。
+共 **10 个插件**：**8 个已发布到公共 npm registry**，用户安装走官方命令；发布流程见「发布与分发（npm / OIDC）」。**2 个未发布**——`dsh-mcp-console`（原名 `dsh-mcp-manager`）与 `dsh-workspace-running-indicator`（2026-11-04 新建的纯客户端插件），都走 `./install.sh` 的 `link:` 源码路线；前者的**发布阻塞**（名字被第三方占用，不能发版）见 `dsh-mcp-console/AGENTS.md`，后者尚未首发。
 
 ## 插件索引
 
@@ -32,6 +32,7 @@
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |
 | `dsh-mcp-console/` | 设置页管理 MCP 服务器：增删改、启停、连接与工具状态、凭据走 credentials，不改 profile 配置、不重启即生效（**未发布**；2026-10-08 由 `dsh-mcp-manager` 改名） |
 | `dsh-default-tuner/` | 设置页独立分区「默认设置覆盖」：把官方插件写死在 bundle 里的默认值（会话标题长度、标题模型输入上限等）变成可覆盖项，写入当前 profile 补丁并即时生效（2026-10-08 由 `dsh-default-overrides` 改名，2026-10-10 首发 `0.2.0`） |
+| `dsh-workspace-running-indicator/` | 侧边栏工作区收起时，若其下仍有会话在运行，在标题行尾显示转圈；纯客户端 DOM 补丁，不影响 hover（**未发布**，2026-11-04 新建） |
 
 用户安装（包名 = 目录名）：
 
@@ -54,7 +55,7 @@ open tools/dsh-icons/preview.html        # 选图标：搜索/字重档位/真�
 node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设置页导航图标补丁的几何（无需真实 GUI，六项 checks 全过才退出 0）
 ```
 
-**选或换图标前先在预览页确认名字存在**：图标来自浏览器侧 `__ModuleLoader__` seed 的 `dsh-client-ui-primitives` 冻结导出对象，没被打进去的名字 `require` 回来是 `undefined`，组件会静默渲染成空白。**0.1.7 把旧的数字档位（`IconXxx14`/`16`/`20`）换成了字重档位 `…Medium`（描边 1.3）/`…Regular`（描边 1），同一行里的图标必须同字重档位**；换图标的取值处写候选链兜底（`iconOf()`），别直接解构。设置页分区想要自己的图标只能走 DOM 补丁（壳层 `settings.section` 没有 `icon` 选项），现成实现、关键事实与离线几何验证见该工具 README。
+**选或换图标前先在预览页确认名字存在**：图标来自浏览器侧 `__ModuleLoader__` seed 的 `dsh-client-ui-primitives` 冻结导出对象，没被打进去的名字 `require` 回来是 `undefined`，组件会静默渲染成空白。**0.1.7 把旧的数字档位（`IconXxx14`/`16`/`20`）换成了字重档位 `…Medium`（描边 1.3）/`…Regular`（描边 1），同一行里的图标必须同字重档位**；换图标的取值处写候选链兜底（`iconOf()`），别直接解构。设置页分区图标有两条路：**0.2.2-alpha.3 起壳层提供 `settings.section.icon`（list/root/inline，未知 id 仍回落齿轮）**；现有四个插件为兼容 alpha.2 仍走 DOM 补丁，补丁必须同时隐藏旧结构的直接 `svg` 与 alpha.3 的 `>span[aria-hidden=true]` 包装层及内部 svg（只认 `>svg` 会漏掉，表现为「自定义图标 + 齿轮」两个）。现成实现、关键事实与离线几何验证见该工具 README。
 
 ## 环境事实
 
@@ -69,7 +70,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 插件按**已核对契约的最窄兼容发布线**维护，不为每个 prerelease 建硬门，也不为多个版本维护分叉实现：
 
-- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 9 个插件目前分属两条发布线（8 个的**源码**已在 `0.2.2` 线、待发版：`dsh-auto-load-history` / `dsh-chat-archive-manager` / `dsh-default-workspace` / `dsh-extra-context` / `dsh-local-plugin-manager` / `dsh-sticky-user-bubble` / `dsh-default-tuner` / `dsh-mcp-console`；`dsh-mobile-compat` 在 `0.2.0` 线，按用户决定暂不处理——官方 0.2.2 已自带移动端适配），落在门外的那一半按版本门 inert。**registry 上已发布的版本仍是 `0.2.1` 线**，用户升级 DSH 到 `0.2.2` 后要等这些包发新版才能从 registry 安装（`dsh-mcp-console` 尚未发布）；本机开发走 `link:`，源码换线即可用。哪条线查各插件的 `package.json#dshCompatibility`，宿主实际版本用 `dsh --version` 取——跨线必须逐插件单独开一轮，别一次全动。
+- **每条线由插件自己维护，权威来源是它的 `package.json#dshCompatibility`——本节不列版本号，列了必然过期。** 10 个插件目前分属两条发布线（9 个的**源码**已在 `0.2.2` 线、待发版：`dsh-auto-load-history` / `dsh-chat-archive-manager` / `dsh-default-workspace` / `dsh-extra-context` / `dsh-local-plugin-manager` / `dsh-sticky-user-bubble` / `dsh-default-tuner` / `dsh-mcp-console` / `dsh-workspace-running-indicator`；`dsh-mobile-compat` 在 `0.2.0` 线，按用户决定暂不处理——官方 0.2.2 已自带移动端适配），落在门外的那一半按版本门 inert。**registry 上已发布的版本仍是 `0.2.1` 线**，用户升级 DSH 到 `0.2.2` 后要等这些包发新版才能从 registry 安装（`dsh-mcp-console` 与 `dsh-workspace-running-indicator` 尚未发布）；本机开发走 `link:`，源码换线即可用。哪条线查各插件的 `package.json#dshCompatibility`，宿主实际版本用 `dsh --version` 取——跨线必须逐插件单独开一轮，别一次全动。
 - 一个插件版本只服务一条线：换线的做法是把 range 整体换掉（不是放宽上界），旧线的用户留在旧插件版本。同线内未逐条核对的 prerelease 允许带警告运行，但**跨线前必须重新读取源码与实时契约**。`dsh-default-tuner` 曾声明齐全却漏了运行时门、在不支持的版本上照常写 profile 补丁——那是真实缺陷，不是可以省的步骤。
 - 范围外保持 inert（零副作用），`install.sh` 也拒绝安装：**上一线的用户留在上一线的插件版本**，一个插件版本只服务一条发布线。**但版本门只作用于 Host 半体**：纯客户端插件的 client bundle 由 `dsh-client-modules` 按 `package.json#dsh.client` 直接进启动图（不看你 `apply()` 注册了什么），范围外照样在浏览器里跑——这类插件范围外的兜底只有客户端自己的能力检查（fail closed）与让用户先从 profile 移除；改版本门时别以为它顺手把 UI 也关掉了。`dsh-mobile-compat` 就是这类：宿主半体只有状态路由，门在 client bundle + `install.sh`。
 - 必须始终保留结构与能力检查 fail closed；禁止无上界范围、跨发布线猜测兼容。线内未逐条验证的版本只是"带警告运行"，能力探测仍是权威判定——探测不到的能力各自降级，不要让整页 404。
@@ -92,7 +93,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 **⚠️ `dsh-mcp-console` 现在又撞名了（2026-10-20 查得，待处理）**：`npm view dsh-mcp-console` 显示该名已被 **`dakuo <coderkuo@gmail.com>`** 占用、版本 `0.1.11`（发布于 2026-10-14），描述与我们的功能几乎逐字雷同（"Manage the MCP servers of a DeepSeek Harness profile: status, switch, edit, export…"）。2026-10-08 那次"新名实测未被占用"的结论已经过期——**这条规则的价值正在于此：每次发版前都要重查，别信历史记录里的"查过了"**。因此本包**当前不能发布**，需要在别的会话里单独做一轮：定一个新名字 → `npm view <新名> maintainers` 实测未被占用 → 按各自 `AGENTS.md` 的落点清单改名（`package.json#name`、`cordis.patch.yml` 行 id/name、客户端 bundle 注册名、HTTP 路由与固定头名、内部短前缀）→ 再走下面那三步首发。**不要在 `dsh-mcp-console` 这个名字上 bump 版本打 tag。**
 
-**新包首次发布：先造占位版本，再让 OIDC 发正式版**（2026-10-10 用 `dsh-default-tuner@0.2.0` 走通）。trusted publisher 只能在**已存在**的包上配置——`npm help trust` 的 Prerequisites 明写 *Package must exist*，网站那个入口也挂在包页面的 Settings → Trusted Publisher 下；而包名不存在时 `npm publish` 又被拒（实测 `E404 Not Found - PUT https://registry.npmjs.org/<包>`，provenance 签名本身是成功的）。所以三步：① 手动发一个**占位版本**（`npm login` 后在一个临时目录发 `{name, version:"0.0.1"}`，不碰插件源码）；② 配 trusted publisher（网站，或 `npm trust github <包> --file release.yml --repository zhaoliang233/dsh-plugins --allow-publish`，要求 npm ≥ 11.15 + 账号 2FA；`release.yml` 没用 environment，所以不需要 `--env`）；③ `gh workflow run release.yml -f tag=<插件>-v<版本>` 走 OIDC 发正式版。**别用"手动发正式版"代替第 ③ 步**：本地发布拿不到 provenance，而且版本一旦被占，workflow 的 `npm publish` 会冲突失败、GitHub Release 也建不出来。两次失败都不会留残骸：失败点在 npm publish，后面的「回查 registry」与「创建 GitHub Release」都没执行。`dsh-mcp-console` 是唯一还没发布的插件（已跨到 0.2.2 线、走本地 `link:` 路线），首发照这三步。
+**新包首次发布：先造占位版本，再让 OIDC 发正式版**（2026-10-10 用 `dsh-default-tuner@0.2.0` 走通）。trusted publisher 只能在**已存在**的包上配置——`npm help trust` 的 Prerequisites 明写 *Package must exist*，网站那个入口也挂在包页面的 Settings → Trusted Publisher 下；而包名不存在时 `npm publish` 又被拒（实测 `E404 Not Found - PUT https://registry.npmjs.org/<包>`，provenance 签名本身是成功的）。所以三步：① 手动发一个**占位版本**（`npm login` 后在一个临时目录发 `{name, version:"0.0.1"}`，不碰插件源码）；② 配 trusted publisher（网站，或 `npm trust github <包> --file release.yml --repository zhaoliang233/dsh-plugins --allow-publish`，要求 npm ≥ 11.15 + 账号 2FA；`release.yml` 没用 environment，所以不需要 `--env`）；③ `gh workflow run release.yml -f tag=<插件>-v<版本>` 走 OIDC 发正式版。**别用"手动发正式版"代替第 ③ 步**：本地发布拿不到 provenance，而且版本一旦被占，workflow 的 `npm publish` 会冲突失败、GitHub Release 也建不出来。两次失败都不会留残骸：失败点在 npm publish，后面的「回查 registry」与「创建 GitHub Release」都没执行。`dsh-mcp-console` 与 `dsh-workspace-running-indicator` 是目前还没发布的插件（都已跨到 0.2.2 线、走本地 `link:` 路线），首发照这三步。
 
 - 发布流程：改 `package.json#version` → 写 `CHANGELOG.md` 条目 → 跑该插件的 `npm run publish:check` → `git tag dsh-<插件>-v<版本>` → `git push origin HEAD && git push origin dsh-<插件>-v<版本>`。tag 必须与 `package.json#version` 完全一致；工作流还会拒绝 `private: true` 的包，并在发布后回查 registry。
 - 发版必须由用户明确授权：`commit`/`tag`/`push` 都属「提交规范」里的受限操作（只读检查不受限）。

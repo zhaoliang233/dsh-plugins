@@ -290,7 +290,10 @@ window.__ModuleLoader__.load({
    - 图形用 currentColor 上色，选中/悬停/深色主题的配色继续跟随壳层；
    - 模板 div 只是 svg 源码的载体（补丁要拿 outerHTML 做 mask），不参与布局。 */
 .dec-nav-icon-template{display:none}
+/* 0.2.2-alpha.3 起壳层把原图标包进 <span aria-hidden>：新结构要连包装层一起隐藏，旧结构保留兼容。 */
 [data-dec-nav-icon]>svg:first-child{display:none}
+[data-dec-nav-icon]>span[aria-hidden="true"]{display:none}
+[data-dec-nav-icon]>span[aria-hidden="true"] svg{display:none}
 [data-dec-nav-icon]::before{content:"";flex:none;width:16px;height:16px;background:currentColor;pointer-events:none;-webkit-mask:var(--dec-nav-icon-mask) center/16px 16px no-repeat;mask:var(--dec-nav-icon-mask) center/16px 16px no-repeat}
 `
 

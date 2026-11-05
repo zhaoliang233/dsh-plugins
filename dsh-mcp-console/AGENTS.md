@@ -25,7 +25,7 @@
 | **字段声明 `.volatile()` 才免重启**：loader 在「只有 volatile 字段变化」时就地更新运行中 fiber 的引用（`_commitVolatile`）并发出 `loader/volatile-update`（payload 是变化字段路径）；schema 解析结果里 volatile 字段是 cosmokit 引用对象，读实时值靠 `ref.get()` | `cordis-plugin-loader/lib/index.js:365-425` |
 | 官方设置写入的落盘位置就是 profile 的 patch（`profileContext.patchPath`）：`withFileLock(package.json)` + YAML Document 保注释 + `!!js` tag 还原，只改**自己条目**的 `config`，写后 `reconcileProfilePatches` | `dsh-config-editor/lib/index.js:85-125` |
 | 设置条目要在 `settings.describe()` 里出现，才可写（否则客户端快照 `status:'unavailable'`、动作控件禁用）；`settings.configure({auto:false}, fiber)` 用来声明「本实例自带设置页」 | `dsh-settings/lib/index.js` 的 `describe/configure` |
-| 设置页导航图标只能做 DOM 补丁：壳层 `navIcon(id)` 只白名单 4 个官方 id，`settings.section` 没有 `icon` 选项 | `dsh-client-ui-settings-general/lib/client.js` 的 `rows`/`navIcon`；完整手法见 `dsh-extra-context/AGENTS.md`「实现事实 4」 |
+| 设置页导航图标：`settings.section` 没有 `icon` 选项；0.2.2-alpha.3 起壳层另有 `settings.section.icon`（list/root/inline），并把 fallback 图标包进 `span.navIcon[aria-hidden=true]`。本包为兼容 alpha.2 仍做 DOM 补丁，CSS 需同时隐藏直接 `svg` 与新包装层/内部 svg | `dsh-client-ui-settings-general/lib/client.js` 的 `SettingsPanel`/`navIcon`；完整手法见 `dsh-extra-context/AGENTS.md`「实现事实 4」 |
 | `ctx.webServer.register({kind,path,handler})` 重复路径 throw；浏览器边界要先过 `connection.requestRejection`，再 loopback/同源/固定客户端头。**`connection` 必须用 `ctx.inject` 等就绪，不能 `ctx.get('connection')` 抓一次**：cordis 的 `get(name, strict)` 在服务 fiber 未 active 时返回 undefined（2026-10-29 在 0.2.2 上实测到，路由因此跳过了连接层鉴权） | `dsh-host-webserver/lib/index.js:171-183`；`dsh-local-plugin-manager/AGENTS.md`「安全」；M2 |
 | Loader 条目暴露 `entry.options.{id,name,config}` 与 `entry.fiber.state`（`entry.disabled` 表示未启用） | `cordis-plugin-loader/lib/index.js:154-176`；`dsh-host-plugin-inventory/lib/index.js:110-117` |
 
@@ -77,7 +77,7 @@
 6. **状态接口不回显值**：`describeServer()` 只给 `envKeys`/`headerKeys`/`credentialRefs`，`targets.js` 对组合层条目额外做 URL 去查询串与 stdio 参数计数处理（组合层 `!!js` 求值后可能已经是明文）。
 7. **`serverName` 不做静默清洗**：非法字符必须由校验报出来，否则界面上的名字与实际挂载用的名字会不一致（`normalizeServer` 只 trim，`validateServer` 负责报错）。
 8. **样式由插件（`apply`）持有，不是组件**：按 `data-plugin` + `data-owner` 打标、引用计数清理，元素存活但文本过期时重写文本（HMR 先卸旧 fiber 再挂新 fiber，组件级注入会漏，见 `dsh-extra-context` 的同类踩坑）。
-9. **导航图标补丁三处必须同源**：`dataset.dmcNavIcon`、CSS 选择器 `[data-dmc-nav-icon]`、CSS 变量 `--dmc-nav-icon-mask`；引用计数落在按钮 dataset 上，按钮被壳层重建后由 `MutationObserver` 补回（`test/client.test.js` 有守护）。**0.2.2 起图标是 sprite 壳**：组件 `outerHTML` 只有 `<use href="#…">`，直接作 mask 会空白；`navIconSymbolSource()` 优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG，旧线无该导出时退回 `outerHTML`。
+9. **导航图标补丁三处必须同源**：`dataset.dmcNavIcon`、CSS 选择器 `[data-dmc-nav-icon]`、CSS 变量 `--dmc-nav-icon-mask`；引用计数落在按钮 dataset 上，按钮被壳层重建后由 `MutationObserver` 补回（`test/client.test.js` 有守护）。**0.2.2 起图标是 sprite 壳**：组件 `outerHTML` 只有 `<use href="#…">`，直接作 mask 会空白；`navIconSymbolSource()` 优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG，旧线无该导出时退回 `outerHTML`。**0.2.2-alpha.3 起壳层把 fallback 图标包进 `span.navIcon[aria-hidden=true]`**：CSS 必须同时隐藏直接 `svg`、该包装层和内部 svg，否则会出现「自定义图标 + 齿轮」两个。
 10. **`failOnStartupError` 默认关闭**（跟随 mcp-client 组合默认）：连不上仍挂载并自动重连，状态行显示最近日志；勾选后失败即记 `failed`。
 11. **写设置用一次原子 `mutate`**：`servers` 与 `enabled` 一起提交（`{op:'set', path:[...]}`），而不是两次 `set`——两次会有两个 revision 栅栏，中途失败就留下半套配置。
 
