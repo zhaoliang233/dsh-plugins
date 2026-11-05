@@ -211,6 +211,82 @@ window.__ModuleLoader__.load({
 .dmc-confirm{display:flex;flex-direction:column;gap:8px;min-width:0}
 .dmc-log{max-height:132px;overflow:auto;padding:7px 9px;border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:17px;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:600px){.dmc-row-line{grid-template-columns:auto minmax(0,1fr)}.dmc-row-line .dmc-actions{grid-column:2;justify-content:flex-start}.dmc-target{grid-template-columns:minmax(0,1fr)}.dmc-targets-hint{white-space:normal}}
+/* ── A 方案：卡片分组（680px 弹窗） ───────────────────────────────────── */
+.dmc-dialog{width:min(680px,100%);border-radius:14px;background:var(--dsw-alias-bg-layer-1)}
+/* 官方 Modal 的标题/说明结构固定，标题图标用伪元素补上，不另造弹窗。 */
+.dmc-dialog h2{font-weight:600;letter-spacing:.01em}
+.dmc-dialog h2::before{content:"";display:inline-block;width:16px;height:16px;margin-right:8px;vertical-align:-3px;background:var(--dsw-alias-label-secondary);-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cpath%20d='M2%203.1h12v4.1H2zM2%208.8h12v4.1H2z'%20fill='%23000'/%3E%3C/svg%3E") center/16px 16px no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cpath%20d='M2%203.1h12v4.1H2zM2%208.8h12v4.1H2z'%20fill='%23000'/%3E%3C/svg%3E") center/16px 16px no-repeat}
+.dmc-dialog > div:first-child > p{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dmc-dialog .dmc-form{max-height:min(74vh,680px);padding:0 0 2px;gap:12px}
+.dmc-card{display:flex;flex-direction:column;gap:12px;flex:none;min-width:0;padding:14px 15px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 94%,var(--dsw-alias-label-primary) 6%)}
+.dmc-card-head{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;min-width:0}
+.dmc-card-heading{flex:1 1 auto;min-width:0}
+.dmc-card-title{display:flex;align-items:center;gap:7px;margin:0;font-size:12.5px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary)}
+.dmc-card-desc{margin:3px 0 0;font-size:11px;line-height:1.55;color:var(--dsw-alias-label-tertiary)}
+.dmc-card-extra{flex:none;margin-left:auto}
+.dmc-card-body{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dmc-count{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:10.5px;font-weight:500;line-height:17px;font-variant-numeric:tabular-nums}
+.dmc-seg{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
+.dmc-seg-option{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:6px;color:var(--dsw-alias-label-tertiary);font-size:11.5px;white-space:nowrap;cursor:pointer;transition:background-color .12s,color .12s}
+.dmc-seg-option svg{flex:none;opacity:.85}
+.dmc-seg-option:hover{color:var(--dsw-alias-label-secondary)}
+.dmc-seg-option.on{background:color-mix(in srgb,var(--dsw-alias-bg-layer-3) 94%,var(--dsw-alias-label-primary) 6%);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.14)}
+.dmc-seg-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.dmc-seg-option:focus-within{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
+.dmc-adv{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 94%,var(--dsw-alias-label-primary) 6%);overflow:hidden}
+.dmc-adv>summary{display:flex;align-items:center;gap:9px;padding:13px 15px;cursor:pointer;list-style:none;font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.dmc-adv>summary::-webkit-details-marker{display:none}
+.dmc-adv>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dmc-adv-title{flex:none;color:var(--dsw-alias-label-primary)}
+.dmc-adv-hint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:400;color:var(--dsw-alias-label-tertiary)}
+.dmc-adv-spacer{flex:1;min-width:4px}
+.dmc-adv-caret{color:var(--dsw-alias-label-tertiary);transition:transform .15s ease}
+.dmc-adv[open] .dmc-adv-caret{transform:rotate(180deg)}
+.dmc-adv-body{display:flex;flex-direction:column;gap:12px;padding:14px 15px;border-top:1px solid var(--dsw-alias-border-l1)}
+.dmc-timeout-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.dmc-timeout-input{width:100px;text-align:right;font-variant-numeric:tabular-nums}
+.dmc-quick{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+.dmc-quick .dmc-btn-sm{height:26px;padding:0 8px;font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.dmc-quick .dmc-btn-sm.on{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}
+.dmc-cmd-preview{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font-size:11.5px}
+.dmc-cmd-preview>svg{flex:none;color:var(--dsw-alias-label-tertiary)}
+.dmc-cmd-label{flex:none;font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.dmc-cmd-preview code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}
+.dmc-input,.dmc-textarea,.dmc-select{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:1.5}
+.dmc-input{height:34px;padding:0 12px}
+.dmc-textarea{min-height:72px;padding:8px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65;resize:vertical}
+.dmc-select{height:34px;padding:0 30px 0 12px;font-size:13px}
+.dmc-input::placeholder,.dmc-textarea::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}
+.dmc-input:focus-visible,.dmc-textarea:focus-visible,.dmc-select:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.dmc-label{font-size:11.5px;font-weight:500}
+.dmc-field{gap:5px}
+.dmc-label-note{font-size:10.5px;font-weight:400}
+.dmc-hint{font-size:11px;line-height:1.55}
+.dmc-pair{gap:8px;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
+.dmc-pair-head{gap:6px}
+.dmc-pair-name{font-size:11.5px}
+.dmc-pair .dmc-fields{gap:7px 10px}
+.dmc-pair .dmc-field-key{font-size:11px}
+.dmc-cred{gap:8px;padding:10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dmc-cred-name{font-size:11.5px}
+.dmc-cred-input-row .dmc-input{height:32px}
+.dmc-dialog-footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}
+.dmc-footer-actions{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
+.dmc-foot-status{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0;border:0;border-radius:0;background:transparent;font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dmc-foot-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dmc-foot-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none;opacity:.8}
+.dmc-foot-status.run{color:var(--dsw-alias-label-secondary)}
+.dmc-foot-status.ok{color:var(--dsw-alias-state-success-primary);background:transparent}
+.dmc-foot-status.failed{color:var(--dsw-alias-state-error-primary);background:transparent}
+.dmc-foot-status.stale{color:var(--dsw-alias-state-warn-primary);background:transparent}
+.dmc-spinner{width:12px;height:12px;flex:none;border-radius:50%;border:1.5px solid var(--dsw-alias-border-l3);border-top-color:var(--dsw-alias-label-secondary);animation:dmc-spin .7s linear infinite}
+@keyframes dmc-spin{to{transform:rotate(360deg)}}
+.dmc-button{min-height:34px;padding:0 15px;border-radius:var(--dsw-radius-md);font-size:12.5px;font-weight:500}
+.dmc-chip-button.on{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent);color:var(--dsw-alias-label-primary)}
+.dmc-field-ctl.dmc-field-ctl-wide{grid-column:1 / -1}
+.dmc-host-warning{padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);color:var(--dsw-alias-state-warn-primary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+@media(max-width:600px){.dmc-card{padding:12px}.dmc-card-extra{width:100%;margin-left:0}.dmc-adv-hint{display:none}.dmc-dialog-footer{align-items:flex-start}.dmc-foot-status{flex:1 1 100%}.dmc-footer-actions{width:100%;justify-content:flex-end}}
+
 `
 
     // ── 纯函数区（可在 node --test 下独立验证）────────────────────────────
@@ -824,7 +900,9 @@ window.__ModuleLoader__.load({
         id,
         enabled: true,
         label: '',
-        serverName: id,
+        // 服务器名留空、给占位符：以前默认填 `srv-xxxx`，用户看到的是一个没有
+        // 意义的随机串；把它当成"必填项"更符合运行时语义（工具前缀由它决定）。
+        serverName: '',
         transport: 'stdio',
         command: '',
         argsText: '',
@@ -959,22 +1037,28 @@ window.__ModuleLoader__.load({
      * 存进设置的仍是 `[前缀]credential:键名[后缀]`（settings 里只能放字符串），
      * 但界面上用户看到的永远是「前缀 + 凭据键名」这种他能理解的字段。
      */
-    function ValueEditor({ value, onChange, keys, prefixMode, ariaLabel, placeholder, prefixHint, emptyPrefixHint, valueLabel }) {
+    function ValueEditor({ value, onChange, keys, prefixMode, ariaLabel, placeholder, prefixHint, emptyPrefixHint, valueLabel, hideValueLabel }) {
       const parts = splitCredential(value)
       const set = (patch) => onChange(joinCredential({ ...parts, ...patch }))
       if (parts === null) {
-        return React.createElement(
-          FieldLine,
-          { label: valueLabel ?? '值' },
-          React.createElement('input', {
-            className: 'dmc-input',
-            type: 'text',
-            value: String(value ?? ''),
-            placeholder: placeholder ?? '值',
-            'aria-label': ariaLabel,
-            onChange: (event) => onChange(event.target.value)
-          })
-        )
+        const input = React.createElement('input', {
+          className: 'dmc-input',
+          type: 'text',
+          value: String(value ?? ''),
+          placeholder: placeholder ?? '值',
+          'aria-label': ariaLabel,
+          onChange: (event) => onChange(event.target.value)
+        })
+        // URL 的字段标签已经写明「服务器 URL」，直接填写时不再重复一个「地址」标签；
+        // 输入框跨满两列，和上面的标签栏对齐。
+        if (hideValueLabel === true) {
+          return React.createElement(
+            'div',
+            { className: 'dmc-field-line dmc-field-line-wide' },
+            React.createElement('span', { className: 'dmc-field-ctl dmc-field-ctl-wide' }, input)
+          )
+        }
+        return React.createElement(FieldLine, { label: valueLabel ?? '值' }, input)
       }
       return React.createElement(
         React.Fragment,
@@ -1125,167 +1209,309 @@ window.__ModuleLoader__.load({
       // 同一个键给两个不同的密钥用没有意义，所以当前草稿里已经出现的键不再推荐
       // （早先把它们也列出来，弹窗里一堆重复候选，看着很乱）。
       const keyOptions = [...new Set(credentialKeys ?? [])].filter((key) => !refs.includes(key))
+      const rows = isHttp ? (draft.headerRows ?? []) : (draft.envRows ?? [])
+      // 空名字时保留原来的静态提示（GUI 验收也按这段文案断言）；一旦开始输入就变成实时前缀。
+      const prefixName = String(draft.serverName ?? '').trim() || '<名字>'
+      const timeoutMs = Number(draft.toolCallTimeoutMs)
+      const timeoutText =
+        Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? timeoutMs % 1000 === 0
+            ? `${timeoutMs / 1000} 秒`
+            : `${timeoutMs} 毫秒`
+          : '未设置'
+      const commandText = String(draft.command ?? '').trim()
+      const commandPreview = commandText === '' ? '' : [commandText, ...parseArgs(draft.argsText)].join(' ')
+
+      const cardHead = (title, desc, extra, count) =>
+        React.createElement(
+          'div',
+          { className: 'dmc-card-head' },
+          React.createElement(
+            'div',
+            { className: 'dmc-card-heading' },
+            React.createElement(
+              'h3',
+              { className: 'dmc-card-title' },
+              title,
+              count === undefined ? null : React.createElement('span', { className: 'dmc-count' }, `${count} 项`)
+            ),
+            React.createElement('p', { className: 'dmc-card-desc' }, desc)
+          ),
+          extra === undefined || extra === null
+            ? null
+            : React.createElement('div', { className: 'dmc-card-extra' }, extra)
+        )
+
+      // 传输方式仍然用两个原生 radio（键盘/读屏语义不变，测试也按 radio 顺序操作），
+      // 只是外面套一层分段控件的外观。
+      const transportOption = (value, label, Icon) =>
+        React.createElement(
+          'label',
+          { className: `dmc-seg-option${draft.transport === value ? ' on' : ''}` },
+          React.createElement('input', {
+            type: 'radio',
+            name: `dmc-transport-${draft.id}`,
+            className: 'dmc-seg-input',
+            checked: draft.transport === value,
+            onChange: () => setValue('transport', value)
+          }),
+          React.createElement(Icon, { size: 14 }),
+          React.createElement('span', null, label)
+        )
+
+      const transport = React.createElement(
+        'div',
+        { className: 'dmc-seg', role: 'group', 'aria-label': '传输方式' },
+        transportOption('stdio', '本地进程', IconCodeOutline16),
+        transportOption('streamable-http', '远程服务', IconLinkOutline16)
+      )
+
+      const serverName = React.createElement(
+        'div',
+        { className: 'dmc-field' },
+        React.createElement(
+          'span',
+          { className: 'dmc-label' },
+          '服务器名',
+          React.createElement('span', { className: 'dmc-required' }, ' *'),
+          // 文案与运行时同源：工具全名就是 mcp__<服务器名>__<工具名>（见行上的命名空间 chip）。
+          React.createElement('span', { className: 'dmc-label-note' }, `(工具前缀为 mcp__${prefixName}__)`)
+        ),
+        React.createElement('input', {
+          className: 'dmc-input',
+          type: 'text',
+          placeholder: '例如 github',
+          'aria-label': '服务器名',
+          ...field('serverName')
+        })
+      )
+
+      const labelField = React.createElement(
+        'div',
+        { className: 'dmc-field' },
+        React.createElement('span', { className: 'dmc-label' }, '备注名'),
+        React.createElement('input', {
+          className: 'dmc-input',
+          type: 'text',
+          placeholder: '例如 GitHub',
+          'aria-label': '备注名',
+          ...field('label')
+        })
+      )
+
+      const commandField = React.createElement(
+        'div',
+        { className: 'dmc-field' },
+        React.createElement('span', { className: 'dmc-label' }, '命令', React.createElement('span', { className: 'dmc-required' }, ' *')),
+        React.createElement('input', {
+          className: 'dmc-input',
+          type: 'text',
+          placeholder: 'npx、uvx、node、python…',
+          'aria-label': '命令',
+          ...field('command')
+        })
+      )
+
+      const argsField = React.createElement(
+        'div',
+        { className: 'dmc-field' },
+        React.createElement('span', { className: 'dmc-label' }, '参数（每行一个）'),
+        React.createElement('textarea', {
+          className: 'dmc-textarea',
+          placeholder: '-y\n@modelcontextprotocol/server-github',
+          'aria-label': '参数（每行一个）',
+          ...field('argsText')
+        })
+      )
+
+      const cwdField = React.createElement(
+        'div',
+        { className: 'dmc-field' },
+        React.createElement('span', { className: 'dmc-label' }, '工作目录'),
+        React.createElement('input', {
+          className: 'dmc-input',
+          type: 'text',
+          placeholder: '~/code（可留空）',
+          'aria-label': '工作目录',
+          ...field('cwd')
+        })
+      )
+
+      const commandPreviewNode =
+        commandPreview === ''
+          ? null
+          : React.createElement(
+              'div',
+              { className: 'dmc-cmd-preview' },
+              React.createElement(IconCodeOutline16, { size: 14 }),
+              React.createElement('span', { className: 'dmc-cmd-label' }, '启动预览'),
+              React.createElement('code', { title: commandPreview }, commandPreview)
+            )
+
+      const stdioPane = React.createElement(
+        React.Fragment,
+        null,
+        commandField,
+        argsField,
+        cwdField,
+        commandPreviewNode
+      )
+
+      const urlField = React.createElement(
+        'div',
+        { className: 'dmc-field' },
+        React.createElement(
+          'span',
+          { className: 'dmc-label dmc-label-line' },
+          '服务器 URL',
+          React.createElement('span', { className: 'dmc-required' }, ' *'),
+          React.createElement('span', { className: 'dmc-label-spacer' }),
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: `dmc-chip-button${splitCredential(draft.url) === null ? '' : ' on'}`,
+              'aria-pressed': splitCredential(draft.url) === null ? 'false' : 'true',
+              'aria-label': 'URL 引用凭据',
+              title:
+                splitCredential(draft.url) === null
+                  ? '整条地址存进凭据库（地址里带 token 时用它，界面不回显）'
+                  : '改回直接填写地址',
+              onClick: () => {
+                const parts = splitCredential(draft.url)
+                setValue('url', parts === null ? joinCredential({ prefix: '', key: '', suffix: '' }) : parts.prefix)
+              }
+            },
+            '凭据'
+          )
+        ),
+        React.createElement(
+          FieldGroup,
+          null,
+          React.createElement(ValueEditor, {
+            value: draft.url,
+            onChange: (value) => setValue('url', value),
+            keys: keyOptions,
+            // 地址里只有一段是密钥（?token=<密钥>）时，前缀放地址、键放密钥：
+            // 地址保持可见，值只在凭据库里。整条地址进凭据库（前缀留空）也照旧成立。
+            prefixMode: 'address',
+            ariaLabel: 'URL',
+            placeholder: 'https://…/mcp',
+            valueLabel: '地址',
+            hideValueLabel: true,
+            prefixHint: '地址前段',
+            emptyPrefixHint: '可留空：整条地址都进凭据库时'
+          })
+        )
+      )
+
+      const timeoutField = React.createElement(
+        'div',
+        { className: 'dmc-field' },
+        React.createElement('span', { className: 'dmc-label' }, '单次调用超时（毫秒）'),
+        React.createElement(
+          'div',
+          { className: 'dmc-timeout-row' },
+          React.createElement('input', {
+            className: 'dmc-input dmc-timeout-input',
+            type: 'text',
+            'aria-label': '单次调用超时（毫秒）',
+            ...field('toolCallTimeoutMs')
+          }),
+          React.createElement(
+            'div',
+            { className: 'dmc-quick' },
+            [30000, 60000, 120000].map((ms) =>
+              React.createElement(
+                'button',
+                {
+                  key: ms,
+                  type: 'button',
+                  className: `dmc-btn-sm${String(ms) === String(draft.toolCallTimeoutMs) ? ' on' : ''}`,
+                  onClick: () => setValue('toolCallTimeoutMs', String(ms))
+                },
+                `${ms / 1000} 秒`
+              )
+            )
+          )
+        )
+      )
+
+      const advanced = React.createElement(
+        'details',
+        { className: 'dmc-adv' },
+        React.createElement(
+          'summary',
+          null,
+          React.createElement('span', { className: 'dmc-adv-title' }, '高级设置'),
+          React.createElement(
+            'span',
+            { className: 'dmc-adv-hint' },
+            `超时 ${timeoutText} · ${draft.failOnStartupError ? '启动失败中止' : '启动失败继续重连'}`
+          ),
+          React.createElement('span', { className: 'dmc-adv-spacer' }),
+          React.createElement(IconChevronDownOutline14, { size: 14, className: 'dmc-adv-caret' })
+        ),
+        React.createElement(
+          'div',
+          { className: 'dmc-adv-body' },
+          timeoutField,
+          // 勾选项文本很长：单独占一整行，别和输入框挤同一行的两列（会换行、也很难看）
+          React.createElement(
+            'label',
+            { className: 'dmc-checkline' },
+            React.createElement('input', {
+              type: 'checkbox',
+              checked: draft.failOnStartupError === true,
+              onChange: (event) => setValue('failOnStartupError', event.target.checked)
+            }),
+            React.createElement('span', null, '启动连不上就报错', React.createElement('span', { className: 'dmc-hint' }, '（默认只记录日志并继续重连）'))
+          )
+        )
+      )
 
       return React.createElement(
         'div',
         { className: 'dmc-form' },
         React.createElement(
-          'div',
-          { className: 'dmc-field-row' },
-          // 服务器名在前（它是必填、也是工具前缀的来源），备注名在后
-          React.createElement(
-            'div',
-            { className: 'dmc-field' },
-            React.createElement(
-              'span',
-              { className: 'dmc-label' },
-              '服务器名',
-              React.createElement('span', { className: 'dmc-required' }, ' *'),
-              // 文案与运行时同源：工具全名就是 mcp__<服务器名>__<工具名>（见行上的命名空间 chip）。
-              React.createElement('span', { className: 'dmc-label-note' }, '(工具前缀为 mcp__<名字>__)')
-            ),
-            React.createElement('input', { className: 'dmc-input', type: 'text', ...field('serverName') })
+          'section',
+          { className: 'dmc-card' },
+          cardHead('基本信息', '服务器名决定工具前缀，备注名只影响列表显示。'),
+          React.createElement('div', { className: 'dmc-field-row' }, serverName, labelField)
+        ),
+        React.createElement(
+          'section',
+          { className: 'dmc-card' },
+          cardHead('连接方式', '用命令启动本地进程，或连接已经运行的远程服务。', transport),
+          React.createElement('div', { className: 'dmc-card-body' }, isHttp ? urlField : stdioPane)
+        ),
+        React.createElement(
+          'section',
+          { className: 'dmc-card' },
+          cardHead(
+            isHttp ? '请求头' : '环境变量',
+            isHttp ? '请求远程端点时附带的 HTTP 头；密钥建议用「凭据」引用。' : '传给 MCP 子进程的环境变量；密钥建议用「凭据」引用。',
+            undefined,
+            rows.length
           ),
           React.createElement(
             'div',
-            { className: 'dmc-field' },
-            React.createElement('span', { className: 'dmc-label' }, '备注名'),
-            React.createElement('input', { className: 'dmc-input', type: 'text', ...field('label') })
-          )
-        ),
-        React.createElement(
-          'div',
-          { className: 'dmc-field' },
-          React.createElement('span', { className: 'dmc-label' }, '传输方式'),
-          React.createElement(
-            'div',
-            { className: 'dmc-radio-row' },
+            { className: 'dmc-card-body' },
+            React.createElement(PairEditor, {
+              kind: isHttp ? 'headers' : 'env',
+              rows,
+              onChange: (next) => setValue(isHttp ? 'headerRows' : 'envRows', next),
+              keys: keyOptions
+            }),
             React.createElement(
-              'label',
-              { className: 'dmc-radio' },
-              React.createElement('input', {
-                type: 'radio',
-                name: `dmc-transport-${draft.id}`,
-                checked: !isHttp,
-                onChange: () => setValue('transport', 'stdio')
-              }),
-              'stdio（本地进程）'
+              'span',
+              { className: 'dmc-hint' },
+              '密钥点「凭据」：键名自己取，值存进凭据库、界面不回显、可多处复用；直接填写的值会明文存进设置文件。'
             ),
-            React.createElement(
-              'label',
-              { className: 'dmc-radio' },
-              React.createElement('input', {
-                type: 'radio',
-                name: `dmc-transport-${draft.id}`,
-                checked: isHttp,
-                onChange: () => setValue('transport', 'streamable-http')
-              }),
-              'streamable-http（远程服务）'
-            )
+            refs.length === 0 ? null : React.createElement(CredentialBox, { refs, section })
           )
         ),
-        isHttp
-          ? React.createElement(
-              'div',
-              { className: 'dmc-field' },
-              React.createElement(
-                'span',
-                { className: 'dmc-label dmc-label-line' },
-                'URL',
-                React.createElement('span', { className: 'dmc-required' }, ' *'),
-                React.createElement('span', { className: 'dmc-label-spacer' }),
-                React.createElement(
-                  'button',
-                  {
-                    type: 'button',
-                    className: `dmc-chip-button${splitCredential(draft.url) === null ? '' : ' on'}`,
-                    'aria-pressed': splitCredential(draft.url) === null ? 'false' : 'true',
-                    'aria-label': 'URL 引用凭据',
-                    title:
-                      splitCredential(draft.url) === null
-                        ? '整条地址存进凭据库（地址里带 token 时用它，界面不回显）'
-                        : '改回直接填写地址',
-                    onClick: () => {
-                      const parts = splitCredential(draft.url)
-                      setValue('url', parts === null ? joinCredential({ prefix: '', key: '', suffix: '' }) : parts.prefix)
-                    }
-                  },
-                  '凭据'
-                )
-              ),
-              React.createElement(FieldGroup, null,
-                React.createElement(ValueEditor, {
-                  value: draft.url,
-                  onChange: (value) => setValue('url', value),
-                  keys: keyOptions,
-                  // 地址里只有一段是密钥（?token=<密钥>）时，前缀放地址、键放密钥：
-                  // 地址保持可见，值只在凭据库里。整条地址进凭据库（前缀留空）也照旧成立。
-                  prefixMode: 'address',
-                  ariaLabel: 'URL',
-                  placeholder: 'https://…/mcp',
-                  valueLabel: '地址',
-                  prefixHint: '地址前段',
-                  emptyPrefixHint: '可留空：整条地址都进凭据库时'
-                })
-              )
-            )
-          : React.createElement(
-              React.Fragment,
-              null,
-              React.createElement(
-                'div',
-                { className: 'dmc-field' },
-                React.createElement('span', { className: 'dmc-label' }, '命令', React.createElement('span', { className: 'dmc-required' }, ' *')),
-                React.createElement('input', { className: 'dmc-input', type: 'text', ...field('command') })
-              ),
-              React.createElement(
-                'div',
-                { className: 'dmc-field' },
-                React.createElement('span', { className: 'dmc-label' }, '参数（每行一个）'),
-                React.createElement('textarea', { className: 'dmc-textarea', ...field('argsText') })
-              ),
-              React.createElement(
-                'div',
-                { className: 'dmc-field' },
-                React.createElement('span', { className: 'dmc-label' }, '工作目录'),
-                React.createElement('input', { className: 'dmc-input', type: 'text', ...field('cwd') })
-              )
-            ),
-        React.createElement(
-          'div',
-          { className: 'dmc-field' },
-          React.createElement('span', { className: 'dmc-label' }, isHttp ? '请求头' : '环境变量'),
-          React.createElement(PairEditor, {
-            kind: isHttp ? 'headers' : 'env',
-            rows: isHttp ? draft.headerRows : draft.envRows,
-            onChange: (rows) => setValue(isHttp ? 'headerRows' : 'envRows', rows),
-            keys: keyOptions
-          }),
-          React.createElement(
-            'span',
-            { className: 'dmc-hint' },
-            '密钥点「凭据」：键名自己取，值存进凭据库、界面不回显、可多处复用；直接填写的值会明文存进设置文件。'
-          )
-        ),
-        refs.length === 0 ? null : React.createElement(CredentialBox, { refs, section }),
-        React.createElement(
-          'div',
-          { className: 'dmc-field' },
-          React.createElement('span', { className: 'dmc-label' }, '单次调用超时（毫秒）'),
-          React.createElement('input', { className: 'dmc-input', type: 'text', ...field('toolCallTimeoutMs') })
-        ),
-        // 勾选项文本很长：单独占一整行，别和输入框挤同一行的两列（会换行、也很难看）
-        React.createElement(
-          'label',
-          { className: 'dmc-checkline' },
-          React.createElement('input', {
-            type: 'checkbox',
-            checked: draft.failOnStartupError === true,
-            onChange: (event) => setValue('failOnStartupError', event.target.checked)
-          }),
-          React.createElement('span', null, '启动连不上就报错', React.createElement('span', { className: 'dmc-hint' }, '（默认只记录日志并继续重连）'))
-        ),
-        React.createElement(VerificationLine, { verifying, verification })
+        advanced
       )
     }
 
@@ -1300,23 +1526,28 @@ window.__ModuleLoader__.load({
       const footer = React.createElement(
         'div',
         { className: 'dmc-dialog-footer' },
+        React.createElement(FooterStatus, { verifying, verification, hostSupportsVerify }),
         React.createElement(
-          'button',
-          { type: 'button', className: 'dmc-button', 'aria-label': '取消', disabled: verifying, onClick: onCancel },
-          '取消'
-        ),
-        // 只有「保存」一个动作：点它就自动先验证、通过才落盘（少一次点击）。
-        React.createElement(
-          'button',
-          {
-            type: 'button',
-            className: 'dmc-button primary',
-            'aria-label': '保存',
-            disabled: busy || verifying || hostSupportsVerify === false,
-            title: hostSupportsVerify === false ? '当前 dsh web 进程没有「验证」接口，请重启后再试' : undefined,
-            onClick: onSave
-          },
-          verifying ? '验证并保存中…' : '保存'
+          'div',
+          { className: 'dmc-footer-actions' },
+          React.createElement(
+            'button',
+            { type: 'button', className: 'dmc-button', 'aria-label': '取消', disabled: verifying, onClick: onCancel },
+            '取消'
+          ),
+          // 只有「保存」一个动作：点它就自动先验证、通过才落盘（少一次点击）。
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'dmc-button primary',
+              'aria-label': '保存',
+              disabled: busy || verifying || hostSupportsVerify === false,
+              title: hostSupportsVerify === false ? '当前 dsh web 进程没有「验证」接口，请重启后再试' : undefined,
+              onClick: onSave
+            },
+            verifying ? '验证并保存中…' : '保存'
+          )
         )
       )
       const body = React.createElement(
@@ -1380,30 +1611,40 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** 验证结果一行：未验证 / 验证中 / 通过（带工具清单）/ 失败（带原因）。 */
-    function VerificationLine({ verifying, verification }) {
-      if (verifying === true) {
-        return React.createElement(
+    /**
+     * 底部状态条：把「保存 = 先验证」讲清楚，验证中 / 成功 / 失败都在同一处反馈。
+     *
+     * 保留 `dmc-verify` 这个 class：真机验收脚本按它读失败原因（旧版在表单末尾，
+     * 现在挪到底部，选择器不变）。
+     */
+    function FooterStatus({ verifying, verification, hostSupportsVerify }) {
+      const node = (tone, text, spinner, title) =>
+        React.createElement(
           'div',
-          { className: 'dmc-verify' },
-          React.createElement(IconLoadingOutline16, { size: 14 }),
-          '正在连接并读取工具清单…'
+          { className: `dmc-verify dmc-foot-status ${tone}`, title },
+          spinner === true
+            ? React.createElement('span', { className: 'dmc-spinner' })
+            : React.createElement('span', { className: 'dmc-foot-dot' }),
+          React.createElement('span', { className: 'dmc-foot-text' }, text)
         )
+      if (verifying === true) return node('run', '正在连接并读取工具清单…', true)
+      if (hostSupportsVerify === false) {
+        return node('stale', '当前 dsh web 进程还是旧版本，保存不可用；请重启后再试。')
       }
-      if (verification === null || verification === undefined || verification.status === 'idle') return null
+      if (verification === null || verification === undefined || verification.status === 'idle') {
+        return node('', '保存时会先验证连接，通过后立即生效')
+      }
       if (verification.status === 'failed' && verification.hostOutdated === true) {
-        return React.createElement('div', { className: 'dmc-verify stale' }, verification.error)
+        return node('stale', verification.error ?? '当前 dsh web 进程还是旧版本，请重启后再试。')
       }
       if (verification.status === 'failed') {
-        return React.createElement('div', { className: 'dmc-verify failed' }, `验证失败：${verification.error ?? '原因未知'}`)
+        const error = verification.error ?? '原因未知'
+        return node('failed', `验证失败：${error}`, false, `验证失败：${error}`)
       }
       const tools = verification.tools ?? []
-      return React.createElement(
-        'div',
-        { className: 'dmc-verify ok' },
-        tools.length === 0
-          ? '验证通过：连接成功，该服务器没有提供工具。'
-          : `验证通过：连接成功，提供 ${tools.length} 个工具（${tools.join('、')}）。`
+      return node(
+        'ok',
+        tools.length === 0 ? '连接成功 · 该服务器没有提供工具' : `连接成功 · ${tools.length} 个工具`
       )
     }
 
@@ -2259,7 +2500,6 @@ window.__ModuleLoader__.load({
       McpManagerSection,
       ServerEditor,
       ServerDialog,
-      VerificationLine,
       LiveLogs,
       emptyDraft,
       fromDraft,
