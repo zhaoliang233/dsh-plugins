@@ -1,0 +1,73 @@
+{
+  "name": "dsh-workspace-running-indicator",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
+    "directory": "dsh-workspace-running-indicator"
+  },
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-workspace-running-indicator#readme",
+  "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
+  "description": "侧边栏工作区收起后，在标题行尾显示该工作区仍有会话在运行的转圈提示。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dshCompatibility": {
+    "policy": "compatible-release-line",
+    "package": "@deepseek-ai/dsh",
+    "range": ">=0.2.2-alpha.3 <0.2.3",
+    "verifiedVersions": [
+      "0.2.2-alpha.3"
+    ],
+    "futureVersionsRequireCapabilityChecks": true
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "PUBLISHING.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check client.js && node --check scripts/check-pack.js && bash -n install.sh && bash -n uninstall.sh",
+    "test": "node --test test/*.test.js",
+    "pack:check": "node scripts/check-pack.js",
+    "publish:check": "npm run check && npm test && npm run pack:check",
+    "prepublishOnly": "npm run publish:check"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.2-alpha.3 <0.2.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "sidebar",
+    "workspace",
+    "session",
+    "running",
+    "indicator"
+  ]
+}

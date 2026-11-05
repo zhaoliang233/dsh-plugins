@@ -32,7 +32,7 @@
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |
 | `dsh-mcp-console/` | 设置页管理 MCP 服务器：增删改、启停、连接与工具状态、凭据走 credentials，不改 profile 配置、不重启即生效（**未发布**；2026-10-08 由 `dsh-mcp-manager` 改名） |
 | `dsh-default-tuner/` | 设置页独立分区「默认设置覆盖」：把官方插件写死在 bundle 里的默认值（会话标题长度、标题模型输入上限等）变成可覆盖项，写入当前 profile 补丁并即时生效（2026-10-08 由 `dsh-default-overrides` 改名，2026-10-10 首发 `0.2.0`） |
-| `dsh-workspace-running-indicator/` | 侧边栏工作区收起时，若其下仍有会话在运行，在标题行尾显示转圈；纯客户端 DOM 补丁，不影响 hover（**未发布**，2026-11-04 新建） |
+| `dsh-workspace-running-indicator/` | 侧边栏工作区收起时，在标题行尾显示该工作区最高优先级的会话状态（等待处理/进行中/已完成待查看）；纯客户端 DOM 补丁，不影响 hover（**未发布**，2026-11-04 新建） |
 
 用户安装（包名 = 目录名）：
 
