@@ -91,25 +91,18 @@ DSH 会保留**本进程 resume 过的每一个会话**直到进程退出：agen
 
 ### 分组与批量操作（纯客户端）
 
-- 分组语义复刻 DSH 侧边栏：每个工作区一组、按 `workspaces.list.items` 的 Host 顺序，**只渲染非空组**，其余归入唯一的“未分组”桶（不按 `cwd` 造伪分组）；**默认全部折叠**（内部状态存已展开的 key），搜索命中时强制展开。
-- 组头与 DSH 侧边栏工作区行同形：`.dac-group-row`（`role=treeitem`、`aria-expanded`、整行可点、Enter/Space 切换）+ 16×20 图标槽（展开态给 `IconFolderOpen16`/`IconFolderClose16`，hover 时整个槽换成 `IconTriangleRightFill14`，展开时加 `dac-group-arrow-open` 旋转 90°）+ 标题（14px/500/`label-primary`）+ 右侧弱化计数；行高 34px、圆角 8px、`padding:0 8px`、hover `interactive-bg-hover`。图标一律取官方 primitives，不要自绘。
-- 会话行与 DSH 自带“已归档会话”页同形的卡片：`.dac-row`（`display:grid`、`grid-template-columns:minmax(0,1fr) auto`、`gap:12px`、`padding:8px 10px`、`border-radius:8px`、无 `border-*`），hover 才给 `--dsw-alias-interactive-bg-hover`（**刻意不用原生页的 `--dsw-alias-bg-layer-1`**：浅色主题下它是 `#fff`、与设置面板底色相同，原生页的 hover 在浅色下其实看不见；此处必须与组头 hover 同 token）；标题 13px/20px，meta 12px/18px 且用 `--dsw-alias-label-tertiary`。**禁止**再用横线区分列表（`.dac-list`/`.dac-groups` 不得有 `border-top`，`.dac-row` 不得有 `border-bottom`，`.dac-group+.dac-group` 不得有分隔线）：组头本身就是区分依据，组间用 `.dac-groups{gap:12px}`、组内用 `.dac-group{gap:2px}`。
-- 会话行缩进在 `.dac-group-body`（`padding-left:20px`，**无**引导竖线），使卡片文字（20px 缩进 + 10px 卡片内边距）与组标题（8px 行内边距 + 16px 图标 + 6px 间距 = 30px）严格对齐。`rowMeta()` 以 `withWorkspace` 为唯一开关：默认输出“工作区 · 20 天”（未分组显示“未分组”），分组视图传 `withWorkspace:false` 时只输出“20 天”（组头已表达工作区）；`relativeTimeLabel()` 复刻官方 primitives 的 `relativeTime` 阈值（<1 分钟“刚刚”、分钟、小时、天、30 天月、365 天年，`updatedAt <= 0` 视为未知、整段省略），调用方每次渲染传入同一个 `now`。**禁止**再显示绝对时间戳、恢复原位 `#N` 或目录名（原生页都没有，`summaryRows()` 也不再计算 `position`）。
-- 表单控件是硬约束：所有 `<select>` 与自定义日期输入都必须包在 `.dac-select-field` 内，由插件自绘指示器（`::after` + alpha mask + `background:currentColor`，`appearance:none`、`padding:0 30px 0 10px`），使左侧文字内边距（10px）与右侧指示器内边距（9px）对称；禁止依赖浏览器原生下拉箭头。日期输入用 `.dac-date` 并把 `::-webkit-calendar-picker-indicator` 设为铺满控件的透明层，点击控件任意位置即可打开日历；`selectField()`/`field()` 是唯一入口，不要在别处手写 class。**mask 用的 `--dac-*-glyph` 变量必须定义在控件自身**（`.dac-select-field`），不能定义在 `.dac-section` 之类的祖先上：批量弹窗经 `Modal` portal 到 `document.body`，祖先变量不会继承，取不到值时 mask 失效会退化成实心方块（已踩过此坑）。SVG 数据 URI 必须整体 `encodeURIComponent`，禁止裸空格/引号/`#`。
-- 工具栏只放搜索框、视图选择、排序选择；搜索框必须由插件自绘官方 `IconSearchOutline16`（`.dac-search` 为 `position:relative` 容器，`>svg{position:absolute;left:12px;pointer-events:none}`，input 用 `padding:0 12px 0 36px`），不得依赖浏览器原生 search 装饰。列表正上方唯一一行 `.dac-list-actions` 从左到右固定为**「批量归档」→「批量删除」**，折叠按钮 `.dac-list-toggle`（`margin-left:auto`）贴这一行最右；三个按钮都是 `dac-button dac-button-small`（26px），行内 `gap:8px` 提供两个批量按钮之间的间距（**禁止**用 `justify-content:space-between` 排三个按钮：它会把中间那个推到正中央）。这一行**始终渲染**，只有组数 ≤1 或处于单列表时不渲染右侧折叠按钮；默认折叠时文案“展开全部”，有任一展开时“折叠全部”。
-- **「批量删除」必须是 `dac-button dac-button-small danger`**（实心 `--dsw-alias-state-error-primary`，与单行“永久删除”同一套危险色），不得与「批量归档」同色；`deletionSupported !== true` 时禁用并沿用 status 的 `deletionUnavailable` 文案（fail closed）。
-- 页面文案是硬约束：说明段必须是**单段合并文案**、紧跟标题、位于工具栏之上，顺序为“两种视图 + 批量归档 → 恢复 → 永久删除”。可用态固定为：`按工作区分组或单列表浏览归档聊天；批量归档支持按时间条件筛选。恢复会回到原来的工作区，原 Workspace 已删除时进入未分组；永久删除会移除会话日志，但不删除共享附件。`（批量不可用时第一句换成“当前 DSH 客户端不支持批量归档”；恢复/删除不可用时各自独立成句；`capabilityNote` 必须按能力分支装配而不是无脑拼接。）**禁止**写“由你手动发起”这类赘述，**禁止**把恢复说成“回到普通列表”（实际回到原 Workspace 原位置，已删除才进未分组），**禁止**“可按时间条件挑选一段时间没有活动的聊天”这类冗长表述（条件细节归批量弹窗）。`.dac-note` 是弱化提示样式，用于批量弹窗内的说明/进度/提示（匹配条数、时间口径、取消勾选、预览与进度）以及页面的“读不到摘要”异常提示；页面级能力说明段走 `.dac-description`，不占用 `.dac-note`。
-- 排序模式：`最近更新`（默认，`updatedAt` 降序、id 升序 tiebreak）与 `归档先后`（`archivedSessionIds` 追加序，即 DSH 唯一可得的归档时序；DSH 不记录归档时间戳）。视图模式：`按工作区分组` / `单列表`。
-- `buildArchivedRows()` 必须报告读不到摘要的归档 id 数（unreadable），不得静默丢弃；子代理摘要按原生语义过滤。
-- 批量归档**只用**原生客户端命令 `workspaces.archiveSession(sessionId)`，顺序执行、每条各自 durable。禁止为此新增宿主 HTTP 路由、`registry.setState` 等私有 ABI 或批量写入；`typeof workspaces.archiveSession !== 'function'` 时整条入口禁用（fail closed），分组仍可用。
-- 候选筛选规则（`batchCandidates()`）：排除归档集合成员；子代理会话始终排除；运行中/等待交互、空白、当前打开的会话默认排除但可由用户显式勾选包含；时间条件为严格早于 cutoff（`updatedAt < cutoff`）。cutoff 来自滚动预设（24 小时 / 7 / 15 / 30 / 90 天）、“1 天前”（**包含昨天以及更早**，即本地今天 00:00；与滚动 24 小时刻意不同）、“自定义日期”的本地 00:00，或「所有时间」；「所有时间」（`BATCH_PRESETS` 第一项，`unbounded: true`）由 `resolveCutoff()` 返回 `Number.POSITIVE_INFINITY` 表达——**它不是非法值**：两个候选函数的守卫只拒绝缺失或 `NaN` 的 cutoff，`+Infinity` 必须放行（若沿用 `Number.isFinite` 判定，选项会静默变成“匹配 0 条”），`updatedAt < +Infinity` 对包括未知时间（缺 `updatedAt` 按 0）在内的所有行成立，因此删除侧也就能删掉刚归档不久的聊天。无效日期解析为 `undefined`，此时候选为空。默认条件仍是 `30d`，只有用户显式选择才不做时间过滤。边界回归见 `test/client.test.js` 的 `treats 24 小时前 as a rolling window and 1 天前 as yesterday and earlier` 与 `treats 所有时间 as no time filter instead of an empty candidate set`。
-- 范围（全部会话 / 单个工作区 / 未分组）**只在批量归档弹窗内选择**；页面不再提供按工作区的批量入口（避免与分组视图重复）。唯一的批量入口是操作行左侧按钮，标签固定为“批量归档”且**不带省略号**（省略号会被误读成正在归档），弹窗内的“自定义日期”同样不带省略号。
-- 三步流程：①条件（范围/时间/排除项，实时显示“匹配 n 条”与“另有 k 条因排除项未计入”）→ ②预览（进入即**冻结**候选；逐条可取消；`>= BATCH_CONFIRM_THRESHOLD`(50) 时必须勾选确认）→ ③执行（串行 + `i/N` 进度 + 中止；完成后 `已归档 n 条、跳过 k 条、失败 m 条`，并保留「撤销本次归档(n)」）。按钮上带计数的括号一律用**半角括号且紧跟文字**（`开始归档(3)`、`撤销本次归档(3)`），不用全角 `（）`。
-- 弹窗布局是硬约束：`Modal` 的 `footer` slot 渲染在 `.content` **之外**，所有动作按钮必须走 `footer` prop，绝不放进 children；标题栏常驻，只有内部滚动容器滚动。批量弹窗的 `contentClassName` 固定为 `dac-content-batch`（不叠加会滚动的 `dac-content`），由 `.dac-batch`/`.dac-batch-scroll`/`.dac-preview` 承担内部滚动（`flex:1 1 auto;min-height:0` 链一路打通到 DSH 的 `.content`/`.body`，并用 `>:first-child`/`:last-child` 收紧 header padding 与 `.body{margin-top:20px}`，不依赖 DSH 的哈希类名）。
-- 预览的选中状态存**被取消勾选**的 id（`deselected`），所以新预览天然是“全选”，不存在丢失的选中态；“全选/全不选”是汇总行内的紧凑按钮（`dac-button dac-button-small`，高度 26px），不单独占一行；取消到 0 条时汇总文案改为“尚未勾选任何聊天”并禁用“开始归档”。
-- 执行期正确性：每轮从最新快照读取归档集合（`isArchived`）与 `updatedAt`（`latestActivity`）；已在归档集合中或预览后有了新活动的条目**跳过并列出**；失败逐条记录且不中断整批；中止只阻止未开始的条目，已归档的不回滚（归档本身靠恢复撤销，不做回滚）。撤销逐条走既有 `RESTORE_PATH`，并识别宿主的 `session-not-archived`(409) 为跳过而非失败；撤销依赖宿主 restore 路由，因此删除事务 quarantine 时必须整体禁用并沿用 status 文案。
-- **批量删除复用同一套三步弹窗**，只是 `openBatch(scope, 'delete')` 把 `batch.mode` 置为 `delete`：`deletionCandidates()` 的候选宇宙**只能是 `archivedSessionIds`**（页面上的每一条本来就已归档），范围/时间条件/排除项与批量归档完全同构；执行走既有宿主 `DELETE_PATH`，逐条串行 `runDeletionBatch()`，**禁用** `mutateArchivedSession` 的单条刷新（`{refresh:false}`）并在整批结束后统一 `refreshCoreSnapshots()` + `loadStatus(true)`（删除失败会留下 journal 并进入 quarantine，必须立刻反映到页面上）。破坏性是硬约束：第 2 步**无论条数多少都必须勾选确认**（`batchDeleting || >= BATCH_CONFIRM_THRESHOLD`），执行按钮用 `dac-button danger`、文案 `开始删除(n)`；第 3 步**不提供撤销**（永久删除无法回滚，只有归档才有「撤销本次归档」）；候选在预览时冻结，已离开归档集合或预览后有了新活动的条目跳过并列出，`session-not-archived` 视为跳过而非失败。
-- `exports.__internals` 是测试专用出口（纯函数与三个批处理执行器），不构成对外契约，不得被其他包依赖。
+- 分组复刻 DSH 侧边栏：每工作区一组、按 `workspaces.list.items` 顺序、只渲染非空组，其余归“未分组”；默认全部折叠，搜索命中强制展开。
+- 组头与侧边栏工作区行同形（treeitem、整行可点、Enter/Space、16×20 图标槽、计数）；会话行是无边框卡片，hover 用 `--dsw-alias-interactive-bg-hover`，标题 13px、meta 12px；组间 12px、组内 2px，禁止横线分隔；会话行左侧缩进 20px，使文字与组头标题对齐；meta 只显示相对时间（分组不带工作区，单列表带“工作区 · N 天”）。
+- 表单控件：所有 select/日期输入必须包在 `.dac-select-field` 内，由插件自绘指示器；mask 用的 `--dac-*-glyph` 变量必须定义在控件自身（Modal portal 后祖先变量不继承），SVG data URI 整体 `encodeURIComponent`。
+- 工具栏只放搜索框、视图选择、排序选择；搜索框自绘官方 `IconSearchOutline16`。列表正上方唯一一行固定「批量归档」→「批量删除」，折叠按钮贴最右；批量删除用危险色，`deletionSupported !== true` 时禁用。
+- 页面说明是单段合并文案、紧跟标题、在工具栏之上；恢复回到原 Workspace，原 Workspace 已删除才进未分组；永久删除移除会话日志但不删共享附件。`capabilityNote` 按能力分支装配。
+- 排序：`最近更新`（updatedAt 降序、id tiebreak）/ `归档先后`（archivedSessionIds 追加序）。视图：分组 / 单列表。`buildArchivedRows()` 必须报告读不到摘要的 id 数。
+- 批量归档只用 `workspaces.archiveSession()`，顺序执行、每条 durable；`typeof workspaces.archiveSession !== 'function'` 时整条入口禁用。候选：排除归档、子代理；运行中/等待交互/空白/当前会话默认排除但可显式勾选；时间条件严格早于 cutoff（24h/7/15/30/90 天、1 天前=本地今天 00:00、自定义、所有时间=+Infinity）。
+- 三步流程：条件（实时匹配/排除计数）→ 预览（冻结候选、逐条取消、≥50 条必须勾选）→ 执行（串行、i/N、中止、结果、撤销本次归档）。按钮计数用半角括号紧跟文字。
+- 弹窗布局：动作按钮走 `Modal.footer`，标题栏常驻，只有内部清单滚动；批量弹窗 `dac-content-batch`，`.dac-batch` 内部滚动链打通到 DSH `.content`/`.body`。
+- 批量删除复用同一套三步弹窗，候选宇宙只能是 `archivedSessionIds`；第 2 步无论条数都必须勾选确认，执行按钮危险色，第 3 步不提供撤销；`session-not-archived` 视为跳过。
+- `exports.__internals` 是测试专用出口，不构成对外契约。
+- UI 历史取舍见 `CHANGELOG.md`；当前规则由 `test/client.test.js` 与 `test/client-batch-flow.test.js` 守住。
 
 ## 验证
 
@@ -119,50 +112,11 @@ npm publish --dry-run
 ./install.sh
 ```
 
-**隔离进程的无头端到端验证**（不用碰用户的 3080，也不需要真实 GUI；`0.1.7-alpha.1`、`0.1.7-rc.2`、`0.2.0-rc.2` 与 `0.2.1-alpha.2` 上都跑通过，最近一次是 2026-10-10 的 `0.2.1-alpha.2`）：
+最近一次完整 E2E 在 `0.2.1-alpha.2`（2026-10-10，隔离 HOME；轮次 A 38/38 + 轮次 B 20/20）；`0.2.2-alpha.2`（2026-10-28）只做了隔离宿主路由与 GUI 渲染复核：`/status` 200、三能力 true、设置页分区渲染、0 控制台报错。完整 E2E 表与逐步数据见 `docs/compat-log.md` 的 J3 / 隔离宿主轮次。
 
-```bash
-ISO=/private/tmp/dsh-cam-021-home             # 独立 DSH_HOME，绝不动 ~/.dsh；用 realpath 形式
-mkdir -p "$ISO/profiles" && cp -a ~/.dsh/profiles/web "$ISO/profiles/web"
-cp -p ~/.dsh/.credentials.yaml ~/.dsh/.env "$ISO/"     # 浏览器认证 secret
-# 复制过去的 profile 里，link: 插件的相对 symlink 会解析失败（启动日志里一串
-# "skipping profile bundle … cannot resolve"），要逐个改写成绝对路径：
-for l in "$ISO"/profiles/web/node_modules/dsh-*; do
-  [ -L "$l" ] && { t=$(readlink "$l"); case "$t" in /*) ;; *) tgt="/Users/zhaoliang/Documents/dsh-plugins/$(basename "$l")"; [ -d "$tgt" ] && ln -sfn "$tgt" "$l" ;; esac; }
-done
-# 会话数据：合法 header 的 artifact + 把 id 写进 global.archivedSessionIds（只改隔离副本）。
-# 三条硬约束见上面「造隔离会话数据的硬约束」：压缩方式与 profile 配置一致；
-# 历史 generation 必须能解码（v2 起还必须带 delegationDepth）；macOS 上路径必须用 realpath 形式。
-DSH_HOME="$ISO" dsh --profile web --port 5947 --no-open  # 记下打印的 URL（含 token）
-# 用 token 换 cookie（curl -c jar "http://127.0.0.1:5947/?token=<token>"），然后：
-#   GET  /dsh-chat-archive-manager/status   → {"ok":true,"deletionSupported":true,"sessionQuiescenceSupported":true,
-#                                              "restorationSupported":true,"dshVersion":"0.2.1-alpha.2",…}
-#   POST /delete （带 x-dsh-chat-archive-manager-client: 1 + Origin）→ 200，会话目录消失、trash 清空、journal 归 null
-# 结束后只 kill 这个端口上的 PID（`lsof -nP -iTCP:5947 -sTCP:LISTEN -t`，先核对它命令行含
-# `--port 5947` 与 `ps -Eww` 里的 `DSH_HOME` 再杀），再删掉 $ISO。
-```
-
-2026-10-10 的 `0.2.1-alpha.2` 那一轮把这套流程**脚本化**了（`/tmp/dsh-cam-021-verify/`：`prep-data.mjs` + `lib.mjs` + `run-a.mjs` / `run-b.mjs` / `run-baseline.mjs`），三项可复用的做法：① 造数据用**独立的准备脚本**（含 `projectKey()` 复刻），断言脚本不碰文件布局；② 宿主由脚本 `spawn`、按 `child.kill()` 停止（归属天然可证明），端口固定且每轮先 `lsof` 检查；③ 就绪判据用**首页**（未认证 401/认证 200），不能用插件路由——范围外基线里它必须是 404。
-
-该隔离实例还会广告插件的 client bundle（`__DSH_BOOT__` 里能看到 combo URL 与 `inject`），所以"宿主路由 + boot graph"两段都能在无头环境里验证；剩下的视觉部分（设置页导航行与页面渲染）仍需真实 GUI。**取 bundle 时必须走 combo 前缀** `/plugins/??<包名>/client.js&rev=<rev>`（单包也不能省 `??`），直接取 `/plugins/<包名>/client.js` 是 404；服务端返回的是源码 + 尾部追加的 `sourceMappingURL`。
-
-在真实进程上已逐条跑过的用例（最近一次是 2026-10-10 的 `0.2.1-alpha.2`，基线 5 + 轮次 A 68 + 轮次 B 65 项全过；全是隔离 HOME、只读复制或自造会话、跑完即删）：
-
-| 场景 | 期望 | `0.1.7-alpha.1`（2026-09-22） | `0.1.7-rc.2`（2026-09-28） | `0.2.0-rc.2`（2026-10-01） |
-|---|---|---|---|---|
-| `GET /status` | 三个能力布尔 + 版本字段 | 三布尔全 true，`dshVersion: 0.1.7-alpha.1` | 三布尔全 true，`dshVersion: "0.1.7-rc.2"`、`dshVersionVerified: true` | 未认证 401；认证 200，三布尔全 true，`dshVersion: "0.2.0-rc.2"`、`dshVersionVerified: true` |
-| `POST /restore`（v4 会话） | 200，归档集合收缩 | 200，与 `storages/workspace.json` 同步更新 | 200，同步更新 | 200，6→5，保留 W2 席位、存储未动 |
-| 重复 `POST /restore` | 409 `session-not-archived` | 409 | 409 | 409 |
-| `POST /delete`（v4 / v3+v4 并存） | 200，整目录搬移后 trash 清空、journal 归 `null` | 200，两条都通过 | 200，两条都通过（并存目录连 `session.lock` 一起消失） | 200，两条都通过（v4 用自造 zstd artifact） |
-| `POST /delete`（仅 v3 未迁移 / v0 legacy） | 501 `unsupported-artifact`，文案含派生出的 generation，**不写 journal、不动文件、不 quarantine** | 501，原文「仍是旧格式（v3），DSH 尚未把它迁移为 v4…」 | 同左；v0 legacy（无 `vN` 的 `session.jsonl.zstd`）同样 501 | 同左；两次拒绝后 **journal 文件根本不存在**，status 仍三布尔 true |
-| `POST /delete`（未归档 / 存储缺失 / 缺 header / 跨源） | 409 / 404 / 403 / 403 | （未逐条记录） | 409 / 404 / 403 / 403 | 同左，另加 415（非 JSON）、400（坏 JSON / 缺 id）、405（GET）、401（未认证） |
-| 非空 journal（witness 属于**上一代** generation）冷启动 | 只进 quarantine，零自动处理 | 由单测覆盖 | 503 `deletion-recovery-required`；目录 inode、trash、journal 全部原样，`delete` 与 `restore` 都 503 | 同左，且**运行期注入**的中断也走同一条路：500 → 重启后 503 → 人工清事务后恢复 200 |
-
-客户端测试职责：`test/client.test.js`（25 例，含 `resolves official icons across both DSH naming schemes and degrades without them`）覆盖 slot 注册、渲染结构、核心 service 未被改写，以及所有纯函数（分组、排序、cutoff 边界（含「所有时间」的无界 cutoff，以及仍然 fail closed 的无效日期/未知预设）、两种候选筛选、`currentSessionId()` 的 alpha.1/alpha.2 两代解析、三个批处理执行器）；`test/client-batch-flow.test.js`（11 例）用自建迷你 hook 运行时真实驱动“条件→预览→执行→撤销”、“所有时间”把滚动预设够不到的较新聊天纳入归档与永久删除两批候选、“当前会话默认排除、勾选后纳入并归档”的端到端流程、50 条确认闸门、“批量删除→逐条确认→执行→结果无撤销”，覆盖 React 接线、冻结清单和 store 刷新；`test/client-interoperability.test.js` 用同一套 stub 校验 bundle 与核心契约的互操作。新增流程分支时必须补到流程测试，不要用结构断言替代流程断言。另有 `test/interoperability.test.js`、`test/install.test.js` 覆盖 Host 侧互操作与安装脚本。
-
-Host 测试职责：`test/archive-deletion.test.js`（23 例）用 `fakeLiveRuntime()`/`trackWriteHandle()` 复刻真实私有形状，守着卸载路径的四条边界——空闲 live 会话按 factory 顺序卸载后实删（断言 `cancel({kind:'disposed'})`、`whenIdle`、`scope.dispose`、写句柄 close、两个 store 条目摘除）、运行中或有排队输入返回 `session-busy` 且零副作用、**早先的只读校验被拒时不得卸载**（旧 generation 用例同时覆盖未压缩与 zstd）、以及校验末尾空闲复核（`persistence.stat` 里翻成 running 后必须拒绝）。运行时结构不匹配（`constructor.name` 不符）必须仍走 `session-live` 重启拒绝。generation 相关回归另有三条：`follows whatever generation the running DSH writes instead of a pinned literal`（v4/v5 都能删）、`moves the whole session directory when an unmigrated older log sits beside the current one`（v3+v4 并存时整目录搬移）、`still recognises a deletion journal recorded under the previous generation`（升级后旧 journal 仍进 quarantine，不被当成没有事务）；`pinnedSessionIds` 清理与「0.1.6 不凭空多出键」各有一条用例。
-
-真实 GUI 验证至少覆盖（这一整段**只有在真实 GUI 里才算跑过**。live 卸载路径**已在真机确认两次**：`0.1.7-rc.2`（2026-09-28）与 `0.2.1-alpha.2`（2026-10-10，用户确认「打开归档会话 → 永久删除 → 聊天消失」，删完确认弹窗关闭、该行从列表消失）。**仍未确认**的是下面这些纯视觉项）：status/boot graph、旧版 archive Workspace 注册已移除、普通分组中不出现归档专用 Workspace、侧边栏一级“已归档”入口不存在、Settings 左侧“归档管理”菜单使用归档图标、页面标题无图标且计数以 8px 间距紧跟（含 99/100 边界）、红色删除按钮与确认 Modal、恢复到现有 Workspace / Workspace 已删除时进入未分组、live/cached delete 拒绝（运行中或有排队输入的 live 会话返回 `session-busy`；**本进程打开过的空闲 live 会话不再要求重启 `dsh web`，卸载后直接实删**——2026-09-28 真机通过）、隔离 profile 的 cold JSONL 实删；分组顺序与侧边栏一致、空组不显示、未分组桶、搜索过滤与强制展开、折叠状态、`归档先后` 排序、“匹配 n 条”与排除项提示、范围下拉（全部/各工作区/未分组）、预设档位与“1 天前”的日历边界、「所有时间」不做时间过滤且较新聊天也进入候选（归档与删除两侧）、预览逐条取消、50 条确认闸门、执行进度与中止、结果清单（跳过/失败）、「撤销本次归档」、归档后列表计数即时更新；说明段紧跟标题且工具栏在其下方、搜索框左侧是官方搜索图标、批量归档在列表上方一行最左且“展开全部”在最右（无省略号）、按钮计数为半角括号；组头为原生工作区行形态（hover 换三角箭头、整行点击展开、默认折叠）、会话行为无边框卡片（hover 出现底色、无横线、无竖引导线、文字与组标题对齐）、meta 只显示相对时间（分组“20 天”/单列表“工作区 · 20 天”，都不含原位与目录）；批量删除按钮紧跟批量归档、同为 26px、间隔 8px、底色为危险色、`deletionSupported=false` 时禁用，删除弹窗第 2 步必须勾选确认才能执行、结果页没有撤销按钮、执行后页面计数即时减少；以及**批量弹窗在 33 条候选与窄视口下标题栏与底部按钮始终可见、只有清单滚动**。
+- 客户端测试：`test/client.test.js`（25 例）覆盖 slot 注册、渲染结构、核心 service 不被改写、分组/排序/cutoff 边界（含「所有时间」无界 cutoff）、两种候选筛选、`currentSessionId()` 两代解析、三个批处理执行器；`test/client-batch-flow.test.js`（11 例）覆盖条件→预览→执行→撤销、所有时间、当前会话排除/勾选纳入、50 条确认闸门、批量删除无撤销；`test/client-interoperability.test.js` 校验 bundle 与核心契约互操作。
+- Host 测试：`test/archive-deletion.test.js`（23 例）守护空闲 live 会话按 factory 顺序卸载、忙时零副作用、只读校验被拒时不卸载、校验末尾空闲复核；generation 回归三条（跟随运行代、v3+v4 整目录搬移、旧 journal 仍 quarantine）。
+- 真实 GUI 必须覆盖：状态/boot graph、旧 archive Workspace 已移除、Settings 分区与图标、页面标题/计数、分组/排序/搜索/折叠、批量归档与批量删除三步流程、50 条确认闸门、执行进度/中止/结果、恢复与永久删除确认、窄视口弹窗。视觉项以真机为准；纯逻辑项由上面的单测覆盖。
 
 ## 发布与安装路线
 

@@ -17,7 +17,7 @@
 
 开发 **DeepSeek Harness（DSH）插件** 的工作区：用户提需求，agent 负责调研 DSH 内部机制、实现插件、编写挂载/卸载脚本并验证。
 
-共 **10 个插件**：**8 个已发布到公共 npm registry**，用户安装走官方命令；发布流程见「发布与分发（npm / OIDC）」。**2 个未发布**——`dsh-mcp-console`（原名 `dsh-mcp-manager`）与 `dsh-workspace-running-indicator`（2026-11-04 新建的纯客户端插件），都走 `./install.sh` 的 `link:` 源码路线；前者的**发布阻塞**（名字被第三方占用，不能发版）见 `dsh-mcp-console/AGENTS.md`，后者尚未首发。
+共 **10 个插件**：**8 个已发布到公共 npm registry**，用户安装走官方命令；发布流程见「发布与分发（npm / OIDC）」。**2 个未发布**——`dsh-mcp-console`（原名 `dsh-mcp-manager`）与 `dsh-workspace-running-indicator`（2026-11-04 新建的纯客户端插件），都走 `./install.sh` 的 `link:` 源码路线；前者的**发布阻塞**见「发布与分发（npm / OIDC）」，后者尚未首发。
 
 ## 插件索引
 
@@ -61,10 +61,10 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 - 部署为 web profile，宿主组成在 `~/.dsh/profiles/web/`：`cordis.yml` 只有注释和空 `[]`，实际组成 = `package.json#dsh.profile.bundles`（bundle 顺序）+ `cordis.patch.yml`。
 - 插件声明 `dsh.bundle.patch` 并附带 `cordis.patch.yml`，经 `dsh plugin --profile web add/remove` 进入 profile 的依赖与 bundle 顺序。现有插件都走官方 profile 管理；不要重新引入共享 node_modules 符号链接或直接改用户 patch 的 fallback 方案。
-- 两种安装形态并存：**用户机器**从 registry 装（profile 依赖是 caret 范围），**本机开发**用 `link:` 指向源码目录（改完源码需重启 `dsh web`，profile 不复制文件）。
+- 两种安装形态并存：**用户机器**从 registry 装（profile 依赖是 caret 范围），**本机开发**用 `link:` 指向源码目录（profile 不复制文件）。
 - 凭据在 `~/.dsh/.credentials.yaml`，经 `ctx.credentials.resolve/describe/set/unset` 读写；附件库（粘贴图片）在 `~/.dsh/attachments/v1/objects/<前2位>/<sha256>`。
-- DSH 源码位置以 `realpath "$(command -v dsh)"` 所属安装为准，当前为 `~/.nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh/`；调研机制时读该安装及其 `node_modules/@deepseek-ai/*/lib/*.js` 与 README。
-- 插件代码或组成变化后，检查 Host 状态接口和浏览器 boot graph。部署配置是否热加载见下节；热加载可用时刷新页面即可，否则需要请求用户重启。
+- DSH 源码位置以 `realpath "$(command -v dsh)"` 所属安装为准；调研机制时读该安装及其 `node_modules/@deepseek-ai/*/lib/*.js` 与 README。
+- 插件代码或组成变化后，检查 Host 状态接口和浏览器 boot graph。
 
 ## 插件版本与兼容发布线（用户规则）
 
@@ -87,11 +87,13 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 
 ## 发布与分发（npm / OIDC）
 
-8 个包已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token。**8 个包当前发布的版本**（全部在 `0.2.1` 线，`>=0.2.1-alpha.2 <0.2.2`）：`default-tuner` = `0.3.2`、`default-workspace` = `0.3.1`、`extra-context` = `0.3.1`、`local-plugin-manager` = `0.4.2`（均 2026-10-20，补 `0.2.1-rc.2` 验证清单的纯修复 patch）、`auto-load-history` = `0.3.1`（2026-10-19，纯修复）、`chat-archive-manager` = `0.3.1`、`sticky-user-bubble` = `0.3.1`；另 `0.2.0` 线（`>=0.2.0-rc.2 <0.2.1`）——`mobile-compat` = `0.5.1`。三个发布后判据逐包核对通过：registry 可读到该版本、`dist.attestations` 有 SLSA provenance、GitHub Release 已创建。**打包形态的 `install.sh` 不在发布物里**（`files` 白名单不含它），所以改它不需要发版；改 `lib/`、`client.js`、`package.json` 或文档则要发新版本才生效。**跨线发版走 minor**（旧线用户被版本门挡在门外 = 破坏性变更，先例：`dsh-mobile-compat` 0.3.7→0.4.0、这三个包 0.2.0→0.3.0/0.4.0、`dsh-auto-load-history` 0.2.0→0.3.0）；**同线内向后兼容的功能新增也走 minor**（先例：`dsh-default-tuner` 0.2.0→0.3.0，纯修复才用 patch）。
+8 个包已发布到公共 npm registry，由 tag 驱动、经 npm trusted publishing（OIDC）带 provenance 发布，不含任何长期 token。**当前发布版本与发布线见 `docs/compat-log.md` 的「当前发布记录」；发版前用 `npm view <包名> version` 复核。** 三个发布后判据逐包核对通过：registry 可读到该版本、`dist.attestations` 有 SLSA provenance、GitHub Release 已创建。**打包形态的 `install.sh` 不在发布物里**（`files` 白名单不含它），所以改它不需要发版；改 `lib/`、`client.js`、`package.json` 或文档则要发新版本才生效。**跨线发版走 minor**（旧线用户被版本门挡在门外 = 破坏性变更，先例：`dsh-mobile-compat` 0.3.7→0.4.0、这三个包 0.2.0→0.3.0/0.4.0、`dsh-auto-load-history` 0.2.0→0.3.0）；**同线内向后兼容的功能新增也走 minor**（先例：`dsh-default-tuner` 0.2.0→0.3.0，纯修复才用 patch）。
 
-**发版前先确认包名归我们所有**（`npm view <包名> maintainers`）：2026-10-08 把这条从"阻塞"落成了"规则"——两个未发布插件的旧名当时都被别人占着（`dsh-mcp-manager` = 0.6.0、维护者 `nichts`，描述恰好也是「从 Web 设置页管理 DSH 的 MCP 服务器」，是最坏的一种撞名；`dsh-default-overrides` = 0.5.3、维护者 `chenwei116057`、Bash/PowerShell overrides），于是整体改名为 `dsh-mcp-console` 与 `dsh-default-tuner`，**新名同日实测未被占用**。所以：① 立项和发版前都先查名（撞名时 `add <包名>` 会装到别人的包上）；② 撞名就改名，落点清单见两个插件各自的 `AGENTS.md`，**不要**在撞名的包上 bump 版本打 tag——那会在 workflow 里以无权限失败并留下一个空 release；③ **新包首发不许直接打 tag**，按下面那条三步走。
+**发版前先确认包名归我们所有**（以本轮 `npm view <包名> maintainers` 的输出为判据）：撞名时 `add <包名>` 会装到别人的包上，所以立项与发版前都要查名；撞名就改名，并在新名字上 bump/tag。
 
-**⚠️ `dsh-mcp-console` 现在又撞名了（2026-10-20 查得，待处理）**：`npm view dsh-mcp-console` 显示该名已被 **`dakuo <coderkuo@gmail.com>`** 占用、版本 `0.1.11`（发布于 2026-10-14），描述与我们的功能几乎逐字雷同（"Manage the MCP servers of a DeepSeek Harness profile: status, switch, edit, export…"）。2026-10-08 那次"新名实测未被占用"的结论已经过期——**这条规则的价值正在于此：每次发版前都要重查，别信历史记录里的"查过了"**。因此本包**当前不能发布**，需要在别的会话里单独做一轮：定一个新名字 → `npm view <新名> maintainers` 实测未被占用 → 按各自 `AGENTS.md` 的落点清单改名（`package.json#name`、`cordis.patch.yml` 行 id/name、客户端 bundle 注册名、HTTP 路由与固定头名、内部短前缀）→ 再走下面那三步首发。**不要在 `dsh-mcp-console` 这个名字上 bump 版本打 tag。**
+撞名/改名（历史案例）：完整案例见 `docs/compat-log.md` 的 E1。
+
+**⚠️ `dsh-mcp-console` 当前名字被第三方占用，发布动作先改名**：事实、下一步与改名落点见 `dsh-mcp-console/AGENTS.md` 的「发布与安装路线」。
 
 **新包首次发布：先造占位版本，再让 OIDC 发正式版**（2026-10-10 用 `dsh-default-tuner@0.2.0` 走通）。trusted publisher 只能在**已存在**的包上配置——`npm help trust` 的 Prerequisites 明写 *Package must exist*，网站那个入口也挂在包页面的 Settings → Trusted Publisher 下；而包名不存在时 `npm publish` 又被拒（实测 `E404 Not Found - PUT https://registry.npmjs.org/<包>`，provenance 签名本身是成功的）。所以三步：① 手动发一个**占位版本**（`npm login` 后在一个临时目录发 `{name, version:"0.0.1"}`，不碰插件源码）；② 配 trusted publisher（网站，或 `npm trust github <包> --file release.yml --repository zhaoliang233/dsh-plugins --allow-publish`，要求 npm ≥ 11.15 + 账号 2FA；`release.yml` 没用 environment，所以不需要 `--env`）；③ `gh workflow run release.yml -f tag=<插件>-v<版本>` 走 OIDC 发正式版。**别用"手动发正式版"代替第 ③ 步**：本地发布拿不到 provenance，而且版本一旦被占，workflow 的 `npm publish` 会冲突失败、GitHub Release 也建不出来。两次失败都不会留残骸：失败点在 npm publish，后面的「回查 registry」与「创建 GitHub Release」都没执行。`dsh-mcp-console` 与 `dsh-workspace-running-indicator` 是目前还没发布的插件（都已跨到 0.2.2 线、走本地 `link:` 路线），首发照这三步。
 
@@ -120,7 +122,7 @@ node tools/dsh-icons/verify-nav-icon.js --plugin <插件> --measure   # 量设�
 - 请求重启时**不得调用 `ask_user_question`**：该交互句柄属于即将退出的 Host 进程，重启后旧按钮失效。应结束当前工作轮，用普通消息交接重启步骤，请用户重连后发“已重启”或“继续”开启新一轮验证。
 - 用户确认已重启后，agent 只读检查端口监听进程、Host 状态接口和浏览器 boot graph，不接管进程所有权。
 - `--port 0` 启动的隔离测试服务器不承载当前 GUI，可以继续用受管 background job，并在验证后正常停止。
-- 需要请求用户重启 Host 的变化：Host 代码、bundle/profile 组成。仅改文档不需要重启；仅改 client bundle 时先确认 client-plugin watcher 是否正在构建，没有 watcher 时请用户重启并刷新页面。
+- **重启边界**：改 `lib/*.js`、`package.json`、`cordis.patch.yml`（含安装/卸载）需重启；改 `client.js` 后刷新页面即可，只有 `pnpm run dev:web` watcher 在跑时才免刷新。
 
 ## 测试资源与进程隔离（重要）
 
@@ -196,7 +198,7 @@ cd ~/Documents/dsh-plugins && ./install-all.sh       # 开发路线：用 link: 
 cd ~/Documents/dsh-plugins && ./uninstall-all.sh     # 卸载全部
 cd ~/Documents/dsh-plugins/<插件名> && ./install.sh  # 单个插件（幂等）
 cd ~/Documents/dsh-plugins/<插件名> && ./uninstall.sh
-node --check <插件名>/lib/*.js                       # 改动宿主代码后逐文件语法检查
+for f in <插件名>/lib/*.js <插件名>/client.js; do node --check "$f" || exit 1; done  # 改动宿主/客户端代码后逐文件语法检查
 
 dsh plugin --profile web add dsh-extra-context       # 用户路线：装 registry 上的版本
 dsh plugin --profile web add dsh-extra-context@0.1.2 # 升级（caret 范围不会自动升）

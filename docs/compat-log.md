@@ -40,6 +40,23 @@
 
 ---
 
+## 当前发布记录（截至 2026-11-05）
+
+| 包 | 版本 | 发布线 |
+|---|---|---|
+| `dsh-default-tuner` | `0.3.2` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-default-workspace` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-extra-context` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-local-plugin-manager` | `0.4.2` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-auto-load-history` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-chat-archive-manager` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-sticky-user-bubble` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-mobile-compat` | `0.5.1` | `>=0.2.0-rc.2 <0.2.1` |
+| `dsh-mcp-console` | 未发布 | 名字被第三方 `dakuo` 的 `0.1.11` 占用 |
+| `dsh-workspace-running-indicator` | 未发布 | 尚未首发 |
+
+发版前用 `npm view <包名> version maintainers` 复核；上表是历史快照，不是长期真相。
+
 ## M2：L3 跨线 `dsh-mcp-console` 到 `0.2.2`（2026-10-29，`0.2.1-rc.2 → 0.2.2-alpha.2`）
 
 用户要求把剩下两个仍在 `0.2.1` 线的插件也处理掉；`dsh-mobile-compat` 按用户决定暂不处理（官方 0.2.2 已自带移动端适配）。本轮先做逐包 diff 与离线网，再在隔离宿主上实跑。

@@ -130,50 +130,17 @@ status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 t
 
 ```bash
 npm install --ignore-scripts --no-audit --no-fund
-npm run publish:check   # check + test + pack:check（唯一发布闸门）
+npm run publish:check
 ./install.sh
 ```
 
-真实 GUI 至少覆盖：设置菜单里的分区顺序（排在全部 DSH 自带项之后）、专属导航图标真的画出来（不只看 dataset，要看 `::before` 的 mask）、当前 profile 的全部 link 插件、每行的说明行与缺失占位、长说明的两行截断、源码路径截断、loader 行只在带来信息时出现、self 保护、开关/徽标/弹窗按钮的官方 primitives 外观（开关为官方胶囊、禁用态半透明、焦点环可见；徽标为官方胶囊 Tag，当前管理器描边 / 已启用 success / 已禁用 quiet / 部分启用 warning 四档可区分；弹窗按钮为官方胶囊并排，卸载为官方危险色）、禁用/启用后 Host fiber 与页面刷新、卸载确认、卸载后 profile manifest/lock、Figma patch 原样保留、重启后 tombstone 清理，以及非 loopback/跨源 action 拒绝。
+`scripts/gui-check.mjs`（`npm run gui:check`）覆盖隔离宿主上的设置分区、导航图标、开关/徽标翻转与 patch 断言；`scripts/e2e-remove-reinstall.mjs`（`npm run e2e:check`）覆盖卸载/重装链路（manifest / 面板 / boot graph / patch / state.json 五处）。逐版本复跑数据与仪器问题见 `docs/compat-log.md` 的 J 轮次。
 
-`scripts/gui-check.mjs`（`npm run gui:check`）把上面「能被 CDP 断言的那部分」自动化了：在**隔离**宿主 + 无头 Chrome 上真点一遍设置菜单 → 分区 → 开关，并交叉核对 profile patch。前置与用法见脚本头部；它只操作自己点的那条插件并切回原状态，不碰 3080 上的宿主。三处细节：全新的隔离 `DSH_HOME` 会先弹引导对话框（「内测声明」写入 profile patch 后不再出现，「添加一个 API Key」在无凭据时每次加载都出现），它们带 `aria-modal` 会吃掉对设置入口的点击，脚本因此先关掉这两类引导再点设置；patch 断言写的是「该行覆盖项条目数不增长 + 最后一条覆盖项的 `disabled` 值正确」，而不是「条目数 +1」——该行原本就可能有覆盖项，官方语义是就地改写；**patch 必须用 YAML 解析而不是逐行正则**——`yaml` 给「流式空序列」（初始化写下的注释 + `[]`）追加条目时会输出流式 YAML `[ { id: x, disabled: true } ]`，逐行正则会把语义完全正确的写入判成失败（2026-10-10 实测；官方 `writePluginEnabled` 用同一份 `yaml@2.9.1` 写出的字节与我们的**逐字相同**，所以这是排版差异、不是分歧）。
-
-`scripts/e2e-remove-reinstall.mjs`（`npm run e2e:check`）是卸载/重装这条链路的端到端脚本：**用设置页把一条 `link:` 插件摘掉，再从官方侧装回来**，24 项断言覆盖三处状态（profile manifest / 设置页面板 / boot graph）+ 两处文件（patch 覆盖项、state.json 墓碑）。它同时是「与官方插件管理并存」的证据来源：摘除走 `dsh plugin remove` 子进程，装回走官方插件页的安装对话框 + bundle 开关，两边读写的都是同一批覆盖项。用法见脚本头部；它只操作自己指定的那条插件，不碰 3080 上的宿主。
-
-**与官方插件管理并存**也要覆盖（这是本包唯一容易踩的坑）：在管理器的分区里禁用，再去官方插件页看该行是否为禁用、能否就地启用；反向再走一遍，并确认 `cordis.patch.yml` 里该行始终只有一条覆盖项。自动化侧的做法见下：把真实 profile 复制到临时目录，用该插件的 `setEnabled()` 与从官方包里提取的 `writePluginEnabled` 往返改写（`test/profile-manager.test.js` 里的若干用例已覆盖覆盖项定位与迁移），再加上 `gui-check.mjs` 的「覆盖项条目数不增长」断言。
-
-隔离宿主上的**真 GUI 往返**也做通过（2026-09-28，rc.2），方法是照抄但别搞错两个坑：① 官方插件页的行级开关**不在列表里**——列表上那个 `aria-label="启用 <包名>"` 是 **bundle 选择**开关（`setBundleEnabled`，改 `dsh.profile.bundles`），行级开关要先点 `aria-label="查看 <包名>"` 进详情，再用 `aria-label="启用组件 <包名>"`（`setPluginEnabled`）；② 官方页显示的是**运行态**（`enabled: !entry.disabled`），而运行态要等 dsh-hmr 重载完（约 3 秒）才变，所以每一步都得先等运行态稳定（用浏览器 `__DSH_BOOT__` 里该包的 client bundle 在不在作判据）再用干净页面读 GUI，否则会看到上一拍的旧值。这套往返目前仍是人工/临时脚本执行，没有固化进 `gui-check.mjs`。
-
-**`0.2.0-rc.2` 上的复跑（2026-10-01，隔离 `DSH_HOME=/tmp/dsh-020-home` + 独立端口 5911 + headless Chrome 153/CDP，全程未触碰用户的 3080；脚本在 `/tmp/dsh-alh-020/`，非发布物）**：
-
-| 检查 | 结果 |
-|---|---|
-| `npm run verify` | **45 项全过**（跨线时新增一条「发布线/下界/验证清单四处同源」守卫） |
-| `npm run gui:check`（`--url` 指向隔离宿主） | **20 项全过**：分区出现在菜单里、专属导航图标 `::before` 的 mask 真的画出来、9 条 link 插件行与源码路径/说明都对、管理器自身只读、开关翻转 + 徽标翻转 + `profile patch` 覆盖项条目数不增长（1 → 1）+ 禁用写 `disabled: true` + 启用写显式 `disabled: false` 不删条目 |
-| 双向启停往返（管理器 ↔ 官方插件详情页，目标 `dsh-sticky-user-bubble`） | 管理器禁用 → 官方详情页读到 `aria-checked=false`；官方就地启用 → patch 里**同一条覆盖项**被改写为 `disabled: false`（条目数恒为 1）；管理器再读为已启用；反向再走一遍同样成立 |
-| 运行态（boot graph 判据） | 禁用后 `__DSH_BOOT__.entries` 里没有该包，重新启用后回来——证明写覆盖项之后 dsh-hmr 的 profile 重组确实生效 |
-| 与官方插件管理共存的又一个事实 | 官方插件**列表**上的 `aria-label="启用 <包名>"` 与进入详情后的 `aria-label="启用组件 <包名>"` 在同一页里同时存在，脚本必须按后者定位行级开关（只按前者会点到 bundle 选择） |
-
-**`0.2.1-alpha.2` 上的复跑（2026-10-10，隔离 `DSH_HOME=/tmp/dsh-lpm-021-home` + 独立端口 5911 + headless Chrome 155/CDP 9344，全程未触碰用户的 3080）**：
-
-| 检查 | 结果 |
-|---|---|
-| `npm run publish:check` | **47 项单测 + tarball 10 文件全过**（跨线新增两条：link 记录形态归一、相对路径依赖仍可管理） |
-| `npm run gui:check` | **20 项全过**（第一次跑时 18/20，红的两项是脚本自己的解析问题，见下） |
-| `npm run e2e:check`（新的卸载/重装端到端） | **24 项全过**：设置页摘除 → manifest 依赖与 bundle 都消失 → patch 写入 `disabled: true` → state.json 留下当前进程墓碑 → boot graph 里它的 client bundle 消失 → 官方插件页「添加插件」填 `link:<源码目录>` 装回 → 依赖写回 → 官方列表 bundle 开关选中 → 面板重新列出（此时是「已禁用」，fail-closed）→ 开关切回已启用 → 覆盖项写 `disabled: false` → boot graph 里 client bundle 回来 |
-| 隔离 profile 用的是 `link:~/Documents/...` 形态 | 管理器把它解析成绝对源码路径并正常列出/启停/卸载——这正是本轮新增的 `resolveRecordedLocalPath()` 在真实环境里的证据（pnpm 12.6.0 原样记录 `~`） |
-| `node tools/dsh-icons/check.js` | 无漂移（188 个，Medium/Regular 各 94） |
-| `verify-nav-icon.js --plugin dsh-local-plugin-manager --measure` | **六项全过**（label 偏移 36/9、原 svg 被隐藏、mask 生效、`::before` 恰好 16×16、壳层行未被动过） |
-| 工作区 9 个插件 `npm test` | **458 项全过**（0 失败） |
-
-**真实宿主（用户的 3080）重启后已确认**：两条路由由 404 变 **401**（未认证 = 路由已注册 → 版本门放行），同宿主的 `dsh-extra-context` 对照 401、仍在旧线的 `dsh-auto-load-history`/`dsh-default-tuner` 对照 404；真实 profile 的 9 条依赖全是绝对 `link:`、无本插件覆盖项、无墓碑、无残留写锁。页面观感留给用户目视。
-
-**端到端这条链路本轮暴露并修掉的两个「仪器问题」**（都不是产品缺陷，但不修就会把正确行为判成失败）：
-
-1. **`gui-check.mjs` 的 patch 解析只认块式 YAML**：隔离 profile 初始化写下的 patch 是「注释 + `[]`」，`yaml` 给流式空序列追加条目时会写成 `[ { id: x, disabled: true } ]`，逐行正则读不到 → 「禁用写进该行覆盖项的 disabled: true」与「启用写显式 disabled: false」两条恒红。已改成用 `parseDocument` 真解析（`overrideEntries()`），并用官方那份 `yaml@2.9.1` 复现证明**两版输出逐字相同**——这是排版差异，不是本包与官方分歧。
-2. **官方「安装」不等于「启用」**：手动 spec 的 `installBundle(spec, { enabled: subject.selection ?? false })` 只把**依赖**写进 profile；选中 bundle 是第二步（对话框完成态的「立即启用」走 `setPluginEnabled`，或列表卡片上的 bundle 开关走 `setBundleEnabled`）。而且 profile 一变，客户端会重挂、对话框可能直接消失——脚本因此按「依赖先落地 → 再用官方入口选中 bundle」两步走，并把「重装后仍是已禁用」作为 fail-closed 的断言（上一进程写的覆盖项还在），最后再用本插件的开关把它切回启用。
-
-**`gui-check.mjs` 的一条断言 2026-10-01 修正过**：「本分区排在 DSH 自带项之后」原本写成 `labels.indexOf(SECTION_LABEL) === labels.length - 1`（要求它是**最后一行**），这在只装本插件的隔离环境里成立，但别的插件同样会贡献 ≥100 的 `settings.section`（`extra-context` 100、`default-overrides`/`mcp-manager` 110、`chat-archive-manager` 120），于是 2026-10-01 的实机跑出现了「菜单顺序完全正确却判失败」的假阴性。现在改为按内置 label 白名单（通用设置/模型/内置插件/Agent 预设）定位最后一个自带项、再断言本分区在它之后——度量的是契约本身而不是环境巧合。
+- 与官方插件管理并存：在管理器禁用后，官方插件页应读到禁用并可就地启用；反向亦然；同一行始终只有一条覆盖项。
+- 官方插件页的行级开关要先点「查看 <包名>」进详情，再用「启用组件 <包名>」；列表上的「启用 <包名>」是 bundle 选择开关。
+- 运行态要等 dsh-hmr 重载完成（约 3 秒）再读 GUI；GUI 脚本的 patch 断言必须用 YAML 解析，不能逐行正则（流式 YAML 排列差异）。
+- 官方「安装」不等于「启用」：先写依赖，再选中 bundle；重装后仍是已禁用是 fail-closed 的预期，最后用本插件开关切回启用。
+- 真实 GUI 至少覆盖：分区顺序、专属导航图标 `::before` mask、全部 link 插件行、说明缺失占位与两行截断、loader 行只在有信息时出现、self 保护、官方 primitives 外观、启停后的 fiber/刷新、卸载确认、Figma patch 保留、重启后 tombstone 清理。
 
 ## 发布与安装路线
 

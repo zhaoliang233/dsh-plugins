@@ -176,23 +176,16 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 ## 验证现状
 
 ```bash
-npm run check       # node --check ×4 + bash -n ×2（bash 不在 PATH 时本机跑不通，CI 用 ubuntu）
-npm test            # 76 项：版本门/定位/规范化/渲染/预算/装配/客户端组件与样式（含两个开关的
-                    #        落位、形态与禁用策略）、label 移除、写入时机与重试、预览口径、
-                    #        状态路由鉴权、字段级合并、错误边界、图标对齐与字数口径、
-                    #        导航图标补丁、样式表注入与引用计数、Windows 装载路径（file URL）、
-                    #        压缩摘要补充指令（纯函数 / 只认 compaction / 脏输入放行 / 热更新）
-npm run pack:check  # 发布物 = 8 个文件（npm 12 的 --json 返回对象而非数组，本机跑不通，见下）
+npm run check
+npm test
+npm run pack:check
 ```
 
-- `test/host.test.js`：用伪 Cordis ctx 验证版本门、DSH 定位、规范化/渲染/预算、settings 注册与热更新、组合层与用户层优先级、删除语义。
-- `test/client.test.js`：以 stub `__ModuleLoader__` + stub React/primitives 加载 bundle，验证 `apply` 的命名空间绑定（`namespace` + `decode` 契约）、slot 注册、组件渲染成元素树、样式表打标、失焦写入、写入失败与重试、预览口径。
-- **压缩摘要补充指令的四条护栏**（实现事实 5，逐条**注入缺陷验证过**）：①去掉 `purpose` 筛选 → 「其它 purpose 不得被改动」用例红；②把追加改成替换 `options.messages` → 「DSH 英文摘要指令必须还在原位」用例红；③去掉 try/catch → 「冻结 options 必须原样放行」用例红；④把 `llmCtx.on('llm/stream')` 换成别的钩子 → 契约锚点用例红。
-- **Windows 装载路径的两条护栏**（真实缺陷：`import(绝对路径)` 抛 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，见实现事实 1）：①`test/host.test.js` 里"装载 schemastery 必须经 file URL"用**假 DSH 根 + 桩 schemastery** 走 `applyCompatibleRuntime`，装载失败时 `state.registers` 为 0 → 必红（已在 Windows 上注入缺陷验证过）；②`test/manifest.test.js` 断言宿主源码必须写成 `await import(pathToFileURL(resolved).href)`。另外 `REAL_DSH_MANIFEST` 的探测已补 Windows 分支（原先只跑 POSIX 的 `command -v dsh`，于是依赖它的"真实 schemastery 全链路"用例在 Windows 上被整体 skip —— 这正是缺陷溜到用户机器上的原因）；伪造 DSH 根的目录软链在 Windows 用 `junction`（`symlink(..., 'dir')` 需要开发者模式，EPERM）。
-- **已在真实部署验证**：`GET /dsh-extra-context/status`、设置页分区、设置写盘、预览与消耗提示，以及“新建会话自动带上最新上下文”（用真实子代理逐字核对过 system prompt 内容）。
-- **导航图标补丁在真实浏览器里量过**（固定场景已固化进工作区工具）：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 用壳层原样抽取的导航 CSS + 真实 bundle（极简 React 垫片挂到真 DOM，保证 ref/`outerHTML`/`getComputedStyle` 都是真的）搭出与设置面板同构的 `nav button` 结构，并自动探测本插件的补丁契约（`data-dec-nav-icon` / `var(--dec-nav-icon-mask)` / 用 `display:none` 隐藏原 svg），契约与代码不同源时直接报错。量测结果：补丁行与壳层原生行的 `labelOffsetLeft/Top` 相同（0.2.2 为 38/9，0.2.1 时为 36/9），原 svg `display:none`、`::before` 为 16×16 且 `mask-image` 是 data URI，壳层其他行保持齿轮且无任何 dataset 痕迹。**这不是实机设置页**，实机观感仍需用户刷新页面目视确认。
-- 仍未实机验证：客户端 bundle 的裸单包路径 `/plugins/<id>/client.js` 取不到（`dsh-client-modules` 只广告/应答 combo URL `/plugins/??<id>/client.js&rev=<rev>`），所以“客户端是否加载”只能靠页面现象判断，不能用 curl 断言。
-- **两个已知的闸门缺口**，与插件代码无关：①`npm run check` 的 `bash -n install.sh/uninstall.sh` 依赖 PATH 里有 bash；②`npm run pack:check` 读 `npm pack --dry-run --json`，npm 12 起该输出是**以包名为键的对象**、而脚本按数组解构（`const [pack] = JSON.parse(output)`）→ `object is not iterable`。CI 与发布跑 ubuntu，不受影响。
+- 当前测试 76 项，覆盖：版本门/定位/规范化/渲染/预算/装配、客户端组件与样式、写入时机与重试、预览口径、状态路由鉴权、图标对齐与字数口径、导航图标补丁、样式表注入与引用计数、Windows 装载路径、压缩摘要补充指令。
+- 关键守卫：`test/host.test.js` 的版本门/定位/合并优先级；`test/client.test.js` 的渲染/写入/预览/样式；`test/manifest.test.js` 的四处同源与 `Config` 导出。
+- 历史逐轮数据与注入缺陷验证见 `docs/compat-log.md` 的 F1 等轮次；真实部署已验证 `/status`、设置分区、写盘、新会话自动带入上下文。
+- 导航图标补丁的几何用 `node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 离线量；裸 `/plugins/<id>/client.js` 取不到，客户端加载只能看页面现象。
+- 两个已知闸门缺口：`npm run check` 的 `bash -n` 依赖 PATH 有 bash；`pack:check` 在 npm 12 的 `--json` 对象输出上本机跑不通（CI ubuntu 不受影响）。
 
 ## 排查顺序
 

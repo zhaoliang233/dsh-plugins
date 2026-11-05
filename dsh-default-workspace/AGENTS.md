@@ -6,45 +6,11 @@
 
 ## 逐版本核对记录
 
-**`0.2.2-alpha.2`（2026-10-28，跨发布线，最小兼容修复）**：逐包规范化 diff 后，`dsh-workspace` 与 `dsh-api-workspace-controller` 的 `lib/` **与 0.2.1-rc.4 逐字相同**；`dsh-client-ui-workspace` 的 `workspaces.rename/delete/insertBefore`、`refresh` 与 `startSession(workspaceId, options)` 仍在，`{ clearPreviousDraft: false }` 仍走「复用已有空白会话」分支（`createInWorkspace()` 的 blank 选择逻辑未变）；`dsh-client-ui-sidebar` 的 `sidebar.footer.action` 仍是 `{ kind: 'list', scope: 'root' }`。新增的 workspace/session 访问控制（`useWorkspaceAccess`/`useSessionAccess`）只挡 UI 入口，不改变本插件拦截的方法面。隔离 `DSH_HOME` + 0.2.2-alpha.2 宿主实测：`/dsh-default-workspace/status` 200（受管 Workspace 创建成功、`coreDefaultWorkspace:true`）、侧边栏「新建通用会话」按钮真实渲染、boot graph 含本包、0 控制台报错。**业务代码未改**，只换版本门与清单。
+当前兼容线 `>=0.2.2-alpha.2 <0.2.3`；逐版本证据见 `docs/compat-log.md` 的 J5 / J1 等轮次。
 
-**`0.2.1-alpha.2`（2026-10-10，跨发布线：DSH 从 `0.2.0-rc.2` 升到 `0.2.1-alpha.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完（`@deepseek-ai/dsh@0.2.0-rc.2` 装到临时目录 vs 本机运行安装，全树逐文件 sha256）。契约面里**只有一处真的动了**：
+最近一次 `0.2.2-alpha.2`（2026-10-28）：`dsh-workspace` 与 `dsh-api-workspace-controller` 的 `lib/` 与 0.2.1-rc.4 逐字相同；`startSession(workspaceId, { clearPreviousDraft: false })` 仍走复用空白会话分支；`sidebar.footer.action` 仍是 root list slot。隔离宿主实测 `/status` 200、侧边栏入口渲染、boot graph 含本包。业务代码未改。
 
-- `dsh-workspace`、`dsh-api-workspace-controller`（lib 逐字相同，只有 README 与 `package.json` 版本号变）、`dsh-host-webserver` 的 `register()`（重复路径抛错 + disposer 逐字相同）、`dsh-client-ui-sidebar/lib/client.js` 的 `sidebar.footer.action`/`footArea`/`footerActions` 声明、`dsh-client-connection` 的 `requestRejection` 判据**全部保持**。
-- `dsh-client-ui-workspace/lib/client.js` 的 `workspaces` 控制器面（`rename`/`delete`/`insertBefore`/`uiWorkspace` 关键词行、`reuseOrCreateBlank`/`reuseBlank` 辅助函数）逐字相同，但 **`uiWorkspace.startSession` 的语义变了**：0.2.1 起 `startSession(id)` = **总是新建一个空白会话**，只有 `startSession(id, { clearPreviousDraft: false })`（显式草稿语义）才复用已有空白会话——类型声明 `lib/types/client/navigation.d.ts` 与核心自己的两处调用（分组「新建会话」用单参数、选工作区用带 options）同口径。
-
-改动：`DSH_RELEASE_LINE='0.2.1'` / `DSH_RELEASE_FLOOR={channel:'alpha',sequence:2}` / 清单 `['0.2.1-alpha.2']`，`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源换线；**业务代码只改了 `client.js` 里那一处 `startSession` 调用**（补 `{ clearPreviousDraft: false }` 以保住「已存在空白会话则直接复用」的文档化行为；旧线忽略第二个参数，两条线同一语义）。
-
-**未覆盖**：独立入口按钮与受管 Workspace 的创建/置顶/改名删除保护在 0.2.1-alpha.2 上的**实机点击**（隔离宿主验到状态接口 200，host/client 两组单测覆盖注册与补丁路径）。
-
-**`0.2.1-rc.2`（2026-10-19，J5：同线 prerelease，只改清单不改代码）**：alpha.2 → rc.2 是通道提升、不是换线，但 82 个契约包版本整体上抬，因此重过一遍契约面（`docs/compat-log.md` 的 J1 有逐包 diff 全表）：
-
-| 契约项 | 0.2.1-rc.2 现状 |
-|---|---|
-| `ctx.workspaceRegistry` 的 `list`/`create`/`delete`/`insertBefore`/`initializeDefault` | 全部存在，计数与 alpha.2 一致（`list()` 3、`create(` 6、`delete(` 7、`insertBefore(` 4、`initializeDefault` 8） |
-| `dsh-client-ui-workspace` 的 `workspaces.rename/delete/insertBefore` 补丁面 | 计数不变（`rename(` 4、`delete(` 6、`insertBefore(` 1、`refresh(` 1） |
-| `uiWorkspace.startSession(id, { clearPreviousDraft: false })` | 仍支持；本轮 `connectWorkspace` 新增 `agentPreset` 维度的并发去重，但两参数形态未变，`{clearPreviousDraft:false}` 语义照旧 |
-| `sidebar.footer.action` / `dsh-host-webserver.register` / `requestRejection` | 全部存在 |
-
-**一处需要知道的内部变化（不影响本插件）**：`dsh-api-workspace-controller` 的 `follow()` 由同步返回改成 `async *` 生成器，并加了 `remoteAccess.allows()` 过滤与新的 `replace` 帧。本插件**从不消费 `follow()`**（只用 registry 的五个方法），因此无影响；但以后若要读实时 Workspace 流，得按新签名写。
-
-改动只有四处清单（`package.json` / `lib/index.js` / `install.sh` / 本文与 `README.md` 的兼容段）加一处测试硬编码断言；**业务逻辑一字未改**，`publish:check` 19/19 通过。
-
-**未覆盖**：与上一轮相同的实机点击项。
-
-**`0.2.0-rc.2`（2026-10-01，跨发布线：DSH 从 `0.1.7-rc.2` 升到 `0.2.0-rc.2`）**：按根 `AGENTS.md` 的「插件兼容性检查」走完。逐包比对（全树逐文件 sha256）后，本插件依赖的面**全部保持**：
-
-- `dsh-workspace`（Host 侧 `workspaceRegistry` 与拦截器消费端）**逐字相同**——`create`/`createCanonical`/`delete`/`rename`/`insertBefore`/`initializeDefault` 的签名与语义都没动。
-- `dsh-client-ui-workspace/lib/client.js` 本轮有 11 处 hunk，但**全部落在无关区域**：会话改名命令的快捷键（`KeyR`→`KeyG`）与门控（`target.blank`/modal/`activePanelId`）、标题空值处理（`displayTitle`→`title?.trim()`）、`forkSession(sessionId, onCreated)` 新增分析回调、新增 `session.untitled` 文案。补丁目标 `workspaces.rename`/`workspaces.delete`/`workspaces.insertBefore` 与 `startSession(workspaceId)`/`unarchiveSession` 的**上下文逐字相同**，四个方法的出现次数也一致（`insertBefore(1)`/`rename(4)`/`delete(6)`/`create(6)`）。
-- `dsh-client-ui-sidebar/lib/client.js` 的 `sidebar.footer.action`（3 处）、`footArea`（8 处）、`footerActions`（6 处）**逐字相同**——独立入口的挂载点未变。
-- `@deepseek-ai/dsh-api-workspace-controller` 改了（核心首次使用的默认工作区），但**只给解析 Documents 目录的 shell 调用加了 `"hidden"` 窗口模式参数**（osascript/`powershell.exe`/`xdg-user-dir`），路径推导与标题逻辑未动——「用户界面里会不会同时看到两个默认工作区」这条观感判断的前提不变。
-- `dsh-client-connection` 的 `requestRejection`、图标集（188 个无漂移）均未变。
-
-改动：`lib/index.js` 的版本门改成**从 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` 派生**（跨线只需改这三个常量 + 清单，判定逻辑不动），`package.json`/`engines.dsh`/`install.sh`/`README.md` 四处同源更新，`install.sh` 的 shell 判定同步泛化。**插件业务代码一字未改**。
-
-**未覆盖**：受管 Workspace 的创建、置顶、改名/删除保护，以及独立入口按钮在 0.2.0 上的**实机**行为；「会不会同时看到两个默认工作区」的观感判断——与本轮变更无关，但仍是未实机确认项。
-
-**更早一轮（`0.1.7-rc.2`，2026-09-28）的逐包比对**：已归档到 [`docs/compat-log.md`](../docs/compat-log.md)。那一轮唯一仍然有效的结论已并入「关键约束」（`dsh-workspace` 的 `initializeDefault()` 不再被本插件调用，只作为 `coreDefaultWorkspace` 能力探测如实报出）。
+未覆盖：独立入口与受管 Workspace 的实机点击。
 
 ## 结构
 

@@ -120,45 +120,22 @@
 - **验收缺口**：`scripts/gui-flow.mjs` 之前只断言"凭据区出现了、按钮尺寸对"，**从没点过一次真正的保存**——所以这个缺陷漏到了用户手里。现在补了 3 条：填值后按钮可用、点保存后状态变成「已配置 · file」、页面上不出现明文（隔离宿主上的 `.credentials.yaml` 里确实多了这条记录）。
 - 顺带修掉一个交互坑：凭据区以前只统计"有名字的行"里的引用，用户点「凭据」但还没给行起名字时看不到凭据区；现在按行的**值**统计（名字为空的行仍在保存时被丢掉）。
 
-## 表单文案与布局的取舍（用户反馈过两次）
+## 表单与布局（当前规则）
 
-### 2026-11-04 界面重做（A 方案：卡片分组）
-
-- 弹窗 680px，三段卡片：基本信息 / 连接方式 / 环境变量（或请求头），高级项 `<details>` 默认收起；验证状态从表单末尾挪到 footer，class 仍是 `dmc-verify`（GUI 脚本按它读失败原因），`dmc-dialog-footer` / `dmc-form` / `.dmc-field` 等选择器都保留。
-- 传输方式外观是分段控件，底层仍是两个原生 radio；测试与 GUI 按 `input[type=radio]` 顺序操作，**不要改成纯 button**。
-- 新增时 `serverName` 留空、用占位符（不再默认 `srv-xxxx`）；label 里的 `(工具前缀为 mcp__<名字>__)` 随输入实时更新，空时仍是 `<名字>`（GUI 断言这段文案，且只出现一次）。
-- 校验仍只在宿主 `verify` 做，客户端不加前置拦截（保持"保存即验证"不变量；GUI 的失败路径依赖它）。`FooterStatus` 负责 idle / running / ok / failed / stale 五种底部状态。
-- 凭据值仍集中在底部的「引用的凭据」区（没有改成行内），避免动凭据链；卡片只是容器，`CredentialBox` 的 DOM 与 aria-label 未变。
-- 官方 Modal 的 header/description 结构保留；标题图标是 `h2::before` 的 mask，没有用 headless。样式全部取 `--dsw-alias-*`；描述行用 `.dmc-dialog > div:first-child > p` 收小（依赖官方 Modal 结构，结构变了只会退回官方字号，不影响功能）。
-- URL 直接填写时 `ValueEditor` 传 `hideValueLabel`，去掉重复的「地址」标签、输入框跨满两列；凭据形态仍是「地址前段 + 凭据键名」，GUI 的 `alignedLefts` 只量 pair 字段，不受影响。
-- 真机视觉核对：隔离宿主上深/浅色各看一遍（新增弹窗、HTTP/stdio、凭据行、高级项展开、失败状态）；104 项单测与 `pack:check` 通过。
-
-
-- **凭据不是"教用户写占位符"，而是给一个开关 + 键名输入框**（用户反馈过"必须手写 `credential:xxx` 才能触发凭据配置，这交互很垃圾"）。现在环境变量/请求头都是**结构化行**（细节见下面几条：多行卡片、前缀档位、键名候选芯片），地址栏也有同样的开关。凭据区照旧只列当前草稿引用到的键、值不回显。**存储格式没变**：settings 里仍是 `[前缀]credential:键名[后缀]`，所以校验、挂载、导入、迁移全都不用动；界面上只是不再暴露这个写法（手打进去也会被识别并自动切成凭据形态）。候选键只来自**其它托管条目**（见下面"不再用原生 datalist"那条的规则）——凭据服务没有"列出所有引用"的接口（`dsh-credentials` 的类型注释写明引用那一半靠设置发现，`listRecords` 只覆盖 record 那一半），所以 `~/.dsh/.credentials.yaml` 里没人用的键不会出现在候选里，得自己敲名字。
-- **请求头的一行是"多行卡片"**（用户第三轮截图反馈：五个输入框挤一行，长键名看不全、箭头不居中）。现在第一行 = 名字 + 「凭据」+ 删除，下面每行一个带小标题的字段：`值` 或（`前缀` + `凭据键名` + 必要时 `后缀`）。实测凭据键名输入框 425px 宽（原来被挤到 ~110px 截断）。`FieldLine` 是唯一的字段行结构，URL 也复用（`地址` / `地址（密钥之前的部分）` + `凭据键名`）。
-- **前缀是"可选档位 + 可选自定义"**：`PrefixField` 的下拉是「不加前缀 / Bearer / Basic / 其它…」，选「其它」时自由输入框出现在同一字段行、占满剩余宽度（实测 347px，早先被挤到 20px 根本没法输入）。哨兵值只活在组件本地 `forced` state 里，绝不写进设置。
-- **下拉箭头自绘**：原生 `select` 的箭头又小又贴边，和原生 `datalist` 的箭头还互不统一（用户截图指出两次）。现在 `.dmc-select{appearance:none;height:34px;padding:0 30px 0 10px}` + 官方 `IconChevronDownOutlineMedium` 绝对定位在右侧（`caretCentered` 实测 0px 偏差），高度与普通输入框一致（都 34px）。
-- **不再用原生 `datalist` 选键名**：它的箭头在深色主题里同样不居中。改成输入框下方一行「用过的键：」+ 可点的小芯片（`aria-label="使用键名 X"`，点一下填进输入框），既能选也能手打新键名。候选 = 其它托管条目用过的键 **减去当前草稿已经在用的键**（同一个键给两个不同密钥用没有意义；早先全列出来，弹窗里一堆重复候选，用户截图说"这么乱"）。`datalist` 元素已整体删掉。
-- **同一组字段共享标签列**（用户第四轮截图：URL 那一块三行错开，"看起来这么乱"）。`.dmc-fields` 是 grid（`max-content minmax(0,1fr)`），`.dmc-field-line{display:contents}` 让每行的标签/控件直接进这个 grid —— 于是**标签列同宽、所有输入框左边缘对齐**（GUI 断言 `alignedLefts === 1` 兜住；这条只能用真机量，`display:contents` 的盒子没有 rect，`useLayoutEffect`/单测都量不到）。URL 的地址行文案也改成短标签 `地址前段` + 占位符「可留空：整条地址都进凭据库时」，不再堆一长串解释。
-- **尺寸对齐参考 `dsh-extra-context` 的「+ 添加规则」**（用户明确点名）：`.dmc-btn-sm{height:28px;padding:0 12px;font-size:12px}` 用于「+ 添加请求头/环境变量」与凭据行的「保存/清除」；行尾删除用 `.dmc-icon-button.sm`（26px）。注意输入框是 34px、按钮 28px，两者"同一行"的判据是**垂直中心对齐 + 纵向重叠**，不是 top 相等（GUI 断言第一版写成比 top，差 3px 就误报）。
-- **凭据区是"键名 + 状态标签 + 输入行"两段**：`未配置/已配置 · 来源` 做成 `.dmc-status` 小标签（和列表行的状态 chip 同一套），输入框与两个小按钮在同一个 `.dmc-cred-input-row` 里。早先是 grid 两列（左边名字+输入框、右边按钮），按钮会被两行内容顶到中间，看起来"错开"（用户截图反馈）。
-- **导入成功后不再显示"敏感字段已转入凭据库…"这句**（用户反馈：与字段旁的提示重复，而且把凭据键删掉之后它还挂着，成了假消息）。宿主半体（`lib/targets.js`）不再生成它，客户端 `visibleNotes()` 再兜一层过滤——这样"新客户端 + 旧宿主进程"的窗口期内也不会冒出来；其它真告警（如"宿主没有可用的凭据服务"）照旧显示。
-- **弹窗里有第二个「保存」按钮**（凭据行的「保存」保存那枚凭据的值）：两个按钮都要有各自的 `aria-label`（`保存` / `保存凭据 <键>`），否则读屏和测试都会点错（本插件踩过：测试一直点的是凭据行的按钮，于是"保存没写盘"看起来像产品缺陷）。
-- **草稿模型**：`envRows`/`headerRows` 是 `[{name, value}]`（不再是 `envText`/`headersText`），`rowsToRecord()` 会丢掉**名字为空**的行（用户正在输入的行不能变成脏数据），`recordToRows()` 反向回显。行式编辑器刻意不做文本往返：早先的 `parsePairs` 会把没写完的行吞掉。
-- **凭据提示只留一行，但必须写清"直接写的后果"**：用户质疑过「这条提示有没有必要、直接写和进凭据库最终不都是拿到明文吗」。答案是差别在**明文存在哪里、谁能看到**：直接写 → profile 配置里明文，而这份配置本来就要发给浏览器（设置页要能编辑），密钥会每次都进页面；写成 `credential:键名` → 值在 `~/.dsh/.credentials.yaml`（0600），settings 与状态接口里只有键名，界面只显示"已配置"，还能被多个条目复用、能复用已有环境变量。所以**不禁止直接写，但要在原地说明后果**，文案压成一句（随开关化改写过）：`密钥点「凭据」：键名自己取，值存进凭据库、界面不回显、可多处复用；直接填写的值会明文存进设置文件。`
-- **状态只在列表行显示一次，且要高亮**：编辑弹窗顶部曾有一个「当前状态」块，用户反馈"跟下面的字段挤在一起、也不明显，直接去掉"。现在状态是列表行里的一枚**带底色的小 chip**（`ok` 绿 / `warn` 琥珀 / `error` 红 / 停用灰），完整原因（如"stdio 传输必须填写可执行命令"）挂在 chip 的原生 `title` 上（列表后来改成一行，不再有第二行放全文），编辑弹窗里也能看到。弹窗只在 mcp-client 真的产出过日志时，保留一个折叠的「最近日志」。
-- **工具清单一律放在「已连接 · N 个工具」这个 tag 的官方 `Tooltip` 里**（用户要求：列表改一行、去掉工具说明、浮层挂在 tag 上、用 DSH 自带组件、宽高不出面板、内部可换行可滚动）。走过的弯路与最终做法：
-  - 最早是自绘浮层（`.dmc-tools-tip`）：可预期、能用 CDP 悬停断言，但用户明确要求用官方组件，且自绘浮层的宽高没有跟随设置面板。
-  - **官方 `Tooltip` 的三个实测事实**（从 `dsh-web-frontend/dist/assets/index-*.js` 的气泡实现与 `._bubble_1nw3t_1` 样式读出）：① 气泡是 `position:fixed; width:max-content; max-width:50vw`，**只按窗口夹取位置**，没有"别超出某个容器"的选项；② 气泡是 `pointer-events:none`，鼠标一离开锚点（进入气泡）就 `v(null)` 关闭——所以"把鼠标移进气泡里滚"物理上不成立；③ 只有 `label/side/delayMs/disabled/maxWidth/children` 这些 props，`side` 只影响贴哪一边。
-  - **宽高约束自己算**（`useTooltipBounds`）：宽 ≤ `min(360, 面板宽-32)`；高 ≤ 面板可见高、且不超过锚点那一侧的剩余空间，朝向取空间大的那侧——这样官方那套"装不下就翻面"的判断不会触发，位置稳定。
-  - **内边距由我们这层补**：官方气泡只有 `padding:3px 7px`，长清单贴边很难看（用户截图反馈），所以 `.dmc-tip-content` 再给 `padding:6px 7px`（`box-sizing:border-box`，算进 `maxHeight`，不会把浮层顶出面板）。
-  - **横向不出面板靠"窄触发区 + 宽锚点盒子"**：锚点若是那枚窄 tag，气泡会从 tag 右侧探出面板外（官方只按窗口夹）；所以 Tooltip 的子元素是整块标题区（气泡以它的中线居中），再用 `.dmc-title-block.tip{pointer-events:none}` + `.dmc-tip-trigger{pointer-events:auto}` 把"能悬停的区域"收回到 tag 本身。代价：这条行的名称失去了原生 `title` 与文字选中（服务器名就在旁边的命名空间 chip 上，信息没丢）。
-  - **滚动**：气泡自己不接受指针事件，于是把滚轮事件从锚点转发给清单容器（React 在根节点上的 `wheel` 是 passive 监听，`preventDefault` 无效，所以用 `addEventListener(..., {passive:false})` 原生挂）。清单溢出时表头会补一句「滚轮滚动」提示；那句话必须在**清单节点挂载时**量（`ref` 回调），写成 `useLayoutEffect` 永远量到 `null`——本层不会因为气泡打开而重渲染（真机验收抓到过）。
-  - 只有"已连接**且**有工具"才挂浮层：其它状态挂上去只是把 tag 上的话再说一遍，那些状态继续用原生 `title` 兜底。
-- **列表行只有一行**（用户要求"列表页改为一行，去掉工具说明"）：`.dmc-row-line` 一条 `grid-template-columns: auto minmax(0,1fr) auto` = 左边启停开关 / 中间名字 + 命名空间 + 状态 tag / 右边编辑 + 删除。被拦或失败的原因不再单独占一行，压成 tag 上的短标签（完整原因在 `title` 与编辑弹窗里）。
-- **「服务器名」那一行的提示并进 label**（用户要求）：`服务器名 * (工具前缀为 mcp__<名字>__)` 与 label 同行、同一段文字里（曾短暂写成 `mcp-<名字>`，用户核对后要求与运行时对齐，已改回真前缀）。前缀以 `mount-manager.js` 的前缀过滤与行上的命名空间 chip 为准：工具全名 = `mcp__<服务器名>__<工具名>`，例如 `mcp__figma__get_design_context`。
-- **必填项用 `*` 标注，非必填不写"（可空）"**：服务器名、命令（stdio）、URL（http）带 `*`；备注名、参数、工作目录、环境变量、请求头、超时都不带。
-- **长文本的勾选项必须独占一整行**：`启动连不上就报错（默认只记录日志并继续重连）` 曾和「单次调用超时」挤在 `repeat(auto-fit,minmax(220px,1fr))` 的两列里，右侧文字换行、整行又被拉得很紧（用户截图反馈"布局太丑"）。现在超时输入框与勾选行上下排列，勾选用 `.dmc-checkline` 整行铺开。
+- 弹窗 680px、三段卡片（基本信息 / 连接方式 / 环境变量或请求头）；高级项 `<details>` 默认收起；验证状态在 footer `.dmc-verify`，`dmc-dialog-footer` / `dmc-form` / `.dmc-field` 等选择器保留。
+- 传输方式是分段控件，底层仍是两个原生 radio；测试与 GUI 按 `input[type=radio]` 顺序操作。
+- 新增时 `serverName` 留空用占位符，label 里的 `(工具前缀为 mcp__<名字>__)` 随输入实时更新；必填项带 `*`，非必填不写“（可空）”。
+- 校验只在宿主 `verify` 做；「保存」= 先验证、通过才落盘；`FooterStatus` 负责 idle / running / ok / failed / stale。
+- 凭据不是手写占位符：环境变量/请求头用结构化行 + 「凭据」开关 + 键名输入；存储格式仍是 `[前缀]credential:键名[后缀]`。凭据区只列当前草稿引用，值不回显；候选键来自其它托管条目，减去当前草稿已用键。
+- 请求头一行是多行卡片：第一行名字 + 「凭据」+ 删除；下面每行一个字段（`值` 或 `前缀` + `凭据键名` + 可选 `后缀`）。`FieldLine` 是唯一字段行结构，URL 复用。`PrefixField` 提供「不加前缀 / Bearer / Basic / 其它…」，自定义值留在组件本地，不写进设置。
+- 下拉箭头自绘：`.dmc-select{appearance:none;height:34px;padding:0 30px 0 10px}` + 官方 `IconChevronDownOutlineMedium`；键名候选用「用过的键」芯片，不用原生 `datalist`。
+- `.dmc-fields` 用 grid + `.dmc-field-line{display:contents}` 共享标签列，保证标签同宽、输入框左缘对齐（只能真机量）。
+- 尺寸：`.dmc-btn-sm` 28px 高，行尾图标按钮 26px；输入框 34px；同一行判据是垂直中心对齐 + 纵向重叠，不是 top 相等。
+- 状态只在列表行显示一次：带底色 chip（ok/warn/error/停用），完整原因在 `title` 与编辑弹窗。列表一行：左开关 / 中名称+命名空间+状态 tag / 右编辑+删除。
+- 工具清单放在「已连接 · N 个工具」的官方 `Tooltip`：宽 ≤ min(360, 面板宽-32)，高 ≤ 面板可见高且不超过锚点侧剩余空间；内边距由 `.dmc-tip-content` 补；滚轮从锚点转发给清单；只有已连接且有工具才挂。
+- 凭据提示保留一句：密钥点「凭据」，值存进凭据库、界面不回显、可复用；直接填写的值会明文存进设置文件。
+- `rowsToRecord()` 丢掉名字为空的行；`recordToRows()` 反向回显；不做文本往返，避免吞掉未写完的行。
+- UI 历史取舍见 `CHANGELOG.md`；当前规则由 `test/client.test.js` 与 `scripts/gui-flow.mjs` 的接线/几何断言守住。
 
 ## 已知边界
 
@@ -176,41 +153,27 @@
 ## 验证现状
 
 ```bash
-npm run check       # node --check ×10 + bash -n ×2
-npm test            # 104 项：store 13 / plan 10 / mount-manager 12 / targets 10 / host 14 / client 40 / manifest 5
-npm run pack:check  # 发布物 = 12 个文件
-npm run publish:check   # = verify + pack:check，已绑定 prepublishOnly
-npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333   # 真机 GUI 验收（52/52；0.1.7-alpha.2、0.1.7-rc.2、0.2.0-rc.2、0.2.1-alpha.2、0.2.2-alpha.2 都是，后两条线各连跑两轮）
+npm run check
+npm test
+npm run pack:check
+npm run publish:check
+npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333
 ```
 
-> `gui:check` 跑的是**隔离宿主**：`DSH_HOME=/tmp/<隔离目录> dsh --profile web --port <非 3080> --no-open`（首次会初始化 profile），再装 `link:` 本插件并起无头 Chrome。**别用 `--port 0`**：脚本要从 URL 里取 `port`，随机端口它读不到。
-> 「导入」那两条断言需要 profile 里**有**手写的 MCP 行，且约定是 **第 1 行带 `Authorization` 的 URL 条目、服务器名 `patchy2`**（脚本按第一个只读行取期望的凭据键名 `MCP_PATCHY2_HEADERS_AUTHORIZATION` 与服务器名）。本轮把两行都写成 `dsh-mcp-client` 的 stdio fixture（20 个工具），所以「导入」后的期望值就锚在这两行上；换隔离环境时要么照这个顺序放，要么同步改脚本里的期望名。
-> **注意 `- insert:` 形态**：profile 的 `cordis.patch.yml` 是 patch 层，顶层裸条目只会得到 `patch: entry "…" not found`（不报错、也不新增）；新增条目必须写成 `- insert: [{ id, name, config }]`（与本插件自己的 `cordis.patch.yml` 同款）。
+当前判据：`/status` 未认证 401 / 认证 200；boot graph 中 `dsh-mcp-console` 出现 4 处；`npm test` 104/104；`gui:check` 52/52；凭据走 `credentials`、明文 0 次进入 profile 配置或请求载荷。历史逐轮数据（0.1.7-alpha.2 起）见 `docs/compat-log.md` 的 B3 / G2 / M2。
 
-- `test/mount-manager.test.js` 用假 ctx（`plugin()` 返回可 await/可 dispose 的 fiber）驱动真实对账逻辑，不依赖宿主。
-- `test/client.test.js` 在 `node:vm` 沙箱里加载 bundle（React 用 `test/harness.js` 的**可渲染**运行时），验证 slot 注册、`configForms.get('dsh-mcp-console')` 的条目 id 绑定、导航补丁的三处同源与可回滚、样式注入与引用计数，以及**真渲染 + 真点击**的接线守卫：点「+」只开弹窗且不写设置且**没有单独的验证按钮**、点保存会先调一次 verify 且通过才写盘、验证失败时不落盘且原因就地显示、每次保存都重新验证（不复用上次结果）、编辑走同一弹窗且预填、宿主缺 `actions`/返回 `unknown action` 时提示重启并禁用保存、开关必须写回停用、删除必须先确认、写完必须等到宿主对账追上（不留在旧结论上）。
-- `test/harness.js` 是小 React 运行时（不是测试文件）。它按组件实例的树路径保存 hook 槽，支持 `createContext`/`useContext`、类组件（`children` 会并入 `props`）、以及**按依赖真记忆化**的 `useCallback`。五条踩坑：`render()` 返回数组要显式展平；`useCallback` 若永远返回第一次的函数，闭包会一直看着旧状态（`useCallback(id => status.servers.find(...), [status])` 会永远读到初始 null），看起来像产品缺陷、实际是桩的错；`inputByLabel` 找字段容器必须**按 class token 精确匹配**——`.dmc-field-row` 也包含 `dmc-field` 子串，用 `includes` 会命中外层行容器、取到同排第一个输入框，表现为"表单没预填/没写进去"；`useRef` 必须返回**ref 对象**（曾写成返回 `initial`，于是 `useRef(null)` 在测试里就是 `null`，组件一碰 `ref.current` 整个分区都渲染不出来）；函数组件的 `children` 用 props 形式传（`createElement(C, {children: x})`）时不能被位置参数的**空数组**覆盖（官方 `Tooltip` 就是 props 形式传 children 的）。宿主元素上的 `ref` 本桩不赋值（真实 React 首次渲染前也是 null），所以组件必须自己处理 `current === null`，用到 DOM 的行为（浮层尺寸、滚轮转发）由真机验收覆盖。
-- **GUI 脚本每次求值前都重新注入页内助手**：客户端 bundle 改动会触发 client HMR 重载页面，注入的 `window.__gui` 随之消失（脚本表现为 `__gui is not defined`）；`evaluate` 包装里先跑一次 `HELPERS` 是幂等且便宜的，比"注入一次管到底"稳。
-- `scripts/gui-flow.mjs`（`npm run gui:check`）是**真机 GUI 验收**：用 CDP 驱动无头 Chrome 打开隔离宿主，走「打开设置（先关掉首启引导弹层）→ 进分区 → 查行是不是一行 → 导入（带上 URL/命令与凭据占位符、页面不出现明文）→ 新增（弹窗，label 文案与同一行）→ 填错命令后点保存（自动验证失败、不落盘）→ 换本地 fixture 服务器再保存 → 悬停「已连接 · N 个工具」看完整清单、量它是否在面板内、滚轮滚动清单 → 编辑 → 停用 → 删除」，每步都用宿主状态接口交叉核对（**0.2.2 起先用带 token 的 URL 换会话 cookie，否则状态接口 401**），真机里还走了一遍「点『凭据』→ 自己取键名 → 凭据区出现该键」。**必须先关引导弹层**，否则它盖住设置面板、悬停事件落不到插件元素上——弹层文案随发布线变（0.1.6 是「稍后配置」/「关闭」，0.1.7 的首启引导多了「继续」一步），所以脚本改成"循环点到没有可见 dialog 为止"并新增一条断言，只认旧文案会让浮层那几条假失败。定位弹窗要用 `.dmc-dialog`：设置面板本身也带 `role=dialog`，按 role 查会先命中它。
-- **导航图标补丁的几何**用工作区工具离线量过，每次换线都复跑：`node tools/dsh-icons/verify-nav-icon.js --plugin dsh-mcp-console --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure`，六项检查全通过（`stylesInjected` / `geometryMatches`（label 偏移 36,9 与壳层原生行一致）/ `originalIconHidden` / `maskApplied` / `squareIconBox`（::before 恰好 16×16）/ `shellRowUntouched`；`0.2.1-alpha.2`、`0.2.2-alpha.2` 上复跑同样六项全过，0.2.2 的 label 偏移为 38,9）。为跑通它给固定场景补了 `createContext`/`useContext` 与 `ctx.effect`（详见 `tools/dsh-icons/README.md`），并用 `dsh-extra-context`、`dsh-chat-archive-manager` 回归确认没有改坏既有插件。
-- **样式注入必须同步**：`installStyles` 先注入再登记 `ctx.effect` 清理。曾把注入整块放进 effect 回调，固定场景（无 effect）下样式永远进不了文档——这与 `dsh-extra-context` 踩过的「标记已打、CSS 未到」是同一个坑。
-- **本机真实宿主上已验证**（0.1.6 线，用户重启后；换线后由「验收判据」一节的隔离宿主实测取代）：`runtime=ready`、`settingsAvailable=true`、模块走 `loader-import`；`profileTargets` 正确列出用户 patch 里的 `figma`/`jira`（jira 的 `Authorization` 只给键名，`JIRA_MCP_BASIC` 的值与任何 `Basic ` 明文都不在载荷里）；无自定义客户端头 403、错误 CSRF 403。
-- **只读块（配置文件中的服务器）的文案不得出现实现细节**：曾经在页面上写「这些行来自 profile 的 cordis.patch.yml（含 !!js 表达式），本插件不修改该文件…」——用户直接反馈「很乱、说明描述了一些跟具体配置有关的信息，明显不合理」。现在页面上只有标题 +「只读 · 值不显示」，实现细节留在文档里；`test/client.test.js` 与 `scripts/gui-flow.mjs` 都断言渲染文本里不出现 `profile` / `cordis.patch.yml` / `!!js` / `本插件不修改`。
-- 只读块**不复用托管行的 `.dmc-row` 样式**，自己成卡片（`.dmc-targets`/`.dmc-target`）：两者层级不同，混用会让人以为它也是可编辑条目。
-- **真实 GUI 已由 `scripts/gui-flow.mjs` 自动验收通过**（隔离宿主 + 无头 Chrome + CDP，52/52；`0.1.7-alpha.2`、`0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-alpha.2`、`0.2.2-alpha.2` 各通过，后两条线各连跑两轮）：导航行换成连接图标且只改本行、分区渲染（含只读块文案无实现细节）、点「+」打开弹窗且**不写设置**、验证前保存禁用、错命令验证失败并显示原因、本地 fixture 服务器验证通过并列出工具、保存后宿主 `mounted`、编辑走同一弹窗且要重新验证、行上显示最新状态（不是旧的对账结论）、停用即卸载、删除后宿主清单里消失、配置文件里手写的条目全程未被触碰；列表行只有一行（`switchFirst`/`actionsLast`/没有 `.dmc-tools`/高度 <60px）；官方浮层的宽高都在 `.dmc-section` 之内（alpha.2 实测 `232x202` vs 面板 `464x389`，rc.2 实测 `279x205` vs `472x335`，`0.2.1-alpha.2` 实测 `250x261` vs `467x449`，都 `insidePanel=true`）；浮层里 20 个工具全名齐全、溢出时表头出现「滚轮滚动」、滚轮落在 tag 上时清单 `scrollTop` 从 0 变正、移开鼠标后浮层消失。**fixture 服务器为此加了 19 个填充工具**：工具太少时清单不溢出，滚动这条就验不到。`dsh web` 的根页与 `/plugins` 模块路由都在 token 鉴权后面，所以 boot graph 不能用 `curl` 断言——CDP 才是这里的正确工具。
-- **验收脚本必须能自己"报死"，不能静默挂死**（2026-09-29 实测踩到）：第一次在 rc.2 上跑 `gui:check` 时，脚本推进到「填服务器名」之后**整整 10 分钟没有任何输出也不退出**（`ps` 看着进程活着、CPU 0%、CDP socket 仍是 ESTABLISHED），最后只能手工杀掉。根因是脚本自己的超时清理写错了位置：
-  ```js
-  pending.set(next, { resolve, reject }); socket.send(...); setTimeout(() => { if (pending.delete(next - 1)) reject(...) }, 30000)
-  ```
-  `next` 在 `send` 里自增，超时回调按 `next - 1` 去删**永远删不到**已发出的那条 → 超时既不 reject 也不 resolve，`await` 就永久挂着。修法三件套：① 请求 id 当场捕获、`clearTimeout` 在收到响应时清理；② 连接 `close` 时把在途请求全部 reject；③ 加 5 分钟看门狗 + 步骤名（`enterStep`），超时带着"卡在哪一步"失败退出。**结论**：这是脚本缺陷、不是插件缺陷——重跑两次都 52/52；但下次「仪器"卡住"」时，先怀疑脚本，再怀疑被测对象。
-- **两个由真机验收（而不是单测）发现的缺陷**，都已修并补了会失败的护栏：
-  1. 点「+」什么都不做——组件只把 `adding` 置真却没有任何渲染分支，`add()` 从未被调用（空状态文案还在引导用户点它）。现在「+」打开弹窗表单（用户后续又要求：不要直接落空条目、要"验证通过才保存"）。守卫：`test/client.test.js` 的「接线守卫」用例，注入此缺陷即失败。
-  2. 保存后行上会一直挂着**旧的对账结论**（比如刚把 stdio 改成 HTTP，行上仍是「必须填写可执行命令」）——设置写入触发的宿主对账晚于客户端那一次状态读取，而客户端只读一次。现在所有写路径都走 `refreshAfterWrite()`：带写入时刻重读，直到 `lastReconcile.at` 追上来（最多 6 次 / 约 4 秒）。守卫：同名用例，把 `refreshAfterWrite()` 改回 `refresh()` 即失败。
+- `gui:check` 用隔离宿主（`DSH_HOME=/tmp/... dsh --profile web --port <非 3080> --no-open`），不要 `--port 0`；先关首启引导弹层，定位弹窗用 `.dmc-dialog`；0.2.2 起先用带 token 的 URL 换会话 cookie，否则状态接口 401。
+- 导入断言约定：profile 第 1 行是带 `Authorization` 的 URL 条目、服务器名 `patchy2`；换隔离环境时同步改脚本期望名。新增条目必须 `- insert:`。
+- `test/client.test.js` 在 `node:vm` 里加载 bundle，用 `test/harness.js` 的可渲染 React 桩；接线守卫覆盖「点 + 只开弹窗」「保存先 verify」「缺 actions / unknown action 提示重启」「写完等对账追上」。
+- 导航图标几何用 `verify-nav-icon.js --plugin dsh-mcp-console --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure` 离线量；样式注入先注入再登记 `ctx.effect`。
+- `scripts/gui-flow.mjs` 必须能报死：请求 id 当场捕获、连接 close 时 reject 在途请求、5 分钟看门狗 + 步骤名。
 
 ## 发布与安装路线
 
-> **本包从未发布过**（`package.json#version` 仍是 `0.1.0`，registry 上没有任何版本）。**2026-10-08 已完成改名**：旧名 `dsh-mcp-manager` 在 npm 上不属于我们（registry 上 0.6.0、维护者 `nichts`，描述与我们同名同题），新名 `dsh-mcp-console` 同日实测未被占用——**改名的阻塞已经解除**，之后发版不会被别人抢名。
-> 发版前仍要先为新包名做一次一次性配置：npmjs.com 上给 `dsh-mcp-console` 配 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`）；tag 前缀跟着新包名走（`dsh-mcp-console-v<版本>`）。此前那套「bump 之后会在 workflow 里以无权限失败、留下空 release」的说法只适用于**被占用的旧名**，不要再套到新名上。
+> **当前发布阻塞（2026-10-20 查得）**：`dsh-mcp-console` 已被第三方 `dakuo <coderkuo@gmail.com>` 占用（`0.1.11`，2026-10-14 发布），描述与我们的功能几乎逐字雷同。**发布动作先改名**：定新名 → `npm view <新名> maintainers` 实测未被占用 → 按下面「改名时要同步的落点」改完 → 按根 `AGENTS.md`「新包首次发布」的三步走。改名完成前保持未发布状态；发布动作只在新名字上执行。
+> 本包从未发布过（`package.json#version` 仍是 `0.1.0`）；registry 上的 `0.1.11` 属于第三方，不是我们的版本。
+> 历史：2026-10-08 旧名 `dsh-mcp-manager` 撞名后改到 `dsh-mcp-console`；完整改名证据见 `docs/compat-log.md` 的 E1。
+> 改名后，在新名字上配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`），再按根 `AGENTS.md` 的三步首发流程发布。
 
 ### 改名时要同步的落点
 

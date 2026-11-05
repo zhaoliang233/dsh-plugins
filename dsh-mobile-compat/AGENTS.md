@@ -10,7 +10,7 @@ Client 主导、Host 只提供运行版本状态接口、外壳级且版本锁�
 
 `compatibility.json` 是机器可读矩阵，`package.json#dshCompatibility` 必须满足：`policy: "compatible-release-line"`；package 为 `@deepseek-ai/dsh`；range `>=0.2.0-rc.2 <0.2.1`；verifiedVersions 严格为 `0.2.0-rc.2`；`futureVersionsRequireCapabilityChecks: true`；matrix 指向 `./compatibility.json`；`engines.dsh` 与 `dshCompatibility.range` 同源。
 
-**0.1.6 → 0.1.7 是跨发布线的大幅重写**，不是例行检查：把两个版本共有的 50 个 `dsh-client-*` 包按 `lib/client.js` 的 sha256 逐包比对，**47 个都有实质改动**（只有 `dsh-client-resources`、`dsh-client-ui-brand-official`、`dsh-client-ui-directory-picker-native` 三个逐字节相同），`dsh-client-ui-primitives` / `dsh-client-ui-slots` 与 dockkit 一起打在 `dsh-web-frontend` 的 `index-*.js` + `index-*.css` 里（两个产物哈希都变了），所以上一线的结论一条都不能继承。逐项复核与实测结论见 `compatibility.json#contracts` 与本文「0.1.7-rc.2 逐项核对记录」。
+**0.1.6 → 0.1.7 是跨发布线的大幅重写**：共有 50 个 `dsh-client-*` 包中 47 个有实质改动，上一线结论一条都不能继承。逐包证据见 `docs/compat-log.md` 的 B6；当前只按下面 0.2.0 线契约维护。
 
 本发布线当前已发布到 npm 的版本是 `0.5.1`（`>=0.2.0-rc.2 <0.2.1` 线；`0.3.7` 服务 `0.1.6` 线、`0.4.0` 服务 `0.1.7` 线）。`0.2.0-rc.2` 是本发布线目前唯一 source-verified 的版本；同一 `0.2.0` 线内**高于或等于下界**的 rc 与正式版允许带警告运行（例如 `0.2.0-rc.3`、`0.2.0`），继续由运行时能力与精确结构探测 fail closed。**下界是 `rc.2`，所以 `0.2.0-alpha.*` / `0.2.0-beta.*` / `0.2.0-rc.1` 全部低于下界、必须被挡在门外**——判定按 channel 优先级排序（`PRERELEASE_CHANNELS`），不要退回 `channel !== 'alpha' || seq >= N` 的写法，那表达的是「下界是 alpha」、会静默放行 `0.2.0-alpha.9`。跨到 `0.2.1` 之前、或收录低于 `0.2.0-rc.2` 的版本，都必须重新读取源码并调整范围，禁止无上界范围或跨发布线猜测。范围外（整个 `0.1.7` 线、`0.1.6` 线）保持 inert：上一线的用户留在上一线的插件版本（`0.1.7` 线 = `0.4.0`，`0.1.6` 线 = `0.3.7`），一个插件版本只服务一条发布线。
 
@@ -133,15 +133,11 @@ chrome 图标不再单独放大（曾写成 18px）：DSH 的 `iconButton` 是 2
 
 ### 逐项核对记录
 
-逐版本逐契约面核对结果（`0.1.7-rc.2` 与 `0.2.0-rc.2` 两轮跨线，含 14 行契约表与完整尺寸矩阵数据）见 [`docs/compat-log.md`](../docs/compat-log.md) 的 B6 等轮次。
+逐版本逐契约面核对结果（`0.1.7-rc.2` 与 `0.2.0-rc.2`）见 `docs/compat-log.md` 的 B6。
 
-**三条跨轮有效的验证前置**（不照做会得到假红或假绿）：
+三条当前验证前置：隔离 profile 与用户实际运行一致（带 `@deepseek-ai/dsh-experimental-agent-team-profile`）；发探针消息用 CDP `Input.insertText`；尺寸矩阵先备好两行会话（`ensureSessionRows(2)`）。
 
-- **隔离 profile 必须与用户实际运行的一致**，带上 `@deepseek-ai/dsh-experimental-agent-team-profile`——只有它注册的标题栏动作才让 strip 里有可量的控件，否则 strip 断言会在「没有控件可量」上失败。
-- **发探针消息用 CDP `Input.insertText`**：composer 是 contenteditable div，用 `HTMLTextAreaElement` 的 setter 会抛 `Illegal invocation`。
-- **尺寸矩阵的会话行用例要先备好两行**（`ensureSessionRows(2)`）：新 profile 只有一个空会话，会话行用例会因缺行而失败。
-
-**真机第 6 步始终未覆盖**：真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题与 Locale——这些只能由用户在自己的设备上看，脚本化量测到不了。
+真机第 6 步未覆盖：真实 iOS/Android 软键盘、安全区、长会话、代码/媒体、主题与 Locale，仍需用户设备确认。
 
 ## 发布与安装路线
 
