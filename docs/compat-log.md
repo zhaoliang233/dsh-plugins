@@ -9,6 +9,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| R1（2026-11-05，发布） | `0.2.2` 线首发 | 7 个已上架插件从 `0.2.1` 线跨到 `>=0.2.2-alpha.2 <0.2.3` 并发布（6 个 `0.4.0`、`local-plugin-manager` `0.5.0`）：registry、SLSA provenance、GitHub Release 三项逐包核对通过；`dsh-workspace-running-indicator` 闸门全绿但首发被 npm 登录/trusted publisher 阻塞，`dsh-mcp-console` 因撞名未包含 |
 | N1（2026-11-05，例行） | `0.2.2-alpha.2 → 0.2.2-rc.1` | 同线 prerelease 例行核对（alpha→rc 是通道提升，**不跨线**）。194 个契约相关包逐文件比对（先抹版本号）：126 个逐字相同，68 个有差异，逐项判定后**没有一处够得着插件契约**。值得记的三处 API 变化：`entry.fiber` 起改为存 `registry.plugin()` 返回的 wrapper（`Object.create(fiber)`，属性读不变、身份比较失效）、`fiber.store` → `committed`/`provisions`、`dsh-settings.configure()` 把 owner 归一成 `owner.ctx.fiber`。**rc.1 起设置分区图标改由 `settings.section.icon` 槽渲染并包进 `span.navIcon[aria-hidden=true]`**，四个导航图标插件为此专门复核。离线网全绿（10 插件 497 项单测、图标 194 个无漂移、四个图标补丁六项全过），隔离宿主（3971）9 装 1 拒、启动图 82 条含全部 9 个插件、6 条 status 路由 200、设置面板 5 个分区顺序正确、0 控制台报错。9 个插件的四处声明补上 `0.2.2-rc.1`；`dsh-mobile-compat` 仍在 `0.2.0` 线门外，只记录不动 |
 | M2（2026-10-29，L3 跨线） | `0.2.1-rc.2 → 0.2.2-alpha.2` | `dsh-mcp-console` 换到 `>=0.2.2-alpha.2 <0.2.3`。逐包 diff：`dsh-mcp-client` 只有 resources 能力判定的 15 行、Config/导出不变；`cordis` 只新增 `fiber.rawConfig/resolveConfig/effectiveConfig`；`ctx.loader.import`、`loader/volatile-update`、`ctx.tools.view()`、`entry.fiber.config` 都还在；设置类客户端包除 locale 外逐字相同。隔离宿主（3915）+ 真机 GUI **52/52**（导入、凭据、增删改、20 工具浮层与滚动、停用/删除、手写行未被触碰）。**实测抓到一个真实鉴权缺口**：`webCtx.get('connection')` 在 0.2.2 上返回 undefined（服务 fiber 尚未 active），`/status` 无 cookie 也回 200；改为把 `connection` 作为 `inject` 依赖并 fail closed（401），`gui-flow.mjs` 补会话 cookie 换取 |
 | M1（2026-10-29，L2 跨线） | `0.2.1-rc.2 → 0.2.2-alpha.2` | `dsh-default-tuner` 换到 `>=0.2.2-alpha.2 <0.2.3`。逐包 diff：`dsh-config-editor` 只把 `waterfall + resolveConfig` 换成 `fiber.resolveConfig()`（公开 API 不变）；`dsh-session-title` 的 Config / `refresh()` 不变，投影注册改成 `Service.init` 里 await 并保留 handle，`stateOf(session,key)` 标 deprecated 但旧路径可用；`dsh-base` 的 `session-title-llm` / `session-title` 默认值与实验 bundle 的替代条目逐字未变。隔离宿主（3914）：`/status` 401→200、8 个输入框全可用、占位符 `4096/4096/60000/5/10/80/5/40`、写入与 `--dump-config` 一致、reset 逐字节一致；装实验 session-titles bundle 后 `activeId=optional-session-title-all-prompts` / `followed=true` / `maxOutputTokens=64`，GUI 0 报错 |
@@ -45,18 +46,27 @@
 
 | 包 | 版本 | 发布线 |
 |---|---|---|
-| `dsh-default-tuner` | `0.3.2` | `>=0.2.1-alpha.2 <0.2.2` |
-| `dsh-default-workspace` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
-| `dsh-extra-context` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
-| `dsh-local-plugin-manager` | `0.4.2` | `>=0.2.1-alpha.2 <0.2.2` |
-| `dsh-auto-load-history` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
-| `dsh-chat-archive-manager` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
-| `dsh-sticky-user-bubble` | `0.3.1` | `>=0.2.1-alpha.2 <0.2.2` |
+| `dsh-default-tuner` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-default-workspace` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-extra-context` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-local-plugin-manager` | `0.5.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-auto-load-history` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-chat-archive-manager` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-sticky-user-bubble` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-mobile-compat` | `0.5.1` | `>=0.2.0-rc.2 <0.2.1` |
 | `dsh-mcp-console` | 未发布 | 名字被第三方 `dakuo` 的 `0.1.11` 占用 |
-| `dsh-workspace-running-indicator` | 未发布 | 尚未首发 |
+| `dsh-workspace-running-indicator` | 未发布 | 尚未首发（闸门已过，待占位版本 + trusted publisher） |
 
 发版前用 `npm view <包名> version maintainers` 复核；上表是历史快照，不是长期真相。
+
+## R1：把 7 个插件发到 `0.2.2` 线（2026-11-05）
+
+用户拉取最新代码后要求「发布已经做了兼容处理的插件」。发布范围按授权：7 个已上架插件 + 首发 `dsh-workspace-running-indicator`；`dsh-mcp-console` 因名字被第三方占用未包含。
+
+- **版本**：`auto-load-history` / `chat-archive-manager` / `default-tuner` / `default-workspace` / `extra-context` / `sticky-user-bubble` 均 `0.3.x → 0.4.0`，`local-plugin-manager` `0.4.2 → 0.5.0`（跨发布线按 minor）。内容为 0.2.2 线适配（sprite 图标壳、`0.2.2-alpha.3` 导航图标包装层）、`0.2.2-rc.1` 验证清单与文档，业务代码零改动。
+- **发布**：commit `9699bb3`，7 个 tag 推送后由 `release.yml` 经 OIDC 发布。三项判据逐包核对通过：registry 已读到 7 个版本、`dist.attestations` 均为 `https://slsa.dev/provenance/v1`、7 个 GitHub Release 均按正确 tag 创建；本地/远端 tag 集合一致（69/69）；`main` 的 CI 成功。
+- **未完成**：`dsh-workspace-running-indicator` 的 `publish:check` 26 项全绿，但本机 `npm whoami` 为 `ENEEDAUTH`，且 trusted publisher 只能在包已存在后配置，首发三步（占位 `0.0.1` → 配 trusted publisher → 推 tag）需要用户先登录 npm。
+- **本机（Windows）闸门的平台差异**（CI 的 ubuntu 结果才是权威）：POSIX 路径假设（`chat-archive-manager` 的 legacy 路径用例）、symlink 权限与 SIGKILL 语义（`local-plugin-manager`）、真实 schemastery 需要 0.2.2 安装（`extra-context`）。其余 3 个插件本机 `publish:check` 全绿。
 
 ## N1：同线 prerelease 例行核对（2026-11-05，`0.2.2-alpha.2 → 0.2.2-rc.1`）
 
