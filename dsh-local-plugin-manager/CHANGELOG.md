@@ -2,9 +2,15 @@
 
 本文件记录本项目的所有重要变更。
 
-## 未发布（DSH 0.2.2-alpha.3 导航图标修复）
+## [0.5.0] - 2026-11-05
 
-- 适配新壳层：设置导航把 fallback 图标包进 `span.navIcon[aria-hidden]`。补丁 CSS 现在同时隐藏包装层/内部 svg（归档插件为内部 svg 透明），避免出现「自定义图标 + 齿轮」两个并排。
+### 变更
+
+- **跨到 `0.2.2` 发布线**：兼容线从 `>=0.2.1-alpha.2 <0.2.2` 整体换成 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对 `0.2.2-alpha.2`；随后在 `0.2.2-rc.1` 上完成同线例行复核（profile 写锁、官方 plugin-manager 的启停语义与 dsh-hmr 的配置监听均未变）。**这条线不再支持 `0.2.1` 及更早的 DSH**，旧线用户请留在 `0.4.x`；范围外保持 inert。
+- 运行时依赖 `@deepseek-ai/dsh-atomic-write` 跟到 `~0.2.2-alpha.2`，与宿主使用同一条发布线的写锁实现（该包 `lib/` 与 0.2.1-rc.4 逐字相同）。
+- **适配 `0.2.2` 的 sprite 图标壳**：设置导航图标的 mask 优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG——组件 `outerHTML` 只有 `<use href="#…">`，直接当 mask 会引用一个独立文档里不存在的符号（图标空白）；旧线没有该导出时退回 `outerHTML` 并补 `xmlns`。
+- **适配 `0.2.2-alpha.3` 的导航图标包装层**：壳层把 fallback 图标包进 `span.navIcon[aria-hidden=true]`，补丁现在连包装层与内部 svg 一起隐藏，避免「自定义图标 + 齿轮」并排；旧结构的直接 `svg` 规则保留，兼容 alpha.2。
+- 把 `0.2.2-rc.1` 加入逐版本验证清单（`package.json` / `lib/profile-manager.js` / `install.sh` / 插件文档四处同源），安装该 prerelease 时不再提示「未逐版本核对」。
 
 ## [0.4.2] - 2026-10-20
 

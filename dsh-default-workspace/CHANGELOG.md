@@ -2,6 +2,14 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.4.0] - 2026-11-05
+
+### 变更
+
+- **跨到 `0.2.2` 发布线**：兼容线从 `>=0.2.1-alpha.2 <0.2.2` 整体换成 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对 `0.2.2-alpha.2`；随后在 `0.2.2-rc.1` 上完成同线例行复核（`dsh-workspace` / `dsh-api-workspace-controller` 的 `startSession`、`rename` / `delete` / `insertBefore` / `unarchiveSession` 与 sidebar slot 均未变）。**这条线不再支持 `0.2.1` 及更早的 DSH**，旧线用户请留在 `0.3.x`；范围外保持 inert。
+- 把 `0.2.2-rc.1` 加入逐版本验证清单（`package.json` / `lib/index.js` / `install.sh` / 插件文档四处同源），安装该 prerelease 时不再提示「未逐版本核对」。
+- **业务代码一行未改**：本版只有兼容线、验证清单与文档同步。
+
 ## [0.3.1] - 2026-10-20
 
 ### 变更

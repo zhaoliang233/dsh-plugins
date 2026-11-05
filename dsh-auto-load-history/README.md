@@ -28,7 +28,7 @@ DSH 分页给会话窗口送历史：打开长会话时只有最后一段，顶�
 
 ```bash
 dsh plugin --profile web add dsh-auto-load-history        # 安装
-dsh plugin --profile web add dsh-auto-load-history@0.3.1  # 升级到指定版本
+dsh plugin --profile web add dsh-auto-load-history@0.4.0  # 升级到指定版本
 dsh plugin --profile web remove dsh-auto-load-history     # 卸载
 ```
 
