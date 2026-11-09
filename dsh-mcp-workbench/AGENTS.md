@@ -172,10 +172,9 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333
 
 ## 发布与安装路线
 
-> **发布阻塞已解除（2026-11-09）**：原名 `dsh-mcp-console` 被第三方 `dakuo <coderkuo@gmail.com>` 占用（`0.1.11`，2026-10-14 发布，描述与我们的功能几乎逐字雷同），发不了版。2026-11-09 改到本名 `dsh-mcp-workbench`（`npm view` 实测 `E404` 未占用），按下面「改名时要同步的落点」改完八处并重跑闸门后，按根 `AGENTS.md`「新包首次发布」的三步走。
-> 本包从未发布过（`package.json#version` 仍是 `0.1.0`）；registry 上的 `dsh-mcp-console@0.1.11` 属于第三方，不是我们的版本。
+> **已于 2026-11-09 首发 `0.1.0`**：原名 `dsh-mcp-console` 被第三方 `dakuo <coderkuo@gmail.com>` 占用（`0.1.11`，2026-10-14 发布，描述与我们的功能几乎逐字雷同），因此改名为 `dsh-mcp-workbench`（`npm view` 实测 `E404`）；按下面「改名时要同步的落点」改完八处并重跑闸门后，按根 `AGENTS.md`「新包首次发布」三步走（占位 `0.0.1` → trusted publisher → tag 触发 OIDC）。registry 上的 `dsh-mcp-console@0.1.11` 属于第三方，不是我们的版本。
 > 历史：2026-10-08 旧名 `dsh-mcp-manager` 撞名后改到 `dsh-mcp-console`；完整改名证据见 `docs/compat-log.md` 的 E1 / E3。
-> 在新名字上配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`），再按根 `AGENTS.md` 的三步首发流程发布。
+> 后续发版直接走根 `AGENTS.md` 的常规发布流程：改 `package.json#version` → CHANGELOG → `npm run publish:check` → 打 `<包名>-v<版本>` tag → push，由 `release.yml` 经 OIDC 发布并三项判据核对。
 
 ### 改名时要同步的落点
 

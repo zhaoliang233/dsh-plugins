@@ -10,6 +10,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| R2（2026-11-09，首发） | `0.2.2` 线 | `dsh-mcp-workbench@0.1.0`（改名后首发）与 `dsh-workspace-running-indicator@0.1.0` 首发：占位 `0.0.1` → `npm trust` 配 trusted publisher → tag 触发 OIDC。三项判据逐包通过（registry / SLSA provenance / GitHub Release），tag 命名空间一致（71/71） |
 | E3（2026-11-09，改名） | 不涉及版本 | `dsh-mcp-console` → `dsh-mcp-workbench`：旧名被第三方 `dakuo` 的 `0.1.11` 占用，发布前必须改名；新名 `npm view` 实测 `E404`。八处落点全改，内部短前缀 `dmc` → `dmw`（顺带修掉与 `dsh-mobile-compat` 的 `.dmc-*` 撞前缀），目录 `git mv`。闸门：`publish:check` 104/104 + 打包 12 文件、图标重建无漂移、导航图标六项全过 |
 | R1（2026-11-05，发布） | `0.2.2` 线首发 | 7 个已上架插件从 `0.2.1` 线跨到 `>=0.2.2-alpha.2 <0.2.3` 并发布（6 个 `0.4.0`、`local-plugin-manager` `0.5.0`）：registry、SLSA provenance、GitHub Release 三项逐包核对通过；`dsh-workspace-running-indicator` 闸门全绿但首发被 npm 登录/trusted publisher 阻塞，`dsh-mcp-console` 因撞名未包含 |
 | N1（2026-11-05，例行） | `0.2.2-alpha.2 → 0.2.2-rc.1` | 同线 prerelease 例行核对（alpha→rc 是通道提升，**不跨线**）。194 个契约相关包逐文件比对（先抹版本号）：126 个逐字相同，68 个有差异，逐项判定后**没有一处够得着插件契约**。值得记的三处 API 变化：`entry.fiber` 起改为存 `registry.plugin()` 返回的 wrapper（`Object.create(fiber)`，属性读不变、身份比较失效）、`fiber.store` → `committed`/`provisions`、`dsh-settings.configure()` 把 owner 归一成 `owner.ctx.fiber`。**rc.1 起设置分区图标改由 `settings.section.icon` 槽渲染并包进 `span.navIcon[aria-hidden=true]`**，四个导航图标插件为此专门复核。离线网全绿（10 插件 497 项单测、图标 194 个无漂移、四个图标补丁六项全过），隔离宿主（3971）9 装 1 拒、启动图 82 条含全部 9 个插件、6 条 status 路由 200、设置面板 5 个分区顺序正确、0 控制台报错。9 个插件的四处声明补上 `0.2.2-rc.1`；`dsh-mobile-compat` 仍在 `0.2.0` 线门外，只记录不动 |
@@ -44,7 +45,7 @@
 
 ---
 
-## 当前发布记录（截至 2026-11-05）
+## 当前发布记录（截至 2026-11-09）
 
 | 包 | 版本 | 发布线 |
 |---|---|---|
@@ -56,10 +57,21 @@
 | `dsh-chat-archive-manager` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-sticky-user-bubble` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-mobile-compat` | `0.5.1` | `>=0.2.0-rc.2 <0.2.1` |
-| `dsh-mcp-console` | 未发布 | 名字被第三方 `dakuo` 的 `0.1.11` 占用 |
-| `dsh-workspace-running-indicator` | 未发布 | 尚未首发（闸门已过，待占位版本 + trusted publisher） |
+| `dsh-mcp-workbench` | `0.1.0` | `>=0.2.2-alpha.2 <0.2.3`（2026-11-09 首发；原名 `dsh-mcp-console`） |
+| `dsh-workspace-running-indicator` | `0.1.0` | `>=0.2.2-alpha.3 <0.2.3`（2026-11-09 首发） |
 
 发版前用 `npm view <包名> version maintainers` 复核；上表是历史快照，不是长期真相。
+
+## R2：首发两个未发布插件（2026-11-09）
+
+用户要求「把未发布的两个插件都发布」。核实后只有 2 个未发布（见 E3），执行结果：
+
+- **改名**：`dsh-mcp-console` → `dsh-mcp-workbench`（细节见 E3）。
+- **占位版本**：两包各在临时目录发 `0.0.1`（`npm publish` 首次弹 2FA：npm 11 在 TTY 里给出 `https://www.npmjs.com/auth/cli/<id>`，浏览器完成认证后继续；第二次不再要求）。
+- **trusted publisher**：`npm trust github <包> --file release.yml --repository zhaoliang233/dsh-plugins --allow-publish`，两包各一次。
+- **正式发布**：commit `3309d76`，tag `dsh-mcp-workbench-v0.1.0` / `dsh-workspace-running-indicator-v0.1.0` 推送后由 `release.yml` 经 OIDC 发布；两个 run 均 success。
+- **三项判据**：registry 读到 `0.1.0`；`dist.attestations` 存在且为 `slsa.dev/provenance/v1`；GitHub Release 按正确 tag 创建（`dsh-mcp-workbench@0.1.0` / `dsh-workspace-running-indicator@0.1.0`）；本地/远端 tag 集合一致（71/71）。
+- 两条可复用的经验：① `npm publish` 的 2FA 用 TTY 里的 web 认证链接最省事（非 TTY 的报错输出会把 authId 脱敏成 `***`，拿不到完整链接）；② 改名迁移本机 profile 必须先 `remove` 旧名再动目录，否则 link 悬空导致 remove 失败（E1 的旧教训）。
 
 ## E3：`dsh-mcp-console` → `dsh-mcp-workbench`（2026-11-09）
 
