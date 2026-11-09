@@ -7,10 +7,10 @@
  * - stdio 必填 command，streamable-http 必填 url；
  * - toolCallTimeoutMs 默认 60000，failOnStartupError 默认 false。
  *
- * @module dsh-mcp-console/store
+ * @module dsh-mcp-workbench/store
  */
 
-export const PLUGIN_NAME = 'dsh-mcp-console'
+export const PLUGIN_NAME = 'dsh-mcp-workbench'
 /**
  * 本插件在 profile 里的条目 id——也是设置的命名空间。
  *
@@ -19,7 +19,7 @@ export const PLUGIN_NAME = 'dsh-mcp-console'
  * 0.1.6 的 `settings.register('mcp-console', …)` 独立命名空间已不存在，
  * 所以清单的落盘位置从 `~/.dsh/settings.yaml` 变成 profile 的 `cordis.patch.yml`。
  */
-export const SETTINGS_ENTRY = 'dsh-mcp-console'
+export const SETTINGS_ENTRY = 'dsh-mcp-workbench'
 
 /** 与 dsh-mcp-client 的 SERVER_NAME_PATTERN 同源。 */
 export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/

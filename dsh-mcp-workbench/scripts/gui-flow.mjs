@@ -92,9 +92,9 @@ async function acquireSessionCookie() {
 }
 
 async function hostStatus() {
-  const headers = { 'x-dsh-mcp-console-client': '1' }
+  const headers = { 'x-dsh-mcp-workbench-client': '1' }
   if (sessionCookie !== '') headers.cookie = sessionCookie
-  const response = await fetch(`http://127.0.0.1:${statusPort}/dsh-mcp-console/status`, { headers })
+  const response = await fetch(`http://127.0.0.1:${statusPort}/dsh-mcp-workbench/status`, { headers })
   if (response.status !== 200) {
     throw new Error(`宿主状态接口返回 ${response.status}（会话 cookie ${sessionCookie === '' ? '缺失' : '已带'}）`)
   }
@@ -182,8 +182,8 @@ window.__gui = {
     return { ok: true, label: text(target) }
   },
   fill(label, value) {
-    // 弹窗通常 portal 到 body 上，所以不能把查找范围限定在 .dmc-section 里
-    const field = [...document.querySelectorAll('.dmc-field')].find((f) => (f.querySelector('.dmc-label')?.textContent ?? '').includes(label))
+    // 弹窗通常 portal 到 body 上，所以不能把查找范围限定在 .dmw-section 里
+    const field = [...document.querySelectorAll('.dmw-field')].find((f) => (f.querySelector('.dmw-label')?.textContent ?? '').includes(label))
     const input = field?.querySelector('input, textarea')
     if (input === null || input === undefined) return { ok: false, why: 'no field ' + label }
     const proto = input.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement : window.HTMLInputElement
@@ -202,18 +202,18 @@ window.__gui = {
   },
   /** 凭据区：每一行的键名、状态标签、按钮状态。 */
   credentials() {
-    return [...document.querySelectorAll('.dmc-cred-row')].map((row) => ({
-      ref: row.querySelector('.dmc-cred-name')?.textContent ?? '',
-      status: row.querySelector('.dmc-status')?.textContent ?? '',
-      statusClass: row.querySelector('.dmc-status')?.className ?? '',
+    return [...document.querySelectorAll('.dmw-cred-row')].map((row) => ({
+      ref: row.querySelector('.dmw-cred-name')?.textContent ?? '',
+      status: row.querySelector('.dmw-status')?.textContent ?? '',
+      statusClass: row.querySelector('.dmw-status')?.className ?? '',
       saveDisabled: row.querySelector('button[aria-label^="保存凭据"]')?.disabled ?? null,
       clearDisabled: row.querySelector('button[aria-label^="清除凭据"]')?.disabled ?? null
     }))
   },
   /** 给某个凭据键填值（React 受控输入要走原生 setter + input 事件）。 */
   fillCredential(ref, value) {
-    const row = [...document.querySelectorAll('.dmc-cred-row')].find(
-      (node) => (node.querySelector('.dmc-cred-name')?.textContent ?? '') === ref
+    const row = [...document.querySelectorAll('.dmw-cred-row')].find(
+      (node) => (node.querySelector('.dmw-cred-name')?.textContent ?? '') === ref
     )
     const input = row?.querySelector('input')
     if (input === null || input === undefined) return { ok: false, why: 'no credential row ' + ref }
@@ -223,26 +223,26 @@ window.__gui = {
   },
   /** 只读块（配置文件里的服务器）的行：与可编辑的托管行分开取。 */
   targets() {
-    return [...document.querySelectorAll('.dmc-target')].map((row) => ({
-      name: row.querySelector('.dmc-target-name')?.textContent ?? '',
-      badges: [...row.querySelectorAll('.dmc-badge')].map((b) => b.textContent),
-      endpoint: row.querySelector('.dmc-target-endpoint')?.textContent ?? '',
+    return [...document.querySelectorAll('.dmw-target')].map((row) => ({
+      name: row.querySelector('.dmw-target-name')?.textContent ?? '',
+      badges: [...row.querySelectorAll('.dmw-badge')].map((b) => b.textContent),
+      endpoint: row.querySelector('.dmw-target-endpoint')?.textContent ?? '',
       action: row.querySelector('button')?.textContent ?? ''
     }))
   },
   rows() {
-    return [...document.querySelectorAll('.dmc-row')].map((row) => {
-      const line = row.querySelector('.dmc-row-line')
+    return [...document.querySelectorAll('.dmw-row')].map((row) => {
+      const line = row.querySelector('.dmw-row-line')
       return {
-        name: row.querySelector('.dmc-name')?.textContent ?? '',
-        namespace: row.querySelector('.dmc-namespace')?.textContent ?? '',
-        badges: [...row.querySelectorAll('.dmc-badge')].map((b) => b.textContent),
-        state: row.querySelector('.dmc-status')?.textContent ?? '',
-        lines: row.querySelectorAll('.dmc-row-line').length,
+        name: row.querySelector('.dmw-name')?.textContent ?? '',
+        namespace: row.querySelector('.dmw-namespace')?.textContent ?? '',
+        badges: [...row.querySelectorAll('.dmw-badge')].map((b) => b.textContent),
+        state: row.querySelector('.dmw-status')?.textContent ?? '',
+        lines: row.querySelectorAll('.dmw-row-line').length,
         height: Math.round(row.getBoundingClientRect().height),
-        switchFirst: line?.firstElementChild?.classList.contains('dmc-switch') ?? false,
-        actionsLast: line?.lastElementChild?.classList.contains('dmc-actions') ?? false,
-        hasToolsLine: row.querySelector('.dmc-tools') !== null
+        switchFirst: line?.firstElementChild?.classList.contains('dmw-switch') ?? false,
+        actionsLast: line?.lastElementChild?.classList.contains('dmw-actions') ?? false,
+        hasToolsLine: row.querySelector('.dmw-tools') !== null
       }
     })
   },
@@ -250,13 +250,13 @@ window.__gui = {
   tooltip() {
     const bubble = document.querySelector('[role="tooltip"]')
     if (bubble === null) return null
-    const panel = document.querySelector('.dmc-section')?.getBoundingClientRect()
+    const panel = document.querySelector('.dmw-section')?.getBoundingClientRect()
     const rect = bubble.getBoundingClientRect()
-    const names = [...bubble.querySelectorAll('.dmc-tip-name')].map((node) => node.textContent ?? '')
+    const names = [...bubble.querySelectorAll('.dmw-tip-name')].map((node) => node.textContent ?? '')
     return {
       names,
       text: (bubble.textContent ?? '').slice(0, 120),
-      scrollTop: document.querySelector('.dmc-tip-list')?.scrollTop ?? -1,
+      scrollTop: document.querySelector('.dmw-tip-list')?.scrollTop ?? -1,
       width: Math.round(rect.width),
       height: Math.round(rect.height),
       panelWidth: Math.round(panel?.width ?? 0),
@@ -271,10 +271,10 @@ window.__gui = {
   },
   /** 弹窗里「服务器名」那行的几何：提示文案必须与 label 同一行。 */
   serverNameLabel() {
-    const field = [...document.querySelectorAll('.dmc-field')].find((node) =>
-      (node.querySelector('.dmc-label')?.textContent ?? '').includes('服务器名')
+    const field = [...document.querySelectorAll('.dmw-field')].find((node) =>
+      (node.querySelector('.dmw-label')?.textContent ?? '').includes('服务器名')
     )
-    const label = field?.querySelector('.dmc-label')
+    const label = field?.querySelector('.dmw-label')
     if (label === null || label === undefined) return null
     const rects = [...label.children].map((node) => node.getBoundingClientRect())
     return {
@@ -284,25 +284,25 @@ window.__gui = {
   },
   dialog() {
     // 用插件自己的 class 定位：设置面板本身也带 role=dialog，按 role 找会先命中它
-    const dialog = document.querySelector('.dmc-dialog')
-    const form = document.querySelector('.dmc-form')
+    const dialog = document.querySelector('.dmw-dialog')
+    const form = document.querySelector('.dmw-form')
     if (dialog === null || form === null) return null
     const title = (dialog.textContent ?? '').trim().slice(0, 40)
     // 只认弹窗底部那一个：凭据行里也有一个「保存」（保存这枚凭据的值）
-    const footer = document.querySelector('.dmc-dialog-footer')
+    const footer = document.querySelector('.dmw-dialog-footer')
     const save = [...(footer?.querySelectorAll('button') ?? [])].find((b) => /^(保存|验证并保存中…)$/.test((b.textContent ?? '').trim()))
     return {
       title,
       hasVerifyButton: [...document.querySelectorAll('button')].some((b) => /^(验证|重新验证)$/.test((b.textContent ?? '').trim())),
       saveLabel: save?.textContent?.trim() ?? null,
       saveDisabled: save?.disabled ?? null,
-      verification: (document.querySelector('.dmc-verify')?.textContent ?? '').trim()
+      verification: (document.querySelector('.dmw-verify')?.textContent ?? '').trim()
     }
   },
   nav() {
     return [...document.querySelectorAll('nav button')].map((button) => ({
       label: (button.textContent ?? '').trim(),
-      patched: button.hasAttribute('data-dmc-nav-icon'),
+      patched: button.hasAttribute('data-dmw-nav-icon'),
       originalIconDisplay: button.querySelector('svg') === null ? null : getComputedStyle(button.querySelector('svg')).display,
       pseudo: getComputedStyle(button, '::before').width
     }))
@@ -379,7 +379,7 @@ check('其它导航行未被误伤', nav.filter((row) => row.patched).length ===
 
 await evaluate(`__gui.click('nav button', 'MCP 服务器')`)
 await sleep(2000)
-const initial = await evaluate(`({ rows: __gui.rows(), targets: __gui.targets(), text: document.querySelector('.dmc-section')?.textContent ?? '' })`)
+const initial = await evaluate(`({ rows: __gui.rows(), targets: __gui.targets(), text: document.querySelector('.dmw-section')?.textContent ?? '' })`)
 report.steps.push({ name: '初始分区', ...initial })
 check('分区渲染成功', initial.text.includes('MCP 服务器') && initial.text.includes('启用托管的所有服务器'))
 check('只读块有独立标题，且文案不含实现细节', initial.text.includes('配置文件中的服务器') && !/profile|cordis\.patch\.yml|!!js/u.test(initial.text))
@@ -398,7 +398,7 @@ await sleep(2500)
 const imported = await evaluate(`__gui.dialog()`)
 const importedValues = await evaluate(`(() => {
   const read = (label) => {
-    const field = [...document.querySelectorAll('.dmc-field')].find((f) => (f.querySelector('.dmc-label')?.textContent ?? '').includes(label))
+    const field = [...document.querySelectorAll('.dmw-field')].find((f) => (f.querySelector('.dmw-label')?.textContent ?? '').includes(label))
     return field?.querySelector('input, textarea')?.value ?? null
   }
   const byAria = (label) => [...document.querySelectorAll('[aria-label]')].find((node) => node.getAttribute('aria-label') === label)?.value ?? null
@@ -409,7 +409,7 @@ const importedValues = await evaluate(`(() => {
     // 行式编辑器：敏感请求头导入后是「名字 + 凭据键名」两个输入框，不再是待维护的文本行
     headerName: byAria('请求头第 1 行名字'),
     headerKey: byAria('请求头第 1 行凭据键名'),
-    pageText: (document.querySelector('.dmc-dialog')?.textContent ?? '')
+    pageText: (document.querySelector('.dmw-dialog')?.textContent ?? '')
   }
 })()`)
 report.steps.push({ name: '导入弹窗', ...imported, ...{ url: importedValues.url } })
@@ -443,18 +443,18 @@ await sleep(300)
 await evaluate(`__gui.fillAria('URL前缀', 'https://mcp.example.com/v2/mcp?token=')`)
 await evaluate(`__gui.fillAria('URL凭据键名', 'URL_TOK')`)
 await sleep(400)
-const credNames = await evaluate(`[...document.querySelectorAll('.dmc-cred-name')].map((node) => node.textContent ?? '')`)
+const credNames = await evaluate(`[...document.querySelectorAll('.dmw-cred-name')].map((node) => node.textContent ?? '')`)
 report.steps.push({ name: '凭据区', credNames })
 check('自己取的键名会出现在凭据区（值在这里填）', credNames.some((text) => text.includes('URL_TOK')), JSON.stringify(credNames))
 // 尺寸与对齐：小按钮 28px（与 dsh-extra-context 的「+ 添加规则」一致），
 // 凭据区的按钮与输入框同一行且垂直居中；"未配置"是状态标签
 const geometry = await evaluate(`(() => {
   const rect = (node) => (node === null || node === undefined ? null : node.getBoundingClientRect())
-  const addBtn = rect(document.querySelector('.dmc-pair-add'))
-  const bar = document.querySelector('.dmc-cred-input-row')
+  const addBtn = rect(document.querySelector('.dmw-pair-add'))
+  const bar = document.querySelector('.dmw-cred-input-row')
   const input = rect(bar?.querySelector('input'))
   const save = rect(bar?.querySelector('button'))
-  const chip = [...document.querySelectorAll('.dmc-cred-head .dmc-status')].map((node) => node.textContent)
+  const chip = [...document.querySelectorAll('.dmw-cred-head .dmw-status')].map((node) => node.textContent)
   return {
     addHeight: addBtn === null ? null : Math.round(addBtn.height),
     // 高度不同（输入框 34 / 按钮 28），所以按"垂直中心对齐 + 纵向重叠"判断是不是同一行
@@ -482,12 +482,12 @@ const headerGeom = await evaluate(`(() => {
   const keyInput = rect(document.querySelector('[aria-label="请求头第 1 行凭据键名"]'))
   const select = document.querySelector('[aria-label="请求头第 1 行前缀"]')
   const selectRect = rect(select)
-  const caret = rect(document.querySelector('.dmc-select-caret'))
+  const caret = rect(document.querySelector('.dmw-select-caret'))
   const nameRect = rect(document.querySelector('[aria-label="请求头第 1 行名字"]'))
   const keyInputNode = document.querySelector('[aria-label="请求头第 1 行凭据键名"]')
   const keyInputRect = rect(keyInputNode)
   // 同一组字段共享标签列：所有输入框左边缘必须对齐（早先每行各自成 grid，输入框一个个错开）
-  const lefts = [...document.querySelectorAll('.dmc-pair .dmc-field-ctl > .dmc-input, .dmc-pair .dmc-field-ctl > .dmc-select-wrap')].map(
+  const lefts = [...document.querySelectorAll('.dmw-pair .dmw-field-ctl > .dmw-input, .dmw-pair .dmw-field-ctl > .dmw-select-wrap')].map(
     (node) => Math.round(node.getBoundingClientRect().left)
   )
   return {
@@ -525,8 +525,8 @@ check('选「其它」后的自定义前缀输入框有足够宽度（可以正�
 
 // 凭据写入：填值 → 点该行的「保存」→ 宿主侧的凭据状态真的变成已配置、页面上不出现明文
 const refToSave = await evaluate(`(() => {
-  const row = document.querySelector('.dmc-cred-row')
-  return row === null ? null : { ref: row.querySelector('.dmc-cred-name')?.textContent ?? '', status: row.querySelector('.dmc-status')?.textContent ?? '' }
+  const row = document.querySelector('.dmw-cred-row')
+  return row === null ? null : { ref: row.querySelector('.dmw-cred-name')?.textContent ?? '', status: row.querySelector('.dmw-status')?.textContent ?? '' }
 })()`)
 if (refToSave === null) {
   check('凭据区可以保存值', false, '弹窗里没有凭据行')
@@ -540,7 +540,7 @@ if (refToSave === null) {
   report.steps.push({ name: '凭据保存', ref: refToSave.ref, filled, enabledBefore, after: afterSave })
   check('填了值之后「保存」不再是灰的', filled.ok === true && enabledBefore === true, JSON.stringify({ filled, enabledBefore }))
   check('保存后状态变成「已配置」', afterSave !== undefined && afterSave.status.includes('已配置'), JSON.stringify(afterSave))
-  check('页面上不出现凭据明文', (await evaluate(`document.querySelector('.dmc-dialog')?.textContent?.includes('gui-flow-secret') ?? false`)) === false)
+  check('页面上不出现凭据明文', (await evaluate(`document.querySelector('.dmw-dialog')?.textContent?.includes('gui-flow-secret') ?? false`)) === false)
 }
 const urlSplit = await evaluate(`({ prefix: document.querySelector('[aria-label="URL前缀"]')?.value ?? null, key: document.querySelector('[aria-label="URL凭据键名"]')?.value ?? null })`)
 check('地址前缀保持可见、密钥只留键名', urlSplit.prefix === 'https://mcp.example.com/v2/mcp?token=' && urlSplit.key === 'URL_TOK', JSON.stringify(urlSplit))
@@ -610,7 +610,7 @@ check('这一行也只有一行（开关左 / 标题中 / 操作右）', row !==
 enterStep('悬停查看工具清单')
 // 悬停「已连接 · N 个工具」这个 tag：官方 Tooltip 的气泡 = 完整工具清单
 const tipTarget = await evaluate(`(() => {
-  const tag = [...document.querySelectorAll('.dmc-status')].find((node) => (node.textContent ?? '').includes('已连接'))
+  const tag = [...document.querySelectorAll('.dmw-status')].find((node) => (node.textContent ?? '').includes('已连接'))
   if (tag === undefined) return null
   const rect = tag.getBoundingClientRect()
   return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2), text: tag.textContent }
@@ -661,7 +661,7 @@ check('编辑保存生效（行上显示新备注名）', renamed !== undefined)
 
 enterStep('停用与删除')
 // 停用 → 卸载
-await evaluate(`__gui.click('.dmc-switch', '停用 ${name}')`)
+await evaluate(`__gui.click('.dmw-switch', '停用 ${name}')`)
 await sleep(6000)
 const afterDisable = await hostStatus()
 const disabled = afterDisable.servers.find((server) => server.serverName === name)

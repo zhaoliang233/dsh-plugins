@@ -273,12 +273,12 @@ export function createHarness() {
     /**
      * 表单里某个标签对应的输入控件（弹窗表单全靠它来填值）。
      *
-     * class 必须按 **token 精确匹配**：`.dmc-field-row` 也包含 "dmc-field" 这个子串，
+     * class 必须按 **token 精确匹配**：`.dmw-field-row` 也包含 "dmw-field" 这个子串，
      * 用 `includes` 会先命中外层的行容器，于是取到同排第一个输入框（备注名），
      * 看起来像"表单没预填/没写进去"，其实是助手选错了元素（踩过）。
      */
     inputByLabel(label) {
-      const isField = (node) => String(node.props.className ?? '').split(/\s+/u).includes('dmc-field')
+      const isField = (node) => String(node.props.className ?? '').split(/\s+/u).includes('dmw-field')
       const field = find(
         (node) =>
           node.tag === 'div' &&
@@ -295,7 +295,7 @@ export function createHarness() {
     fieldByLabel: (label) =>
       find((node) => {
         const tokens = String(node.props.className ?? '').split(/\s+/u)
-        if (node.tag !== 'div' || !tokens.includes('dmc-field')) return false
+        if (node.tag !== 'div' || !tokens.includes('dmw-field')) return false
         return (node.children ?? []).some((child) => typeof child === 'object' && textOf(child).includes(label))
       }),
     click(element) {

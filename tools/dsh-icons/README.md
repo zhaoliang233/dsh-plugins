@@ -88,7 +88,7 @@ Windows 上 `bash` 解析不到 `dsh` 时也用 `--dsh` 显式给 `@deepseek-ai/
 |---|---|---|---|
 | `dsh-chat-archive-manager` | `client.js` 的 `ArchiveNavIconMarker` | `settings.action` 挂载点 + `MutationObserver` + 原 svg 透明 + `::before` **绝对定位** mask | `apply()` 里（插件级，页面启动即在） |
 | `dsh-extra-context` | `client.js` 的「设置页导航图标」分区 | 同上，但 `::before` **参与 flex 布局**而非绝对定位（不写死 `padding-left`，壳层改内边距也不会错位） | `apply()` 里（`installStyles`，插件级 + 引用计数） |
-| `dsh-mcp-console` | `client.js` 的 `patchSettingsNavIcon` | 同 extra-context（flex 布局） | `apply()` 里（`installStyles`，插件级 + 引用计数） |
+| `dsh-mcp-workbench` | `client.js` 的 `patchSettingsNavIcon` | 同 extra-context（flex 布局） | `apply()` 里（`installStyles`，插件级 + 引用计数） |
 | `dsh-local-plugin-manager` | `client.js` 的 `patchSettingsNavIcon` | 同上；图标名走 `iconOf('…Medium','…Regular')` 候选链，本工具按当前构建解析出候选链里第一个真实存在的名字 | `apply()` 里（插件级 + 引用计数） |
 
 > **踩过的坑（一定要看这一行）**：补丁的可见效果取决于**导航渲染那一刻** CSS 在不在，而导航属 `settings.action`／面板的生命周期，比分区组件（`only: active`，点开才渲染）更早更广。

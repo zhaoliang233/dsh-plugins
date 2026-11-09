@@ -45,7 +45,7 @@ test('版本门：线内通过、线外拒绝，且只把已核对过的 0.2.2-a
 })
 
 test('设置条目 id 与包名同源（客户端 bundle 里的字面量必须一致）', () => {
-  assert.equal(SETTINGS_ENTRY, 'dsh-mcp-console')
+  assert.equal(SETTINGS_ENTRY, 'dsh-mcp-workbench')
   assert.equal(SETTINGS_ENTRY, PLUGIN_NAME)
 })
 
@@ -169,8 +169,8 @@ async function findDshRoot() {
 }
 
 test('CSRF 头名与客户端头名保持稳定（客户端 bundle 依赖字面量）', () => {
-  assert.equal(CLIENT_HEADER, 'x-dsh-mcp-console-client')
-  assert.equal(CSRF_HEADER, 'x-dsh-mcp-console-csrf')
+  assert.equal(CLIENT_HEADER, 'x-dsh-mcp-workbench-client')
+  assert.equal(CSRF_HEADER, 'x-dsh-mcp-workbench-csrf')
 })
 
 test('statusPayload：与配置文件同名的托管条目要给出即时提示，且不回显任何值', () => {

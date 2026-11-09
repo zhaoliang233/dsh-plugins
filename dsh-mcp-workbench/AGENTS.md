@@ -1,4 +1,4 @@
-# dsh-mcp-console — 技术说明（AGENTS.md）
+# dsh-mcp-workbench — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
 > 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`；`0.2.2-alpha.2` 做过完整验证（单测 104 项 + 真机 GUI 52/52 + 鉴权/CSRF + 动态挂载与凭据链实测 + 导航图标六项）；`0.2.2-rc.1`（2026-11-05）做的是同线例行核对：逐包 diff + 隔离宿主路由/启动图/设置面板实测，**未重跑真机 GUI 52 项**。上一线 `0.2.1` 的用户留在上一线的插件版本。
@@ -47,7 +47,7 @@
 
 ## 验收判据
 
-在隔离宿主上四项全过才算通过：`/status` 未认证 401、认证后 200；boot graph 中 `dsh-mcp-console` 出现 4 处（id/url/rev/inject）；`npm run gui:check` 52/52；凭据走 `credentials`、明文 0 次进入 profile 配置或请求载荷。
+在隔离宿主上四项全过才算通过：`/status` 未认证 401、认证后 200；boot graph 中 `dsh-mcp-workbench` 出现 4 处（id/url/rev/inject）；`npm run gui:check` 52/52；凭据走 `credentials`、明文 0 次进入 profile 配置或请求载荷。
 
 同线的其它 prerelease 带警告运行、能力探测仍是权威判定；`0.2.2` 正式版按判据在门内，发布后把它加进 `VERIFIED_DSH_VERSIONS` 与 `install.sh` 清单。
 
@@ -63,7 +63,7 @@
 | `lib/plan.js` | 纯逻辑：设置与已挂载实例的对账计划（挂/卸/拦/不变） |
 | `lib/mount-manager.js` | 运行态：`ctx.plugin` 挂载、`fiber.dispose` 卸载、凭据解析、`ctx.tools.view()` 取工具名、捕获 mcp-client 日志 |
 | `lib/targets.js` | 纯逻辑：把 loader 里的 MCP 行投影成只读视图（脱敏：URL 去查询串、stdio 只给可执行文件名与参数个数、env/header 只给键名） |
-| `client.js` | 单文件 CJS 惰性 bundle：设置分区（`settings.section` order 130 = 插件设置入口一律 ≥ 100、排在 DSH 自带分区之后；同 slot 的连续分配见根 `AGENTS.md`）、经 `configForms.get('dsh-mcp-console')` 读写条目配置、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
+| `client.js` | 单文件 CJS 惰性 bundle：设置分区（`settings.section` order 130 = 插件设置入口一律 ≥ 100、排在 DSH 自带分区之后；同 slot 的连续分配见根 `AGENTS.md`）、经 `configForms.get('dsh-mcp-workbench')` 读写条目配置、编辑器、凭据区、只读的配置文件条目、导航图标补丁、样式注入 |
 | `test/harness.js` | 测试用的小 React 运行时（可渲染、可点击），守住"接线"这一类缺陷 |
 | `scripts/gui-flow.mjs` | 真机 GUI 验收（CDP + 无头 Chrome），不进发布物 |
 | `scripts/fixture-mcp-server.mjs` | 自检用的最小 stdio MCP 服务器（只服务 dev 脚本，不进发布物） |
@@ -79,7 +79,7 @@
 6. **状态接口不回显值**：`describeServer()` 只给 `envKeys`/`headerKeys`/`credentialRefs`，`targets.js` 对组合层条目额外做 URL 去查询串与 stdio 参数计数处理（组合层 `!!js` 求值后可能已经是明文）。
 7. **`serverName` 不做静默清洗**：非法字符必须由校验报出来，否则界面上的名字与实际挂载用的名字会不一致（`normalizeServer` 只 trim，`validateServer` 负责报错）。
 8. **样式由插件（`apply`）持有，不是组件**：按 `data-plugin` + `data-owner` 打标、引用计数清理，元素存活但文本过期时重写文本（HMR 先卸旧 fiber 再挂新 fiber，组件级注入会漏，见 `dsh-extra-context` 的同类踩坑）。
-9. **导航图标补丁三处必须同源**：`dataset.dmcNavIcon`、CSS 选择器 `[data-dmc-nav-icon]`、CSS 变量 `--dmc-nav-icon-mask`；引用计数落在按钮 dataset 上，按钮被壳层重建后由 `MutationObserver` 补回（`test/client.test.js` 有守护）。**0.2.2 起图标是 sprite 壳**：组件 `outerHTML` 只有 `<use href="#…">`，直接作 mask 会空白；`navIconSymbolSource()` 优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG，旧线无该导出时退回 `outerHTML`。**0.2.2-alpha.3 起壳层把 fallback 图标包进 `span.navIcon[aria-hidden=true]`**：CSS 必须同时隐藏直接 `svg`、该包装层和内部 svg，否则会出现「自定义图标 + 齿轮」两个。
+9. **导航图标补丁三处必须同源**：`dataset.dmwNavIcon`、CSS 选择器 `[data-dmw-nav-icon]`、CSS 变量 `--dmw-nav-icon-mask`；引用计数落在按钮 dataset 上，按钮被壳层重建后由 `MutationObserver` 补回（`test/client.test.js` 有守护）。**0.2.2 起图标是 sprite 壳**：组件 `outerHTML` 只有 `<use href="#…">`，直接作 mask 会空白；`navIconSymbolSource()` 优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG，旧线无该导出时退回 `outerHTML`。**0.2.2-alpha.3 起壳层把 fallback 图标包进 `span.navIcon[aria-hidden=true]`**：CSS 必须同时隐藏直接 `svg`、该包装层和内部 svg，否则会出现「自定义图标 + 齿轮」两个。
 10. **`failOnStartupError` 默认关闭**（跟随 mcp-client 组合默认）：连不上仍挂载并自动重连，状态行显示最近日志；勾选后失败即记 `failed`。
 11. **写设置用一次原子 `mutate`**：`servers` 与 `enabled` 一起提交（`{op:'set', path:[...]}`），而不是两次 `set`——两次会有两个 revision 栅栏，中途失败就留下半套配置。
 
@@ -124,17 +124,17 @@
 
 ## 表单与布局（当前规则）
 
-- 弹窗 680px、三段卡片（基本信息 / 连接方式 / 环境变量或请求头）；高级项 `<details>` 默认收起；验证状态在 footer `.dmc-verify`，`dmc-dialog-footer` / `dmc-form` / `.dmc-field` 等选择器保留。
+- 弹窗 680px、三段卡片（基本信息 / 连接方式 / 环境变量或请求头）；高级项 `<details>` 默认收起；验证状态在 footer `.dmw-verify`，`dmw-dialog-footer` / `dmw-form` / `.dmw-field` 等选择器保留。
 - 传输方式是分段控件，底层仍是两个原生 radio；测试与 GUI 按 `input[type=radio]` 顺序操作。
 - 新增时 `serverName` 留空用占位符，label 里的 `(工具前缀为 mcp__<名字>__)` 随输入实时更新；必填项带 `*`，非必填不写“（可空）”。
 - 校验只在宿主 `verify` 做；「保存」= 先验证、通过才落盘；`FooterStatus` 负责 idle / running / ok / failed / stale。
 - 凭据不是手写占位符：环境变量/请求头用结构化行 + 「凭据」开关 + 键名输入；存储格式仍是 `[前缀]credential:键名[后缀]`。凭据区只列当前草稿引用，值不回显；候选键来自其它托管条目，减去当前草稿已用键。
 - 请求头一行是多行卡片：第一行名字 + 「凭据」+ 删除；下面每行一个字段（`值` 或 `前缀` + `凭据键名` + 可选 `后缀`）。`FieldLine` 是唯一字段行结构，URL 复用。`PrefixField` 提供「不加前缀 / Bearer / Basic / 其它…」，自定义值留在组件本地，不写进设置。
-- 下拉箭头自绘：`.dmc-select{appearance:none;height:34px;padding:0 30px 0 10px}` + 官方 `IconChevronDownOutlineMedium`；键名候选用「用过的键」芯片，不用原生 `datalist`。
-- `.dmc-fields` 用 grid + `.dmc-field-line{display:contents}` 共享标签列，保证标签同宽、输入框左缘对齐（只能真机量）。
-- 尺寸：`.dmc-btn-sm` 28px 高，行尾图标按钮 26px；输入框 34px；同一行判据是垂直中心对齐 + 纵向重叠，不是 top 相等。
+- 下拉箭头自绘：`.dmw-select{appearance:none;height:34px;padding:0 30px 0 10px}` + 官方 `IconChevronDownOutlineMedium`；键名候选用「用过的键」芯片，不用原生 `datalist`。
+- `.dmw-fields` 用 grid + `.dmw-field-line{display:contents}` 共享标签列，保证标签同宽、输入框左缘对齐（只能真机量）。
+- 尺寸：`.dmw-btn-sm` 28px 高，行尾图标按钮 26px；输入框 34px；同一行判据是垂直中心对齐 + 纵向重叠，不是 top 相等。
 - 状态只在列表行显示一次：带底色 chip（ok/warn/error/停用），完整原因在 `title` 与编辑弹窗。列表一行：左开关 / 中名称+命名空间+状态 tag / 右编辑+删除。
-- 工具清单放在「已连接 · N 个工具」的官方 `Tooltip`：宽 ≤ min(360, 面板宽-32)，高 ≤ 面板可见高且不超过锚点侧剩余空间；内边距由 `.dmc-tip-content` 补；滚轮从锚点转发给清单；只有已连接且有工具才挂。
+- 工具清单放在「已连接 · N 个工具」的官方 `Tooltip`：宽 ≤ min(360, 面板宽-32)，高 ≤ 面板可见高且不超过锚点侧剩余空间；内边距由 `.dmw-tip-content` 补；滚轮从锚点转发给清单；只有已连接且有工具才挂。
 - 凭据提示保留一句：密钥点「凭据」，值存进凭据库、界面不回显、可复用；直接填写的值会明文存进设置文件。
 - `rowsToRecord()` 丢掉名字为空的行；`recordToRows()` 反向回显；不做文本往返，避免吞掉未写完的行。
 - UI 历史取舍见 `CHANGELOG.md`；当前规则由 `test/client.test.js` 与 `scripts/gui-flow.mjs` 的接线/几何断言守住。
@@ -162,20 +162,20 @@ npm run publish:check
 npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333
 ```
 
-当前判据：`/status` 未认证 401 / 认证 200；boot graph 中 `dsh-mcp-console` 出现 4 处；`npm test` 104/104；`gui:check` 52/52；凭据走 `credentials`、明文 0 次进入 profile 配置或请求载荷。历史逐轮数据（0.1.7-alpha.2 起）见 `docs/compat-log.md` 的 B3 / G2 / M2。
+当前判据：`/status` 未认证 401 / 认证 200；boot graph 中 `dsh-mcp-workbench` 出现 4 处；`npm test` 104/104；`gui:check` 52/52；凭据走 `credentials`、明文 0 次进入 profile 配置或请求载荷。历史逐轮数据（0.1.7-alpha.2 起）见 `docs/compat-log.md` 的 B3 / G2 / M2。
 
-- `gui:check` 用隔离宿主（`DSH_HOME=/tmp/... dsh --profile web --port <非 3080> --no-open`），不要 `--port 0`；先关首启引导弹层，定位弹窗用 `.dmc-dialog`；0.2.2 起先用带 token 的 URL 换会话 cookie，否则状态接口 401。
+- `gui:check` 用隔离宿主（`DSH_HOME=/tmp/... dsh --profile web --port <非 3080> --no-open`），不要 `--port 0`；先关首启引导弹层，定位弹窗用 `.dmw-dialog`；0.2.2 起先用带 token 的 URL 换会话 cookie，否则状态接口 401。
 - 导入断言约定：profile 第 1 行是带 `Authorization` 的 URL 条目、服务器名 `patchy2`；换隔离环境时同步改脚本期望名。新增条目必须 `- insert:`。
 - `test/client.test.js` 在 `node:vm` 里加载 bundle，用 `test/harness.js` 的可渲染 React 桩；接线守卫覆盖「点 + 只开弹窗」「保存先 verify」「缺 actions / unknown action 提示重启」「写完等对账追上」。
-- 导航图标几何用 `verify-nav-icon.js --plugin dsh-mcp-console --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure` 离线量；样式注入先注入再登记 `ctx.effect`。
+- 导航图标几何用 `verify-nav-icon.js --plugin dsh-mcp-workbench --label 'MCP 服务器' --icon IconLinkOutlineMedium --measure` 离线量；样式注入先注入再登记 `ctx.effect`。
 - `scripts/gui-flow.mjs` 必须能报死：请求 id 当场捕获、连接 close 时 reject 在途请求、5 分钟看门狗 + 步骤名。
 
 ## 发布与安装路线
 
-> **当前发布阻塞（2026-10-20 查得）**：`dsh-mcp-console` 已被第三方 `dakuo <coderkuo@gmail.com>` 占用（`0.1.11`，2026-10-14 发布），描述与我们的功能几乎逐字雷同。**发布动作先改名**：定新名 → `npm view <新名> maintainers` 实测未被占用 → 按下面「改名时要同步的落点」改完 → 按根 `AGENTS.md`「新包首次发布」的三步走。改名完成前保持未发布状态；发布动作只在新名字上执行。
-> 本包从未发布过（`package.json#version` 仍是 `0.1.0`）；registry 上的 `0.1.11` 属于第三方，不是我们的版本。
-> 历史：2026-10-08 旧名 `dsh-mcp-manager` 撞名后改到 `dsh-mcp-console`；完整改名证据见 `docs/compat-log.md` 的 E1。
-> 改名后，在新名字上配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`），再按根 `AGENTS.md` 的三步首发流程发布。
+> **发布阻塞已解除（2026-11-09）**：原名 `dsh-mcp-console` 被第三方 `dakuo <coderkuo@gmail.com>` 占用（`0.1.11`，2026-10-14 发布，描述与我们的功能几乎逐字雷同），发不了版。2026-11-09 改到本名 `dsh-mcp-workbench`（`npm view` 实测 `E404` 未占用），按下面「改名时要同步的落点」改完八处并重跑闸门后，按根 `AGENTS.md`「新包首次发布」的三步走。
+> 本包从未发布过（`package.json#version` 仍是 `0.1.0`）；registry 上的 `dsh-mcp-console@0.1.11` 属于第三方，不是我们的版本。
+> 历史：2026-10-08 旧名 `dsh-mcp-manager` 撞名后改到 `dsh-mcp-console`；完整改名证据见 `docs/compat-log.md` 的 E1 / E3。
+> 在新名字上配置 trusted publisher（组织/用户 `zhaoliang233`、仓库 `dsh-plugins`、工作流文件名 `release.yml`），再按根 `AGENTS.md` 的三步首发流程发布。
 
 ### 改名时要同步的落点
 
@@ -194,7 +194,9 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333
 
 改完必须重跑：`npm run publish:check`（含改名守卫）、`node tools/dsh-icons/verify-nav-icon.js --plugin <新包名> --measure`（六项）、以及 `npm run gui:check` 一次——客户端 bundle 的注册名变了，这一轮最容易漏。
 
-> **2026-10-08 已按上表执行过一轮**：`dsh-mcp-manager` → `dsh-mcp-console`。八处落点全改：包名、`cordis.patch.yml` 的 id/name、bundle 注册名、`PLUGIN_NAME`/`SETTINGS_ENTRY`/`SECTION_ID`、路由与两个固定头名（`/dsh-mcp-console/status`、`/dsh-mcp-console/action`、`x-dsh-mcp-console-client`、`x-dsh-mcp-console-csrf`）、测试与验收脚本字面量、文档；内部短前缀 `dmm` → `dmc`（CSS 类名 + 导航补丁的 dataset/CSS 选择器/CSS 变量三处同源），目录随包名一起改。闸门：`npm run publish:check` **104/104** 且打包 12 个文件、`tools/dsh-icons/check.js` 无漂移、`verify-nav-icon.js --plugin dsh-mcp-console --measure` **六项全过**。**本机 profile**：用官方命令换到新名、把 patch 里的 `- id:` 改成新 id；注意**旧名目录改名后 `dsh plugin remove <旧名>` 会失败**（`node_modules` 里的 `link:` 符号链接已悬空 → `ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS`，且它可能已先把依赖删掉、只留下 bundle 列表里的旧项），需要手工把 bundles 里的旧名删掉并清理悬空链接。
+> **2026-10-08 已按上表执行过一轮**：`dsh-mcp-manager` → `dsh-mcp-console`。八处落点全改：包名、`cordis.patch.yml` 的 id/name、bundle 注册名、`PLUGIN_NAME`/`SETTINGS_ENTRY`/`SECTION_ID`、路由与两个固定头名、测试与验收脚本字面量、文档；内部短前缀 `dmm` → `dmc`（CSS 类名 + 导航补丁的 dataset/CSS 选择器/CSS 变量三处同源），目录随包名一起改。**当时记下的一条教训：旧名目录改名后 `dsh plugin remove <旧名>` 会失败**（`node_modules` 里的 `link:` 符号链接已悬空 → `ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS`，且它可能已先把依赖删掉、只留下 bundle 列表里的旧项），需要手工清理。
+>
+> **2026-11-09 再执行一轮（同一张表）**：`dsh-mcp-console` → `dsh-mcp-workbench`（旧名被第三方占用，见上一节）。八处落点全改，内部短前缀 `dmc` → `dmw`——顺带消除了与 `dsh-mobile-compat` 的 `dmc` 前缀撞车（那个插件用 `.dmc-*` / `--dmc-*`），目录用 `git mv` 随包名改。本机 profile 这次按正确顺序迁移：**先** `dsh plugin remove dsh-mcp-console`（此时目录还在、link 未悬空）→ 再改目录与源码 → 再 `add link:` 新目录，并把 profile patch 里的 `- id:` 改成新 id。闸门：`npm run publish:check` **104/104**、打包 12 个文件、`tools/dsh-icons/build.js` 重建快照且 `check.js` 无漂移、`verify-nav-icon.js --plugin dsh-mcp-workbench --measure` **六项全过**。真机 GUI 52 项本轮未重跑（bundle 注册名变了，首次安装后按「验证现状」跑一轮）。
 
 ### 其余
 
@@ -205,12 +207,12 @@ npm run gui:check -- --url '<带 token 的隔离宿主 URL>' --cdp-port 9333
 
 ## 排查顺序
 
-1. 设置页没有「MCP 服务器」分区 → 确认 profile bundle 列表已包含 `dsh-mcp-console`（需重启），并看宿主日志里的 `dsh-mcp-console:` 前缀告警。
+1. 设置页没有「MCP 服务器」分区 → 确认 profile bundle 列表已包含 `dsh-mcp-workbench`（需重启），并看宿主日志里的 `dsh-mcp-workbench:` 前缀告警。
 2. 页面顶部红条说「无法加载 @deepseek-ai/dsh-mcp-client」→ 看状态接口返回的 `mcpModule.errors`（两级解析都失败）。
 3. 条目显示被拦 → 读 `blockedReason`：校验未过 / 与配置文件重名 / 凭据未配置。
 4. 保存成功但没有工具 → 看该行的最近日志（重连、tools/list 失败），以及服务器是否本来就无工具能力。
 5. 弹窗里写着"宿主进程还是旧版本"、保存按钮是灰的 → 宿主半体是旧的：请用户重启 `dsh web`（客户端刷新即新，宿主必须重启才加载）。
-6. 设置页红条说"宿主这一条没有可写的设置 schema"、写入被拒 → 状态接口看 `settingsAvailable`：为 `false` 说明 `Config` 没构造出来（schemastery 定位失败，宿主日志有 `dsh-mcp-console:` 前缀告警）或条目不在 `settings.describe()` 里（profile 组成里没有这一条）。
-7. 想确认宿主真实状态与支持的动作 → 先用带 token 的 URL 换会话 cookie（`curl -c /tmp/mcp-cookie.txt 'http://127.0.0.1:3080/?token=<token>'`），再 `curl -s -b /tmp/mcp-cookie.txt -H 'x-dsh-mcp-console-client: 1' http://127.0.0.1:3080/dsh-mcp-console/status | python3 -m json.tool`（同源 + loopback + 会话才放行；没有 cookie 是 401，`actions` 字段就是宿主的能力清单）。
+6. 设置页红条说"宿主这一条没有可写的设置 schema"、写入被拒 → 状态接口看 `settingsAvailable`：为 `false` 说明 `Config` 没构造出来（schemastery 定位失败，宿主日志有 `dsh-mcp-workbench:` 前缀告警）或条目不在 `settings.describe()` 里（profile 组成里没有这一条）。
+7. 想确认宿主真实状态与支持的动作 → 先用带 token 的 URL 换会话 cookie（`curl -c /tmp/mcp-cookie.txt 'http://127.0.0.1:3080/?token=<token>'`），再 `curl -s -b /tmp/mcp-cookie.txt -H 'x-dsh-mcp-workbench-client: 1' http://127.0.0.1:3080/dsh-mcp-workbench/status | python3 -m json.tool`（同源 + loopback + 会话才放行；没有 cookie 是 401，`actions` 字段就是宿主的能力清单）。
 8. 判断"到底是客户端新还是宿主新" → 比一下宿主进程启动时间与 `lib/*.js` 的修改时间：
    `ps -o lstart= -p <pid>` vs `ls -l lib/*.js`。

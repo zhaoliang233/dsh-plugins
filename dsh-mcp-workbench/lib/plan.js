@@ -5,7 +5,7 @@
  * 挂载状态是它的投影。任何设置写入都只产生一份计划，再由挂载管理器执行。
  * 本文件不依赖 Cordis，可被 `node --test` 独立驱动。
  *
- * @module dsh-mcp-console/plan
+ * @module dsh-mcp-workbench/plan
  */
 
 import { canonicalJson, validateServer } from './store.js'

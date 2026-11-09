@@ -4,11 +4,13 @@
 > 需要回顾某一轮做了什么、为什么这么判断、哪些结论已经被实测证伪时读它；执行一次例行的「检查插件的兼容性」**不需要**读它。
 > 记录按时间倒序。新的一轮写完后，请只把**跨轮有效的规则**提炼进根 `AGENTS.md`，其余留在本文件。
 > 2026-10-08 起两个未发布插件改名（`dsh-mcp-manager` → `dsh-mcp-console`、`dsh-default-overrides` → `dsh-default-tuner`，见 E1）。**早于该日期的段落已按新名同步替换**，所以它们描述改名前的状态时可能读起来自相矛盾（如「包名被第三方占用」说的一定是**旧名**）——遇到这类句子请对着 E1 的对照表回读。
+> 2026-11-09 起 `dsh-mcp-console` 又改名为 `dsh-mcp-workbench`（见 E3）；**本轮之前的记录保留当时的名字 `dsh-mcp-console`**，不再回改。
 
 ## 目录
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| E3（2026-11-09，改名） | 不涉及版本 | `dsh-mcp-console` → `dsh-mcp-workbench`：旧名被第三方 `dakuo` 的 `0.1.11` 占用，发布前必须改名；新名 `npm view` 实测 `E404`。八处落点全改，内部短前缀 `dmc` → `dmw`（顺带修掉与 `dsh-mobile-compat` 的 `.dmc-*` 撞前缀），目录 `git mv`。闸门：`publish:check` 104/104 + 打包 12 文件、图标重建无漂移、导航图标六项全过 |
 | R1（2026-11-05，发布） | `0.2.2` 线首发 | 7 个已上架插件从 `0.2.1` 线跨到 `>=0.2.2-alpha.2 <0.2.3` 并发布（6 个 `0.4.0`、`local-plugin-manager` `0.5.0`）：registry、SLSA provenance、GitHub Release 三项逐包核对通过；`dsh-workspace-running-indicator` 闸门全绿但首发被 npm 登录/trusted publisher 阻塞，`dsh-mcp-console` 因撞名未包含 |
 | N1（2026-11-05，例行） | `0.2.2-alpha.2 → 0.2.2-rc.1` | 同线 prerelease 例行核对（alpha→rc 是通道提升，**不跨线**）。194 个契约相关包逐文件比对（先抹版本号）：126 个逐字相同，68 个有差异，逐项判定后**没有一处够得着插件契约**。值得记的三处 API 变化：`entry.fiber` 起改为存 `registry.plugin()` 返回的 wrapper（`Object.create(fiber)`，属性读不变、身份比较失效）、`fiber.store` → `committed`/`provisions`、`dsh-settings.configure()` 把 owner 归一成 `owner.ctx.fiber`。**rc.1 起设置分区图标改由 `settings.section.icon` 槽渲染并包进 `span.navIcon[aria-hidden=true]`**，四个导航图标插件为此专门复核。离线网全绿（10 插件 497 项单测、图标 194 个无漂移、四个图标补丁六项全过），隔离宿主（3971）9 装 1 拒、启动图 82 条含全部 9 个插件、6 条 status 路由 200、设置面板 5 个分区顺序正确、0 控制台报错。9 个插件的四处声明补上 `0.2.2-rc.1`；`dsh-mobile-compat` 仍在 `0.2.0` 线门外，只记录不动 |
 | M2（2026-10-29，L3 跨线） | `0.2.1-rc.2 → 0.2.2-alpha.2` | `dsh-mcp-console` 换到 `>=0.2.2-alpha.2 <0.2.3`。逐包 diff：`dsh-mcp-client` 只有 resources 能力判定的 15 行、Config/导出不变；`cordis` 只新增 `fiber.rawConfig/resolveConfig/effectiveConfig`；`ctx.loader.import`、`loader/volatile-update`、`ctx.tools.view()`、`entry.fiber.config` 都还在；设置类客户端包除 locale 外逐字相同。隔离宿主（3915）+ 真机 GUI **52/52**（导入、凭据、增删改、20 工具浮层与滚动、停用/删除、手写行未被触碰）。**实测抓到一个真实鉴权缺口**：`webCtx.get('connection')` 在 0.2.2 上返回 undefined（服务 fiber 尚未 active），`/status` 无 cookie 也回 200；改为把 `connection` 作为 `inject` 依赖并 fail closed（401），`gui-flow.mjs` 补会话 cookie 换取 |
@@ -58,6 +60,15 @@
 | `dsh-workspace-running-indicator` | 未发布 | 尚未首发（闸门已过，待占位版本 + trusted publisher） |
 
 发版前用 `npm view <包名> version maintainers` 复核；上表是历史快照，不是长期真相。
+
+## E3：`dsh-mcp-console` → `dsh-mcp-workbench`（2026-11-09）
+
+用户要求「把未发布的两个插件都发布」。核实后 10 个插件里只有 2 个未发布：`dsh-workspace-running-indicator`（registry `E404`，可直接首发）与 `dsh-mcp-console`（名字被第三方 `dakuo <coderkuo@gmail.com>` 的 `0.1.11` 占用，仓库 `CoderKuo/dsh-mcp-console`，功能描述几乎逐字雷同）。用户选定新名 `dsh-mcp-workbench`（`npm view` 实测 `E404`）。
+
+- 改名落点按 `dsh-mcp-workbench/AGENTS.md` 的八项表执行；`dmc` → `dmw` 同时消除了与 `dsh-mobile-compat` 的 CSS 前缀撞车（那个插件用 `.dmc-*` / `--dmc-*`，此前两个插件同时安装时类名重叠）。
+- 本机 profile 这次按正确顺序迁移：**先** `dsh plugin remove dsh-mcp-console`（目录还在、link 未悬空），再 `git mv` 目录与改源码，再 `dsh plugin add link:` 新目录，并把 profile `cordis.patch.yml` 里 `- id:` 同步改成新 id。
+- 验证：`publish:check` 104/104、`pack:check` 12 文件、`tools/dsh-icons/build.js` 重建后 `check.js` 无漂移（快照里旧名 0 残留）、`verify-nav-icon.js --plugin dsh-mcp-workbench --measure` 六项全过。
+- 未重跑真机 GUI 52 项（bundle 注册名变了，首次安装后应补一次）。
 
 ## R1：把 7 个插件发到 `0.2.2` 线（2026-11-05）
 

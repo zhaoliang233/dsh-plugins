@@ -8,7 +8,7 @@
  * 安全约束：组合层的 config 已经过 `!!js` 求值，Authorization / env 里可能
  * 就是明文密钥。本模块因此只输出「键名 + 端点骨架」，绝不回显值。
  *
- * @module dsh-mcp-console/targets
+ * @module dsh-mcp-workbench/targets
  */
 
 const MCP_CLIENT_MODULE = '@deepseek-ai/dsh-mcp-client'

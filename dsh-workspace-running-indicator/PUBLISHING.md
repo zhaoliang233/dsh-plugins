@@ -1,6 +1,6 @@
 # 发布清单
 
-`dsh-workspace-running-indicator` 是**尚未发布**的候选包。首次发布按根 `AGENTS.md` 的「新包首次发布」三步走：先发占位版本、再配 trusted publisher、最后走 OIDC 发正式版。**不要在未确认包名归属前直接打 tag**。
+`dsh-workspace-running-indicator` 是**尚未发布**的候选包。首次发布按根 `AGENTS.md` 的「新包首次发布」三步走：先发占位版本、再配 trusted publisher、最后走 OIDC 发正式版。**不要在未确认包名归属前直接打 tag**（2026-11-09 复查仍是 `E404` 未占用）。
 
 ## 发布前先查包名
 

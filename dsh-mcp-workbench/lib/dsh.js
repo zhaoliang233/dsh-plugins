@@ -10,7 +10,7 @@
  * - 兜底走 `createRequire(<DSH 安装>/package.json).resolve()` 再动态 import，
  *   与 dsh-extra-context 的 schemastery 定位同款。
  *
- * @module dsh-mcp-console/dsh
+ * @module dsh-mcp-workbench/dsh
  */
 
 import { createRequire } from 'node:module'

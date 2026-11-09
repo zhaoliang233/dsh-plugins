@@ -47,7 +47,7 @@ function loadBundle(overrides = {}) {
   vm.runInContext(SOURCE, sandbox)
   assert.equal(registered.length, 1, 'bundle 必须只注册一次')
   const spec = registered[0]
-  assert.equal(spec.id, 'dsh-mcp-console')
+  assert.equal(spec.id, 'dsh-mcp-workbench')
   return { spec, exports: spec.factory((name) => modules[name]) }
 }
 
@@ -83,8 +83,8 @@ function createPrimitivesStub() {
      * 桩里恒定把 `label` 渲染成 `role="tooltip"`，这样能断言"什么条件下才给 tag 挂浮层"。
      */
     Tooltip: ({ label, children }) =>
-      element('span', { className: 'dmc-tooltip-root' }, [
-        element('span', { className: 'dmc-tooltip-anchor' }, [children]),
+      element('span', { className: 'dmw-tooltip-root' }, [
+        element('span', { className: 'dmw-tooltip-anchor' }, [children]),
         label === undefined ? null : element('span', { role: 'tooltip' }, [label])
       ]),
     Modal: undefined
@@ -261,7 +261,7 @@ test('设置条目契约：configForms 用本插件的 profile 条目 id，decod
   })
   // 0.1.7 起插件的设置就是 profile 里这一条条目的 config：客户端按**条目 id** 取表，
   // 宿主 `settings.describe()` 的 ns 也是它（宿主侧的同源断言在 host.test.js）。
-  assert.equal(requested, 'dsh-mcp-console')
+  assert.equal(requested, 'dsh-mcp-workbench')
   const { decodeSettings } = exports.__internals
   assert.equal(decodeSettings({ servers: [{ serverName: 'a', command: 'node' }] }).servers[0].transport, 'stdio')
 })
@@ -327,18 +327,18 @@ test('导航图标补丁：只改名字精确匹配的行，并能完整还原',
   const doc = createNavDocument(['模型', 'MCP 服务器', 'MCP 服务器（旧）'])
   const cleanup = patchSettingsNavIcon(doc, '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>', 'MCP 服务器')
   const [models, target, decoy] = doc.buttons
-  assert.equal(target.dataset.dmcNavIcon, '')
-  assert.match(target.__style.get('--dmc-nav-icon-mask'), /^url\("data:image\/svg\+xml,/u)
-  assert.equal(models.dataset.dmcNavIcon, undefined, '别行不能被误伤')
-  assert.equal(decoy.dataset.dmcNavIcon, undefined, '前缀相同的行不能误伤')
+  assert.equal(target.dataset.dmwNavIcon, '')
+  assert.match(target.__style.get('--dmw-nav-icon-mask'), /^url\("data:image\/svg\+xml,/u)
+  assert.equal(models.dataset.dmwNavIcon, undefined, '别行不能被误伤')
+  assert.equal(decoy.dataset.dmwNavIcon, undefined, '前缀相同的行不能误伤')
 
   // 二次安装（HMR 重叠窗口）走引用计数，先卸一份不能把补丁摘掉
   const cleanupAgain = patchSettingsNavIcon(doc, '<svg xmlns="http://www.w3.org/2000/svg"/>', 'MCP 服务器')
   cleanup()
-  assert.equal(target.dataset.dmcNavIcon, '', '还有一份引用时补丁必须保留')
+  assert.equal(target.dataset.dmwNavIcon, '', '还有一份引用时补丁必须保留')
   cleanupAgain()
-  assert.equal(target.dataset.dmcNavIcon, undefined)
-  assert.equal(target.__style.get('--dmc-nav-icon-mask'), undefined)
+  assert.equal(target.dataset.dmwNavIcon, undefined)
+  assert.equal(target.__style.get('--dmw-nav-icon-mask'), undefined)
 })
 
 test('导航图标补丁对坏输入静默退化，绝不抛错到设置页', () => {
@@ -357,7 +357,7 @@ test('图标源码必须补 xmlns，否则 data: URI 里的 mask 会静默失效
     const source = '<svg><path d="M0 0"/></svg>'.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
     return __internals.patchSettingsNavIcon(doc, source, 'MCP 服务器')
   })()
-  assert.match(decodeURIComponent(doc.buttons[0].__style.get('--dmc-nav-icon-mask')), /xmlns=/u)
+  assert.match(decodeURIComponent(doc.buttons[0].__style.get('--dmw-nav-icon-mask')), /xmlns=/u)
   cleanup()
 })
 
@@ -376,11 +376,11 @@ test('样式表打 data-plugin 标签并按引用计数清理（否则会被别�
   }
   exports.apply(ctx)
   assert.equal(doc.created.length, 1, 'apply 阶段就要注入样式（组件渲染比它晚，见导航图标踩坑）')
-  assert.equal(doc.created[0].dataset.plugin, 'dsh-mcp-console')
-  assert.equal(doc.created[0].attributes['data-owner'], 'dsh-mcp-console-v1')
-  assert.match(doc.created[0].textContent, /\[data-dmc-nav-icon\]::before/u, 'CSS 必须与补丁的 dataset 键同源')
-  assert.match(doc.created[0].textContent, /--dmc-nav-icon-mask/u)
-  assert.match(doc.created[0].textContent, /dmc-section/u, '分区样式必须在同一张表里')
+  assert.equal(doc.created[0].dataset.plugin, 'dsh-mcp-workbench')
+  assert.equal(doc.created[0].attributes['data-owner'], 'dsh-mcp-workbench-v1')
+  assert.match(doc.created[0].textContent, /\[data-dmw-nav-icon\]::before/u, 'CSS 必须与补丁的 dataset 键同源')
+  assert.match(doc.created[0].textContent, /--dmw-nav-icon-mask/u)
+  assert.match(doc.created[0].textContent, /dmw-section/u, '分区样式必须在同一张表里')
 
   // HMR 会先卸旧 fiber 再挂新的：两份引用时先卸一份，样式必须留着
   const second = []
@@ -393,11 +393,11 @@ test('样式表打 data-plugin 标签并按引用计数清理（否则会被别�
 
 test('mcp-console 的 profile 行与状态路由常量与宿主半体同源', () => {
   const { __internals } = loadBundle().exports
-  assert.equal(__internals.SETTINGS_ENTRY, 'dsh-mcp-console')
-  assert.equal(__internals.STATUS_PATH, '/dsh-mcp-console/status')
-  assert.equal(__internals.ACTION_PATH, '/dsh-mcp-console/action')
-  assert.equal(__internals.CLIENT_HEADER, 'x-dsh-mcp-console-client')
-  assert.equal(__internals.CSRF_HEADER, 'x-dsh-mcp-console-csrf')
+  assert.equal(__internals.SETTINGS_ENTRY, 'dsh-mcp-workbench')
+  assert.equal(__internals.STATUS_PATH, '/dsh-mcp-workbench/status')
+  assert.equal(__internals.ACTION_PATH, '/dsh-mcp-workbench/action')
+  assert.equal(__internals.CLIENT_HEADER, 'x-dsh-mcp-workbench-client')
+  assert.equal(__internals.CSRF_HEADER, 'x-dsh-mcp-workbench-csrf')
 })
 
 // ── 真渲染 / 真点击：守住"组件接线"这一类缺陷 ──────────────────────────────
@@ -581,23 +581,23 @@ test('列表行：只有一行——开关在左、标题居中、编辑/删除�
     value,
     servers: [{ id: 'srv-a', serverName: 'alpha', enabled: true, transport: 'stdio', command: 'node', args: [], cwd: '', url: '', toolCallTimeoutMs: 60000, failOnStartupError: false, envKeys: [], headerKeys: [], credentialRefs: [], issues: [], live: { id: 'srv-a', serverName: 'alpha', state: 'mounted', error: '', mountedAt: 0, tools: ['mcp__alpha__search', 'mcp__alpha__list'], logs: [] }, blockedReason: '', conflictNote: '' }]
   })
-  const row = mounted.harness.find((node) => String(node.props.className ?? '').split(/\s+/u).includes('dmc-row'))
-  const line = row.children.find((child) => String(child.props.className ?? '').split(/\s+/u).includes('dmc-row-line'))
-  assert.ok(line !== undefined, '行上只有一条 dmc-row-line')
+  const row = mounted.harness.find((node) => String(node.props.className ?? '').split(/\s+/u).includes('dmw-row'))
+  const line = row.children.find((child) => String(child.props.className ?? '').split(/\s+/u).includes('dmw-row-line'))
+  assert.ok(line !== undefined, '行上只有一条 dmw-row-line')
   const tokens = (node) => String(node?.props.className ?? '').split(/\s+/u)
   // 左 = 开关，中 = 标题块，右 = 操作（挂了 tooltip 时中间多一层官方 Tooltip 的锚点）
   assert.equal(line.children.length, 3, '一行里只有三块：开关 / 标题 / 操作')
-  assert.ok(tokens(line.children[0]).includes('dmc-switch'), '最左边是启停开关')
-  assert.ok(withinNode(line.children[1], (node) => tokens(node).includes('dmc-title-block')), '中间是标题区')
+  assert.ok(tokens(line.children[0]).includes('dmw-switch'), '最左边是启停开关')
+  assert.ok(withinNode(line.children[1], (node) => tokens(node).includes('dmw-title-block')), '中间是标题区')
   assert.equal(
-    mounted.harness.find((node) => tokens(node).includes('dmc-name')).children[0],
+    mounted.harness.find((node) => tokens(node).includes('dmw-name')).children[0],
     '本地 alpha',
     '标题区先给名字'
   )
-  assert.ok(tokens(line.children[2]).includes('dmc-actions'), '最右边是操作区')
+  assert.ok(tokens(line.children[2]).includes('dmw-actions'), '最右边是操作区')
   assert.deepEqual(line.children[2].children.map((node) => node.props['aria-label']), ['编辑 alpha', '删除 alpha'])
   // 工具清单不再铺在行里：行文本（排除浮层内容）只有名字、命名空间与状态 tag
-  assert.equal(mounted.harness.findAll((node) => tokens(node).some((token) => token.startsWith('dmc-tools'))).length, 0)
+  assert.equal(mounted.harness.findAll((node) => tokens(node).some((token) => token.startsWith('dmw-tools'))).length, 0)
   const lineText = textWithout(line, (node) => node.props.role === 'tooltip')
   assert.match(lineText, /本地 alpha/u)
   assert.match(lineText, /mcp__alpha__/u, '命名空间 chip 还在行上')
@@ -611,27 +611,27 @@ test('工具浮层：连上且有工具时挂在「已连接 · N 个工具」ta
   const rowFor = (patch) => ({ ...base, envKeys: [], headerKeys: [], credentialRefs: [], issues: [], live: null, blockedReason: '', conflictNote: '', ...patch })
 
   const mounted = await mountSection({ value: { enabled: true, servers: [base] }, servers: [rowFor({ live })] })
-  const tag = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmc-status'))
+  const tag = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmw-status'))
   assert.match(String(tag.children[0] ?? ''), /已连接 · 2 个工具/u, 'tag 上给短句')
   assert.equal(tag.props.title, undefined, '挂了浮层就不再挂原生 title（避免两层提示）')
   const tip = mounted.harness.find((node) => node.props.role === 'tooltip')
   assert.ok(tip !== undefined, 'tag 上必须挂浮层')
-  const content = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmc-tip-content'))
+  const content = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmw-tip-content'))
   assert.match(String(content.props.style?.maxHeight ?? ''), /^\d+px$/u, '内容高度受面板尺寸约束（这里给的是默认上限）')
   assert.deepEqual(
-    mounted.harness.findAll((node) => String(node.props.className ?? '').includes('dmc-tip-name')).map((node) => node.children[0]),
+    mounted.harness.findAll((node) => String(node.props.className ?? '').includes('dmw-tip-name')).map((node) => node.children[0]),
     ['mcp__alpha__search', 'mcp__alpha__list'],
     '清单给的是模型看到的工具全名'
   )
   // 只在 tag 上悬停：标题区整块不吃指针事件（否则气泡会从窄 tag 右侧探出设置面板）
-  const block = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmc-title-block'))
+  const block = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmw-title-block'))
   assert.ok(String(block.props.className).includes('tip'), '标题区要标记成浮层锚点')
-  assert.ok(String(tag.props.className).includes('dmc-tip-trigger'), '只有 tag 自己是触发区')
+  assert.ok(String(tag.props.className).includes('dmw-tip-trigger'), '只有 tag 自己是触发区')
 
   // 没连上 / 连上但没工具：都不要浮层（否则只是把 tag 上的话再说一遍）
   const idle = await mountSection({ value: { enabled: true, servers: [base] }, servers: [rowFor({ live: null })] })
   assert.equal(idle.harness.find((node) => node.props.role === 'tooltip'), undefined, '未挂载时不给浮层')
-  assert.equal(String(idle.harness.find((node) => String(node.props.className ?? '').includes('dmc-status')).props.title).length > 0, true, '没浮层时用原生 title 兜底')
+  assert.equal(String(idle.harness.find((node) => String(node.props.className ?? '').includes('dmw-status')).props.title).length > 0, true, '没浮层时用原生 title 兜底')
 
   const empty = await mountSection({
     value: { enabled: true, servers: [base] },
@@ -741,7 +741,7 @@ test('凭据交互：前缀是「不加前缀 / Bearer / Basic / 其它」四档
   assert.ok(custom !== undefined, '选「其它」后要有自由输入框')
   mounted.harness.change(custom, 'Token ')
   assert.equal(byAria(mounted.harness, '请求头第 1 行前缀（自定义）').props.value, 'Token ')
-  assert.equal(String(custom.props.className).includes('dmc-input'), true, '自定义前缀是普通输入框（不窄、和别的输入框同高）')
+  assert.equal(String(custom.props.className).includes('dmw-input'), true, '自定义前缀是普通输入框（不窄、和别的输入框同高）')
 })
 
 test('凭据区：拿不到凭据服务时给出可读原因，而不是静默失效', async () => {
@@ -793,18 +793,18 @@ test('凭据区：状态是标签不是说明句，按钮与输入框同一行',
   mounted.harness.change(byAria(mounted.harness, '环境变量第 1 行凭据键名'), 'MY_TOKEN')
 
   const chip = mounted.harness.find(
-    (node) => String(node.props.className ?? '').includes('dmc-status') && node.children[0] === '未配置'
+    (node) => String(node.props.className ?? '').includes('dmw-status') && node.children[0] === '未配置'
   )
   assert.ok(chip !== undefined, '未配置要做成状态标签')
-  const row = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmc-cred-input-row'))
+  const row = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmw-cred-input-row'))
   assert.ok(row !== undefined, '输入框与按钮要在同一行容器里')
   assert.deepEqual(
     row.children.map((node) => node.tag),
     ['input', 'button', 'button'],
     '一行里依次是输入框、保存、清除'
   )
-  assert.equal(mounted.harness.buttonByLabel('保存凭据 MY_TOKEN').props.className, 'dmc-btn-sm')
-  assert.equal(mounted.harness.buttonByLabel('清除凭据 MY_TOKEN').props.className, 'dmc-btn-sm')
+  assert.equal(mounted.harness.buttonByLabel('保存凭据 MY_TOKEN').props.className, 'dmw-btn-sm')
+  assert.equal(mounted.harness.buttonByLabel('清除凭据 MY_TOKEN').props.className, 'dmw-btn-sm')
 })
 
 test('导入提示："已转入凭据库"这类文案不再出现在弹窗里（与字段旁的提示重复、删掉键后还会撒谎）', async () => {
@@ -1059,7 +1059,7 @@ test('写后刷新：宿主对账晚一拍时，行上不得停留在旧的对�
   })
   // 列表行只有一行（用户要求"列表页改为一行，去掉工具说明"）：
   // 行上只给短标签，完整原因挪到 chip 的 title 上，细节点编辑看。
-  const chip = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmc-status'))
+  const chip = mounted.harness.find((node) => String(node.props.className ?? '').includes('dmw-status'))
   assert.match(mounted.harness.text(), /配置不完整/u, '列表行给短标签')
   assert.equal(mounted.harness.text().includes('必须填写可执行命令'), false, '一行的行里不该再铺一整行原因')
   assert.match(String(chip?.props.title ?? ''), /必须填写可执行命令/u, '完整原因挂在 chip 的 title 上')

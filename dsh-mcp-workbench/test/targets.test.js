@@ -57,8 +57,8 @@ test('停用与运行阶段如实反映', () => {
 })
 
 test('isSelfEntry 认出本插件自己那条', () => {
-  assert.equal(isSelfEntry({ entryId: 'dsh-mcp-console', moduleName: 'dsh-mcp-console' }, 'dsh-mcp-console'), true)
-  assert.equal(isSelfEntry({ entryId: 'x', moduleName: 'y' }, 'dsh-mcp-console'), false)
+  assert.equal(isSelfEntry({ entryId: 'dsh-mcp-workbench', moduleName: 'dsh-mcp-workbench' }, 'dsh-mcp-workbench'), true)
+  assert.equal(isSelfEntry({ entryId: 'x', moduleName: 'y' }, 'dsh-mcp-workbench'), false)
 })
 
 test('完整导入：非敏感字段照抄，敏感字段换成凭据占位符', () => {

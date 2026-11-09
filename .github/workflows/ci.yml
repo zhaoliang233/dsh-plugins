@@ -1,6 +1,7 @@
-# 每次 push / PR 校验 7 个已发布插件，不发布任何东西。
-# 未发布的 dsh-mcp-console 与 dsh-default-tuner 不在矩阵里（尚未发布：发版还要用户授权，
-# 并各自配一次 trusted publisher），它们的同名闸门由本机 ./install.sh 与各自的 publish:check 承担。
+# 每次 push / PR 校验已发布插件，不发布任何东西。
+# 矩阵覆盖 9 个已上架插件；dsh-default-tuner 是历史缺口（发布时未纳入矩阵），
+# 它的闸门暂由本机 publish:check 承担，补进矩阵前先跑一遍 node 20。
+# 发布前的本地闸门与发布工作流各自独立跑同一套 publish:check。
 # 复用各插件自己的发布门禁：check（语法与 shell）→ test（node --test）→ pack:check（打包白名单）。
 name: CI
 
@@ -32,8 +33,10 @@ jobs:
           - dsh-default-workspace
           - dsh-extra-context
           - dsh-local-plugin-manager
+          - dsh-mcp-workbench
           - dsh-mobile-compat
           - dsh-sticky-user-bubble
+          - dsh-workspace-running-indicator
     name: ${{ matrix.plugin }} @ node ${{ matrix.node }}
     steps:
       - uses: actions/checkout@v4

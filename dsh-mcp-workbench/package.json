@@ -1,12 +1,12 @@
 {
-  "name": "dsh-mcp-console",
+  "name": "dsh-mcp-workbench",
   "version": "0.1.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhaoliang233/dsh-plugins.git",
-    "directory": "dsh-mcp-console"
+    "directory": "dsh-mcp-workbench"
   },
-  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-mcp-console#readme",
+  "homepage": "https://github.com/zhaoliang233/dsh-plugins/tree/main/dsh-mcp-workbench#readme",
   "bugs": "https://github.com/zhaoliang233/dsh-plugins/issues",
   "description": "在设置页管理 MCP 服务器：增删改、启停、连接与工具状态，凭证走 credentials，无需手改 profile 配置或重启。",
   "type": "module",

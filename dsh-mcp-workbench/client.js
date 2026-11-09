@@ -1,12 +1,12 @@
 /**
- * dsh-mcp-console 客户端半体（单文件 CJS 惰性 bundle，无构建步骤）。
+ * dsh-mcp-workbench 客户端半体（单文件 CJS 惰性 bundle，无构建步骤）。
  *
  * 职责：设置页「MCP 服务器」分区——列表、编辑、启停、状态、凭据、以及
  * 把 profile 组合里已有的 MCP 条目导入到托管清单。
  *
  * 数据流（三条各自独立）：
  * 1. 清单真相 = 本插件在 profile 里的**条目 config**（`settings.describe()` 的 `ns`
- *    与 `ctx.configForms.get()` 用的都是条目 id `dsh-mcp-console`），经
+ *    与 `ctx.configForms.get()` 用的都是条目 id `dsh-mcp-workbench`），经
  *    `ctx.configForms.get(<条目 id>)` 读写（带 revision 栅栏，写入即触发宿主对账）；
  * 2. 运行态（是否挂载、工具、最近日志、与组合层重名）来自宿主状态路由；
  * 3. 凭据值经 `ctx.remote.credentials` 写进 credentials 存储，
@@ -14,7 +14,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-mcp-console',
+  id: 'dsh-mcp-workbench',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports
@@ -47,18 +47,18 @@ window.__ModuleLoader__.load({
     const IconTrashOutline16 = iconOf('IconTrashOutlineMedium', 'IconTrashOutlineRegular', 'IconTrashOutline16')
     const { Modal, Tooltip } = primitives
 
-    const PLUGIN_ID = 'dsh-mcp-console'
+    const PLUGIN_ID = 'dsh-mcp-workbench'
     /**
      * 本插件在 profile 里的条目 id —— 0.1.7 起插件的设置就是条目 config，
      * `configForms.get(<条目 id>)` 与宿主 `settings.describe()` 的 `ns` 都是它。
      * 客户端 bundle 与宿主半体各写一遍字面量（bundle 不能 import 宿主模块），
      * 两处必须同源：`test/client.test.js` 与 `test/host.test.js` 各有一条断言。
      */
-    const SETTINGS_ENTRY = 'dsh-mcp-console'
-    const STATUS_PATH = '/dsh-mcp-console/status'
-    const ACTION_PATH = '/dsh-mcp-console/action'
-    const CLIENT_HEADER = 'x-dsh-mcp-console-client'
-    const CSRF_HEADER = 'x-dsh-mcp-console-csrf'
+    const SETTINGS_ENTRY = 'dsh-mcp-workbench'
+    const STATUS_PATH = '/dsh-mcp-workbench/status'
+    const ACTION_PATH = '/dsh-mcp-workbench/action'
+    const CLIENT_HEADER = 'x-dsh-mcp-workbench-client'
+    const CSRF_HEADER = 'x-dsh-mcp-workbench-csrf'
     const SECTION_ID = 'mcp-console'
     const SECTION_LABEL = 'MCP 服务器'
     /**
@@ -73,219 +73,219 @@ window.__ModuleLoader__.load({
     const CREDENTIAL_TOKEN = /credential:([A-Za-z_][A-Za-z0-9_]*)/gu
     /** 存在设置里的占位符前缀；界面不暴露它，用户看到的是「凭据」开关 + 键名。 */
     const CREDENTIAL_PREFIX = 'credential:'
-    const NAV_PATCH_FLAG = 'dmcNavIcon'
-    const NAV_PATCH_COUNT = 'dmcNavIconReferences'
-    const NAV_PATCH_MASK = '--dmc-nav-icon-mask'
+    const NAV_PATCH_FLAG = 'dmwNavIcon'
+    const NAV_PATCH_COUNT = 'dmwNavIconReferences'
+    const NAV_PATCH_MASK = '--dmw-nav-icon-mask'
 
     const styleText = `
-.dmc-section{width:100%;max-width:760px;color:var(--dsw-alias-label-primary);display:flex;flex-direction:column;gap:14px}
-.dmc-heading{display:flex;align-items:center;gap:8px;min-height:32px}
-.dmc-title{min-width:0;margin:0;font-size:16px;font-weight:500;line-height:24px;letter-spacing:0}
-.dmc-count{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.dmc-heading-spacer{flex:1}
-.dmc-icon-button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex:none;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
-.dmc-icon-button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
-.dmc-icon-button.danger{color:var(--dsw-alias-state-error-primary)}
-.dmc-icon-button:disabled{opacity:.42;cursor:not-allowed;background:transparent}
-.dmc-notice,.dmc-error{margin:0;padding:9px 11px;border-radius:6px;font-size:13px;line-height:20px;overflow-wrap:anywhere}
-.dmc-notice{display:flex;align-items:center;gap:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
-.dmc-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap}
-.dmc-list{display:flex;flex-direction:column;min-width:0;border-top:1px solid var(--dsw-alias-border-l2)}
-.dmc-row{display:flex;flex-direction:column;min-width:0;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.dmc-row-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;min-width:0}
-.dmc-title-block{display:flex;align-items:center;gap:7px;min-width:0}
+.dmw-section{width:100%;max-width:760px;color:var(--dsw-alias-label-primary);display:flex;flex-direction:column;gap:14px}
+.dmw-heading{display:flex;align-items:center;gap:8px;min-height:32px}
+.dmw-title{min-width:0;margin:0;font-size:16px;font-weight:500;line-height:24px;letter-spacing:0}
+.dmw-count{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dmw-heading-spacer{flex:1}
+.dmw-icon-button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;flex:none;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dmw-icon-button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.dmw-icon-button.danger{color:var(--dsw-alias-state-error-primary)}
+.dmw-icon-button:disabled{opacity:.42;cursor:not-allowed;background:transparent}
+.dmw-notice,.dmw-error{margin:0;padding:9px 11px;border-radius:6px;font-size:13px;line-height:20px;overflow-wrap:anywhere}
+.dmw-notice{display:flex;align-items:center;gap:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+.dmw-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary);white-space:pre-wrap}
+.dmw-list{display:flex;flex-direction:column;min-width:0;border-top:1px solid var(--dsw-alias-border-l2)}
+.dmw-row{display:flex;flex-direction:column;min-width:0;padding:12px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.dmw-row-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;min-width:0}
+.dmw-title-block{display:flex;align-items:center;gap:7px;min-width:0}
 /* 挂了 tooltip 的标题区：盒子照样铺满（气泡以它的中线居中，才不会探出面板），
    但整块不吃指针事件，只有那枚 tag 自己能悬停——触发区仍然只是 tag。 */
-.dmc-title-block.tip{pointer-events:none}
-.dmc-title-block.tip>.dmc-tip-trigger{pointer-events:auto}
-.dmc-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:22px}
-.dmc-badge{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:17px;white-space:nowrap}
-.dmc-badge.warn{color:var(--dsw-alias-state-warn-primary)}
-.dmc-badge.off{color:var(--dsw-alias-label-tertiary)}
-.dmc-meta{display:flex;align-items:center;gap:6px;min-width:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-.dmc-endpoint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dmc-namespace{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
-.dmc-status{flex:none;padding:1px 7px;border-radius:5px;font-size:11px;line-height:17px;white-space:nowrap;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 10%,transparent);color:var(--dsw-alias-label-secondary)}
-.dmc-status.ok{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);color:var(--dsw-alias-state-success-primary)}
-.dmc-status.warn{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary)}
-.dmc-status.error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);color:var(--dsw-alias-state-error-primary)}
-.dmc-live-logs>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-.dmc-live-logs[open]>summary{margin-bottom:6px}
+.dmw-title-block.tip{pointer-events:none}
+.dmw-title-block.tip>.dmw-tip-trigger{pointer-events:auto}
+.dmw-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:22px}
+.dmw-badge{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:17px;white-space:nowrap}
+.dmw-badge.warn{color:var(--dsw-alias-state-warn-primary)}
+.dmw-badge.off{color:var(--dsw-alias-label-tertiary)}
+.dmw-meta{display:flex;align-items:center;gap:6px;min-width:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.dmw-endpoint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dmw-namespace{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.dmw-status{flex:none;padding:1px 7px;border-radius:5px;font-size:11px;line-height:17px;white-space:nowrap;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 10%,transparent);color:var(--dsw-alias-label-secondary)}
+.dmw-status.ok{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent);color:var(--dsw-alias-state-success-primary)}
+.dmw-status.warn{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 16%,transparent);color:var(--dsw-alias-state-warn-primary)}
+.dmw-status.error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dmw-live-logs>summary{cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+.dmw-live-logs[open]>summary{margin-bottom:6px}
 /* 工具清单浮层的内容：官方 Tooltip 的气泡只负责底色/圆角，换行与滚动由这一层负责
    （气泡是 white-space:pre-line 且 pointer-events:none，尺寸必须自己约束）。 */
-.dmc-tip-content{box-sizing:border-box;display:flex;flex-direction:column;gap:5px;min-width:0;padding:6px 7px;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:18px}
-.dmc-tip-head{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
-.dmc-tip-list{flex:1 1 auto;display:flex;flex-direction:column;gap:2px;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain}
-.dmc-tip-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
-.dmc-actions{display:flex;align-items:center;gap:7px;flex:none}
-.dmc-switch{position:relative;display:inline-flex;align-items:center;width:36px;height:20px;flex:none;padding:0;border:0;border-radius:10px;background:var(--dsw-alias-border-l2);cursor:pointer;transition:background-color .15s ease}
-.dmc-switch[aria-checked=true]{background:var(--dsw-alias-brand-primary)}
-.dmc-switch::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 2px rgba(0,0,0,.22);transition:transform .15s ease}
-.dmc-switch[aria-checked=true]::after{transform:translateX(16px)}
-.dmc-switch:disabled{opacity:.42;cursor:not-allowed}
-.dmc-editor{display:flex;flex-direction:column;gap:10px;margin-top:11px;padding:12px;border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
-.dmc-field{display:flex;flex-direction:column;gap:5px;min-width:0}
-.dmc-field-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;min-width:0}
-.dmc-label{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-.dmc-label-note{color:var(--dsw-alias-label-tertiary)}
-.dmc-required{color:var(--dsw-alias-state-error-primary)}
-.dmc-input,.dmc-textarea{width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px}
-.dmc-textarea{min-height:64px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:19px}
-.dmc-hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.dmw-tip-content{box-sizing:border-box;display:flex;flex-direction:column;gap:5px;min-width:0;padding:6px 7px;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:18px}
+.dmw-tip-head{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+.dmw-tip-list{flex:1 1 auto;display:flex;flex-direction:column;gap:2px;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain}
+.dmw-tip-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.dmw-actions{display:flex;align-items:center;gap:7px;flex:none}
+.dmw-switch{position:relative;display:inline-flex;align-items:center;width:36px;height:20px;flex:none;padding:0;border:0;border-radius:10px;background:var(--dsw-alias-border-l2);cursor:pointer;transition:background-color .15s ease}
+.dmw-switch[aria-checked=true]{background:var(--dsw-alias-brand-primary)}
+.dmw-switch::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 2px rgba(0,0,0,.22);transition:transform .15s ease}
+.dmw-switch[aria-checked=true]::after{transform:translateX(16px)}
+.dmw-switch:disabled{opacity:.42;cursor:not-allowed}
+.dmw-editor{display:flex;flex-direction:column;gap:10px;margin-top:11px;padding:12px;border-radius:8px;background:var(--dsw-alias-bg-layer-2)}
+.dmw-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.dmw-field-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;min-width:0}
+.dmw-label{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+.dmw-label-note{color:var(--dsw-alias-label-tertiary)}
+.dmw-required{color:var(--dsw-alias-state-error-primary)}
+.dmw-input,.dmw-textarea{width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px}
+.dmw-textarea{min-height:64px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:19px}
+.dmw-hint{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
 /* 行式键值编辑器（环境变量 / 请求头）：一行一张小卡片，字段逐行铺开，
    这样长键名、长地址都不会被截断（早先五个输入框挤一行，用户截图反馈看不全）。 */
-.dmc-pairs{display:flex;flex-direction:column;gap:9px;min-width:0}
-.dmc-pair{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
-.dmc-pair-head{display:flex;align-items:center;gap:8px;min-width:0}
-.dmc-pair-name{flex:1 1 auto;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
-.dmc-fields{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:8px 10px;min-width:0}
-.dmc-field-line{display:contents}
-.dmc-field-key{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap;text-align:right}
-.dmc-field-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
-.dmc-field-ctl>.dmc-input{flex:1 1 160px;min-width:0}
-.dmc-select-wrap{position:relative;display:inline-flex;flex:none}
-.dmc-select{box-sizing:border-box;height:34px;padding:0 30px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;cursor:pointer;-webkit-appearance:none;appearance:none}
-.dmc-select-caret{position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--dsw-alias-label-secondary)}
-.dmc-key-hints{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1 1 100%;min-width:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-.dmc-key-hints>.dmc-chip-button{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
-.dmc-label-line{display:flex;align-items:center;gap:6px}
-.dmc-label-spacer{flex:1 1 auto}
+.dmw-pairs{display:flex;flex-direction:column;gap:9px;min-width:0}
+.dmw-pair{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
+.dmw-pair-head{display:flex;align-items:center;gap:8px;min-width:0}
+.dmw-pair-name{flex:1 1 auto;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.dmw-fields{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:8px 10px;min-width:0}
+.dmw-field-line{display:contents}
+.dmw-field-key{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap;text-align:right}
+.dmw-field-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dmw-field-ctl>.dmw-input{flex:1 1 160px;min-width:0}
+.dmw-select-wrap{position:relative;display:inline-flex;flex:none}
+.dmw-select{box-sizing:border-box;height:34px;padding:0 30px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;cursor:pointer;-webkit-appearance:none;appearance:none}
+.dmw-select-caret{position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--dsw-alias-label-secondary)}
+.dmw-key-hints{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1 1 100%;min-width:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.dmw-key-hints>.dmw-chip-button{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
+.dmw-label-line{display:flex;align-items:center;gap:6px}
+.dmw-label-spacer{flex:1 1 auto}
 /* 小按钮：与 dsh-extra-context 的「+ 添加规则」同尺寸（28px / 12px 字号），
    这样输入框旁边的小按钮和整行高度对得上，不会一高一低。 */
-.dmc-btn-sm{flex:none;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
-.dmc-btn-sm:hover:not(:disabled){background:var(--dsw-alias-bg-layer-1)}
-.dmc-btn-sm:disabled{opacity:.45;cursor:default}
-.dmc-icon-button.sm{width:26px;height:26px}
-.dmc-value-prefix-group{display:flex;align-items:center;gap:6px;flex:1 1 42%;min-width:0}
-.dmc-value-prefix-mode{flex:none;width:auto;min-width:104px;padding:6px 6px;font-size:12px}
-.dmc-chip-button{flex:none;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
-.dmc-chip-button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
-.dmc-chip-button.on{border-color:transparent;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);color:var(--dsw-alias-label-primary)}
-.dmc-pair-add{align-self:flex-start;color:var(--dsw-alias-label-secondary)}
-.dmc-hint-error{color:var(--dsw-alias-state-error-primary)}
-.dmc-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.dmc-button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}
-.dmc-button.primary{border-color:transparent;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-layer-1)}
-.dmc-button.danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:white}
-.dmc-button:disabled{opacity:.5;cursor:not-allowed}
-.dmc-radio-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.dmc-radio{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:20px;cursor:pointer}
-.dmc-checkline{display:flex;align-items:baseline;gap:7px;font-size:13px;line-height:20px;cursor:pointer}
-.dmc-checkline>input{flex:none;align-self:center}
-.dmc-checkline .dmc-hint{font-size:12px}
-.dmc-cred{display:flex;flex-direction:column;gap:9px;padding:9px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2)}
-.dmc-cred-row{display:flex;flex-direction:column;gap:6px;min-width:0}
-.dmc-cred-head{display:flex;align-items:center;gap:7px;min-width:0}
-.dmc-cred-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
-.dmc-cred-input-row{display:flex;align-items:center;gap:8px;min-width:0}
-.dmc-cred-input{flex:1 1 auto;min-width:0}
-.dmc-targets{display:flex;flex-direction:column;min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 5%,transparent);overflow:hidden}
-.dmc-targets-head{display:flex;align-items:center;gap:8px;padding:10px 12px}
-.dmc-targets-title{min-width:0;margin:0;font-size:13px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-primary)}
-.dmc-targets-hint{margin-left:auto;flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap}
-.dmc-target{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:9px 12px;border-top:1px solid var(--dsw-alias-border-l2)}
-.dmc-target-copy{display:flex;flex-direction:column;gap:3px;min-width:0}
-.dmc-target-name-line{display:flex;align-items:center;gap:7px;min-width:0}
-.dmc-target-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px}
-.dmc-target-endpoint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-.dmc-target-fields{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-.dmc-nav-icon-template{display:none}
+.dmw-btn-sm{flex:none;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
+.dmw-btn-sm:hover:not(:disabled){background:var(--dsw-alias-bg-layer-1)}
+.dmw-btn-sm:disabled{opacity:.45;cursor:default}
+.dmw-icon-button.sm{width:26px;height:26px}
+.dmw-value-prefix-group{display:flex;align-items:center;gap:6px;flex:1 1 42%;min-width:0}
+.dmw-value-prefix-mode{flex:none;width:auto;min-width:104px;padding:6px 6px;font-size:12px}
+.dmw-chip-button{flex:none;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
+.dmw-chip-button:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.dmw-chip-button.on{border-color:transparent;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 18%,transparent);color:var(--dsw-alias-label-primary)}
+.dmw-pair-add{align-self:flex-start;color:var(--dsw-alias-label-secondary)}
+.dmw-hint-error{color:var(--dsw-alias-state-error-primary)}
+.dmw-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.dmw-button{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:5px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}
+.dmw-button.primary{border-color:transparent;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-layer-1)}
+.dmw-button.danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:white}
+.dmw-button:disabled{opacity:.5;cursor:not-allowed}
+.dmw-radio-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.dmw-radio{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:20px;cursor:pointer}
+.dmw-checkline{display:flex;align-items:baseline;gap:7px;font-size:13px;line-height:20px;cursor:pointer}
+.dmw-checkline>input{flex:none;align-self:center}
+.dmw-checkline .dmw-hint{font-size:12px}
+.dmw-cred{display:flex;flex-direction:column;gap:9px;padding:9px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2)}
+.dmw-cred-row{display:flex;flex-direction:column;gap:6px;min-width:0}
+.dmw-cred-head{display:flex;align-items:center;gap:7px;min-width:0}
+.dmw-cred-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
+.dmw-cred-input-row{display:flex;align-items:center;gap:8px;min-width:0}
+.dmw-cred-input{flex:1 1 auto;min-width:0}
+.dmw-targets{display:flex;flex-direction:column;min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 5%,transparent);overflow:hidden}
+.dmw-targets-head{display:flex;align-items:center;gap:8px;padding:10px 12px}
+.dmw-targets-title{min-width:0;margin:0;font-size:13px;font-weight:500;line-height:20px;color:var(--dsw-alias-label-primary)}
+.dmw-targets-hint{margin-left:auto;flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;white-space:nowrap}
+.dmw-target{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:9px 12px;border-top:1px solid var(--dsw-alias-border-l2)}
+.dmw-target-copy{display:flex;flex-direction:column;gap:3px;min-width:0}
+.dmw-target-name-line{display:flex;align-items:center;gap:7px;min-width:0}
+.dmw-target-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px}
+.dmw-target-endpoint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+.dmw-target-fields{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.dmw-nav-icon-template{display:none}
 /* 0.2.2-alpha.3 起壳层把原图标包进 <span aria-hidden>：新结构要连包装层一起隐藏，旧结构保留兼容。 */
-[data-dmc-nav-icon]>svg:first-child{display:none}
-[data-dmc-nav-icon]>span[aria-hidden="true"]{display:none}
-[data-dmc-nav-icon]>span[aria-hidden="true"] svg{display:none}
-[data-dmc-nav-icon]::before{content:"";flex:none;width:16px;height:16px;background:currentColor;pointer-events:none;-webkit-mask:var(--dmc-nav-icon-mask) center/16px 16px no-repeat;mask:var(--dmc-nav-icon-mask) center/16px 16px no-repeat}
-.dmc-empty,.dmc-loading{padding:30px 0;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
-.dmc-loading{display:flex;align-items:center;justify-content:center;gap:8px}
-.dmc-dialog{width:min(560px,calc(100vw - 32px));border-radius:8px}
-.dmc-dialog .dmc-field,.dmc-dialog .dmc-field-row,.dmc-dialog .dmc-editor{margin:0;padding:0;background:transparent}
-.dmc-form{display:flex;flex-direction:column;gap:10px;min-width:0;max-height:min(72vh,640px);overflow:auto}
-.dmc-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.dmc-dialog-inline{margin-top:12px;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;display:flex;flex-direction:column;gap:10px}
-.dmc-dialog-title{font-size:14px;font-weight:500;line-height:22px}
-.dmc-notes{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-.dmc-verify{display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-.dmc-verify.ok{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent);color:var(--dsw-alias-label-primary)}
-.dmc-verify.failed{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary)}
-.dmc-verify.stale{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);color:var(--dsw-alias-state-warn-primary)}
-.dmc-confirm{display:flex;flex-direction:column;gap:8px;min-width:0}
-.dmc-log{max-height:132px;overflow:auto;padding:7px 9px;border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:17px;white-space:pre-wrap;overflow-wrap:anywhere}
-@media(max-width:600px){.dmc-row-line{grid-template-columns:auto minmax(0,1fr)}.dmc-row-line .dmc-actions{grid-column:2;justify-content:flex-start}.dmc-target{grid-template-columns:minmax(0,1fr)}.dmc-targets-hint{white-space:normal}}
+[data-dmw-nav-icon]>svg:first-child{display:none}
+[data-dmw-nav-icon]>span[aria-hidden="true"]{display:none}
+[data-dmw-nav-icon]>span[aria-hidden="true"] svg{display:none}
+[data-dmw-nav-icon]::before{content:"";flex:none;width:16px;height:16px;background:currentColor;pointer-events:none;-webkit-mask:var(--dmw-nav-icon-mask) center/16px 16px no-repeat;mask:var(--dmw-nav-icon-mask) center/16px 16px no-repeat}
+.dmw-empty,.dmw-loading{padding:30px 0;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
+.dmw-loading{display:flex;align-items:center;justify-content:center;gap:8px}
+.dmw-dialog{width:min(560px,calc(100vw - 32px));border-radius:8px}
+.dmw-dialog .dmw-field,.dmw-dialog .dmw-field-row,.dmw-dialog .dmw-editor{margin:0;padding:0;background:transparent}
+.dmw-form{display:flex;flex-direction:column;gap:10px;min-width:0;max-height:min(72vh,640px);overflow:auto}
+.dmw-dialog-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.dmw-dialog-inline{margin-top:12px;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;display:flex;flex-direction:column;gap:10px}
+.dmw-dialog-title{font-size:14px;font-weight:500;line-height:22px}
+.dmw-notes{display:flex;flex-direction:column;gap:4px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.dmw-verify{display:flex;align-items:center;gap:7px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.dmw-verify.ok{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent);color:var(--dsw-alias-label-primary)}
+.dmw-verify.failed{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary)}
+.dmw-verify.stale{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);color:var(--dsw-alias-state-warn-primary)}
+.dmw-confirm{display:flex;flex-direction:column;gap:8px;min-width:0}
+.dmw-log{max-height:132px;overflow:auto;padding:7px 9px;border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:17px;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:600px){.dmw-row-line{grid-template-columns:auto minmax(0,1fr)}.dmw-row-line .dmw-actions{grid-column:2;justify-content:flex-start}.dmw-target{grid-template-columns:minmax(0,1fr)}.dmw-targets-hint{white-space:normal}}
 /* ── A 方案：卡片分组（680px 弹窗） ───────────────────────────────────── */
-.dmc-dialog{width:min(680px,100%);border-radius:14px;background:var(--dsw-alias-bg-layer-1)}
+.dmw-dialog{width:min(680px,100%);border-radius:14px;background:var(--dsw-alias-bg-layer-1)}
 /* 官方 Modal 的标题/说明结构固定，标题图标用伪元素补上，不另造弹窗。 */
-.dmc-dialog h2{font-weight:600;letter-spacing:.01em}
-.dmc-dialog h2::before{content:"";display:inline-block;width:16px;height:16px;margin-right:8px;vertical-align:-3px;background:var(--dsw-alias-label-secondary);-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cpath%20d='M2%203.1h12v4.1H2zM2%208.8h12v4.1H2z'%20fill='%23000'/%3E%3C/svg%3E") center/16px 16px no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cpath%20d='M2%203.1h12v4.1H2zM2%208.8h12v4.1H2z'%20fill='%23000'/%3E%3C/svg%3E") center/16px 16px no-repeat}
-.dmc-dialog > div:first-child > p{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
-.dmc-dialog .dmc-form{max-height:min(74vh,680px);padding:0 0 2px;gap:12px}
-.dmc-card{display:flex;flex-direction:column;gap:12px;flex:none;min-width:0;padding:14px 15px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 94%,var(--dsw-alias-label-primary) 6%)}
-.dmc-card-head{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;min-width:0}
-.dmc-card-heading{flex:1 1 auto;min-width:0}
-.dmc-card-title{display:flex;align-items:center;gap:7px;margin:0;font-size:12.5px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary)}
-.dmc-card-desc{margin:3px 0 0;font-size:11px;line-height:1.55;color:var(--dsw-alias-label-tertiary)}
-.dmc-card-extra{flex:none;margin-left:auto}
-.dmc-card-body{display:flex;flex-direction:column;gap:12px;min-width:0}
-.dmc-count{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:10.5px;font-weight:500;line-height:17px;font-variant-numeric:tabular-nums}
-.dmc-seg{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
-.dmc-seg-option{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:6px;color:var(--dsw-alias-label-tertiary);font-size:11.5px;white-space:nowrap;cursor:pointer;transition:background-color .12s,color .12s}
-.dmc-seg-option svg{flex:none;opacity:.85}
-.dmc-seg-option:hover{color:var(--dsw-alias-label-secondary)}
-.dmc-seg-option.on{background:color-mix(in srgb,var(--dsw-alias-bg-layer-3) 94%,var(--dsw-alias-label-primary) 6%);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.14)}
-.dmc-seg-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
-.dmc-seg-option:focus-within{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
-.dmc-adv{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 94%,var(--dsw-alias-label-primary) 6%);overflow:hidden}
-.dmc-adv>summary{display:flex;align-items:center;gap:9px;padding:13px 15px;cursor:pointer;list-style:none;font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-secondary)}
-.dmc-adv>summary::-webkit-details-marker{display:none}
-.dmc-adv>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dmc-adv-title{flex:none;color:var(--dsw-alias-label-primary)}
-.dmc-adv-hint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:400;color:var(--dsw-alias-label-tertiary)}
-.dmc-adv-spacer{flex:1;min-width:4px}
-.dmc-adv-caret{color:var(--dsw-alias-label-tertiary);transition:transform .15s ease}
-.dmc-adv[open] .dmc-adv-caret{transform:rotate(180deg)}
-.dmc-adv-body{display:flex;flex-direction:column;gap:12px;padding:14px 15px;border-top:1px solid var(--dsw-alias-border-l1)}
-.dmc-timeout-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.dmc-timeout-input{width:100px;text-align:right;font-variant-numeric:tabular-nums}
-.dmc-quick{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
-.dmc-quick .dmc-btn-sm{height:26px;padding:0 8px;font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
-.dmc-quick .dmc-btn-sm.on{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}
-.dmc-cmd-preview{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font-size:11.5px}
-.dmc-cmd-preview>svg{flex:none;color:var(--dsw-alias-label-tertiary)}
-.dmc-cmd-label{flex:none;font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
-.dmc-cmd-preview code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}
-.dmc-input,.dmc-textarea,.dmc-select{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:1.5}
-.dmc-input{height:34px;padding:0 12px}
-.dmc-textarea{min-height:72px;padding:8px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65;resize:vertical}
-.dmc-select{height:34px;padding:0 30px 0 12px;font-size:13px}
-.dmc-input::placeholder,.dmc-textarea::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}
-.dmc-input:focus-visible,.dmc-textarea:focus-visible,.dmc-select:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary)}
-.dmc-label{font-size:11.5px;font-weight:500}
-.dmc-field{gap:5px}
-.dmc-label-note{font-size:10.5px;font-weight:400}
-.dmc-hint{font-size:11px;line-height:1.55}
-.dmc-pair{gap:8px;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
-.dmc-pair-head{gap:6px}
-.dmc-pair-name{font-size:11.5px}
-.dmc-pair .dmc-fields{gap:7px 10px}
-.dmc-pair .dmc-field-key{font-size:11px}
-.dmc-cred{gap:8px;padding:10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
-.dmc-cred-name{font-size:11.5px}
-.dmc-cred-input-row .dmc-input{height:32px}
-.dmc-dialog-footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}
-.dmc-footer-actions{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
-.dmc-foot-status{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0;border:0;border-radius:0;background:transparent;font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
-.dmc-foot-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dmc-foot-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none;opacity:.8}
-.dmc-foot-status.run{color:var(--dsw-alias-label-secondary)}
-.dmc-foot-status.ok{color:var(--dsw-alias-state-success-primary);background:transparent}
-.dmc-foot-status.failed{color:var(--dsw-alias-state-error-primary);background:transparent}
-.dmc-foot-status.stale{color:var(--dsw-alias-state-warn-primary);background:transparent}
-.dmc-spinner{width:12px;height:12px;flex:none;border-radius:50%;border:1.5px solid var(--dsw-alias-border-l3);border-top-color:var(--dsw-alias-label-secondary);animation:dmc-spin .7s linear infinite}
-@keyframes dmc-spin{to{transform:rotate(360deg)}}
-.dmc-button{min-height:34px;padding:0 15px;border-radius:var(--dsw-radius-md);font-size:12.5px;font-weight:500}
-.dmc-chip-button.on{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent);color:var(--dsw-alias-label-primary)}
-.dmc-field-ctl.dmc-field-ctl-wide{grid-column:1 / -1}
-.dmc-host-warning{padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);color:var(--dsw-alias-state-warn-primary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-@media(max-width:600px){.dmc-card{padding:12px}.dmc-card-extra{width:100%;margin-left:0}.dmc-adv-hint{display:none}.dmc-dialog-footer{align-items:flex-start}.dmc-foot-status{flex:1 1 100%}.dmc-footer-actions{width:100%;justify-content:flex-end}}
+.dmw-dialog h2{font-weight:600;letter-spacing:.01em}
+.dmw-dialog h2::before{content:"";display:inline-block;width:16px;height:16px;margin-right:8px;vertical-align:-3px;background:var(--dsw-alias-label-secondary);-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cpath%20d='M2%203.1h12v4.1H2zM2%208.8h12v4.1H2z'%20fill='%23000'/%3E%3C/svg%3E") center/16px 16px no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Cpath%20d='M2%203.1h12v4.1H2zM2%208.8h12v4.1H2z'%20fill='%23000'/%3E%3C/svg%3E") center/16px 16px no-repeat}
+.dmw-dialog > div:first-child > p{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dmw-dialog .dmw-form{max-height:min(74vh,680px);padding:0 0 2px;gap:12px}
+.dmw-card{display:flex;flex-direction:column;gap:12px;flex:none;min-width:0;padding:14px 15px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 94%,var(--dsw-alias-label-primary) 6%)}
+.dmw-card-head{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;min-width:0}
+.dmw-card-heading{flex:1 1 auto;min-width:0}
+.dmw-card-title{display:flex;align-items:center;gap:7px;margin:0;font-size:12.5px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary)}
+.dmw-card-desc{margin:3px 0 0;font-size:11px;line-height:1.55;color:var(--dsw-alias-label-tertiary)}
+.dmw-card-extra{flex:none;margin-left:auto}
+.dmw-card-body{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dmw-count{flex:none;padding:1px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary);font-size:10.5px;font-weight:500;line-height:17px;font-variant-numeric:tabular-nums}
+.dmw-seg{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
+.dmw-seg-option{position:relative;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:6px;color:var(--dsw-alias-label-tertiary);font-size:11.5px;white-space:nowrap;cursor:pointer;transition:background-color .12s,color .12s}
+.dmw-seg-option svg{flex:none;opacity:.85}
+.dmw-seg-option:hover{color:var(--dsw-alias-label-secondary)}
+.dmw-seg-option.on{background:color-mix(in srgb,var(--dsw-alias-bg-layer-3) 94%,var(--dsw-alias-label-primary) 6%);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.14)}
+.dmw-seg-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.dmw-seg-option:focus-within{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
+.dmw-adv{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 94%,var(--dsw-alias-label-primary) 6%);overflow:hidden}
+.dmw-adv>summary{display:flex;align-items:center;gap:9px;padding:13px 15px;cursor:pointer;list-style:none;font-size:12.5px;font-weight:600;color:var(--dsw-alias-label-secondary)}
+.dmw-adv>summary::-webkit-details-marker{display:none}
+.dmw-adv>summary:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dmw-adv-title{flex:none;color:var(--dsw-alias-label-primary)}
+.dmw-adv-hint{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:400;color:var(--dsw-alias-label-tertiary)}
+.dmw-adv-spacer{flex:1;min-width:4px}
+.dmw-adv-caret{color:var(--dsw-alias-label-tertiary);transition:transform .15s ease}
+.dmw-adv[open] .dmw-adv-caret{transform:rotate(180deg)}
+.dmw-adv-body{display:flex;flex-direction:column;gap:12px;padding:14px 15px;border-top:1px solid var(--dsw-alias-border-l1)}
+.dmw-timeout-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.dmw-timeout-input{width:100px;text-align:right;font-variant-numeric:tabular-nums}
+.dmw-quick{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+.dmw-quick .dmw-btn-sm{height:26px;padding:0 8px;font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.dmw-quick .dmw-btn-sm.on{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary)}
+.dmw-cmd-preview{display:flex;align-items:center;gap:8px;min-width:0;padding:8px 10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font-size:11.5px}
+.dmw-cmd-preview>svg{flex:none;color:var(--dsw-alias-label-tertiary)}
+.dmw-cmd-label{flex:none;font-size:10.5px;color:var(--dsw-alias-label-tertiary)}
+.dmw-cmd-preview code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}
+.dmw-input,.dmw-textarea,.dmw-select{box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:1.5}
+.dmw-input{height:34px;padding:0 12px}
+.dmw-textarea{min-height:72px;padding:8px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65;resize:vertical}
+.dmw-select{height:34px;padding:0 30px 0 12px;font-size:13px}
+.dmw-input::placeholder,.dmw-textarea::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}
+.dmw-input:focus-visible,.dmw-textarea:focus-visible,.dmw-select:focus-visible{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.dmw-label{font-size:11.5px;font-weight:500}
+.dmw-field{gap:5px}
+.dmw-label-note{font-size:10.5px;font-weight:400}
+.dmw-hint{font-size:11px;line-height:1.55}
+.dmw-pair{gap:8px;padding:8px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
+.dmw-pair-head{gap:6px}
+.dmw-pair-name{font-size:11.5px}
+.dmw-pair .dmw-fields{gap:7px 10px}
+.dmw-pair .dmw-field-key{font-size:11px}
+.dmw-cred{gap:8px;padding:10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.dmw-cred-name{font-size:11.5px}
+.dmw-cred-input-row .dmw-input{height:32px}
+.dmw-dialog-footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}
+.dmw-footer-actions{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
+.dmw-foot-status{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:7px;padding:0;border:0;border-radius:0;background:transparent;font-size:11.5px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dmw-foot-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dmw-foot-dot{width:5px;height:5px;border-radius:50%;background:currentColor;flex:none;opacity:.8}
+.dmw-foot-status.run{color:var(--dsw-alias-label-secondary)}
+.dmw-foot-status.ok{color:var(--dsw-alias-state-success-primary);background:transparent}
+.dmw-foot-status.failed{color:var(--dsw-alias-state-error-primary);background:transparent}
+.dmw-foot-status.stale{color:var(--dsw-alias-state-warn-primary);background:transparent}
+.dmw-spinner{width:12px;height:12px;flex:none;border-radius:50%;border:1.5px solid var(--dsw-alias-border-l3);border-top-color:var(--dsw-alias-label-secondary);animation:dmw-spin .7s linear infinite}
+@keyframes dmw-spin{to{transform:rotate(360deg)}}
+.dmw-button{min-height:34px;padding:0 15px;border-radius:var(--dsw-radius-md);font-size:12.5px;font-weight:500}
+.dmw-chip-button.on{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 15%,transparent);color:var(--dsw-alias-label-primary)}
+.dmw-field-ctl.dmw-field-ctl-wide{grid-column:1 / -1}
+.dmw-host-warning{padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent);color:var(--dsw-alias-state-warn-primary);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+@media(max-width:600px){.dmw-card{padding:12px}.dmw-card-extra{width:100%;margin-left:0}.dmw-adv-hint{display:none}.dmw-dialog-footer{align-items:flex-start}.dmw-foot-status{flex:1 1 100%}.dmw-footer-actions{width:100%;justify-content:flex-end}}
 
 `
 
@@ -430,7 +430,7 @@ window.__ModuleLoader__.load({
       const custom = forced || !PREFIX_PRESETS.includes(value)
       const mode = custom ? CUSTOM_PREFIX : value
       const input = React.createElement('input', {
-        className: 'dmc-input dmc-value-prefix',
+        className: 'dmw-input dmw-value-prefix',
         type: 'text',
         value: custom ? value : '',
         placeholder: '自定义前缀',
@@ -439,11 +439,11 @@ window.__ModuleLoader__.load({
       })
       return React.createElement(
         'span',
-        { className: 'dmc-value-prefix-group' },
+        { className: 'dmw-value-prefix-group' },
         React.createElement(
           'select',
           {
-            className: 'dmc-input dmc-value-prefix-mode',
+            className: 'dmw-input dmw-value-prefix-mode',
             value: mode,
             'aria-label': `${ariaLabel}前缀`,
             onChange: (event) => {
@@ -615,7 +615,7 @@ window.__ModuleLoader__.load({
       const write = React.useCallback(
         async (next) => {
           if (controller === null || controller === undefined) {
-            onError?.('设置接口不可用：宿主里这一条没有可写 schema（宿主日志里有 dsh-mcp-console: 前缀的告警）')
+            onError?.('设置接口不可用：宿主里这一条没有可写 schema（宿主日志里有 dsh-mcp-workbench: 前缀的告警）')
             return
           }
           setBusy(true)
@@ -659,7 +659,7 @@ window.__ModuleLoader__.load({
         const measure = () => {
           const anchor = anchorRef.current
           if (anchor === null || anchor === undefined || typeof anchor.getBoundingClientRect !== 'function') return
-          const panel = typeof anchor.closest === 'function' ? anchor.closest('.dmc-section') : null
+          const panel = typeof anchor.closest === 'function' ? anchor.closest('.dmw-section') : null
           const anchorRect = anchor.getBoundingClientRect()
           const panelRect = panel === null || panel === undefined ? anchorRect : panel.getBoundingClientRect()
           const viewport = window.innerHeight
@@ -746,18 +746,18 @@ window.__ModuleLoader__.load({
 
       const label = React.createElement(
         'div',
-        { className: 'dmc-tip-content', style: { maxHeight: `${bounds.maxHeight}px` } },
-        React.createElement('div', { className: 'dmc-tip-head' }, `共 ${tools.length} 个工具${scrollable ? ' · 滚轮滚动' : ''}`),
+        { className: 'dmw-tip-content', style: { maxHeight: `${bounds.maxHeight}px` } },
+        React.createElement('div', { className: 'dmw-tip-head' }, `共 ${tools.length} 个工具${scrollable ? ' · 滚轮滚动' : ''}`),
         React.createElement(
           'div',
-          { className: 'dmc-tip-list', ref: attachList },
-          tools.map((name) => React.createElement('div', { key: name, className: 'dmc-tip-name' }, name))
+          { className: 'dmw-tip-list', ref: attachList },
+          tools.map((name) => React.createElement('div', { key: name, className: 'dmw-tip-name' }, name))
         )
       )
 
       // 拿不到官方组件（理论上不该发生：primitives 是 boot graph 的 seed）时退化成纯标签，
       // 而不是抛异常把整个分区打崩。
-      const plain = React.createElement('div', { className: 'dmc-title-block' }, nameNode, namespaceNode, tag)
+      const plain = React.createElement('div', { className: 'dmw-title-block' }, nameNode, namespaceNode, tag)
       if (typeof Tooltip !== 'function') return plain
 
       return React.createElement(
@@ -768,7 +768,7 @@ window.__ModuleLoader__.load({
           maxWidth: bounds.maxWidth,
           children: React.createElement(
             'div',
-            { className: 'dmc-title-block tip', ref: wrapRef },
+            { className: 'dmw-title-block tip', ref: wrapRef },
             nameNode,
             namespaceNode,
             tag
@@ -794,26 +794,26 @@ window.__ModuleLoader__.load({
       // 挂 tooltip 时 tag 自己要能吃悬停事件（外层标题区是 pointer-events:none）。
       const tag = React.createElement(
         'span',
-        { className: `dmc-status ${state.tone}${showTools ? ' dmc-tip-trigger' : ''}`, title: showTools ? undefined : state.text },
+        { className: `dmw-status ${state.tone}${showTools ? ' dmw-tip-trigger' : ''}`, title: showTools ? undefined : state.text },
         state.short ?? state.text
       )
       const nameNode = React.createElement(
         'span',
-        { className: 'dmc-name', title: server.label === '' ? server.serverName : `${server.label}（${server.serverName}）` },
+        { className: 'dmw-name', title: server.label === '' ? server.serverName : `${server.label}（${server.serverName}）` },
         server.label === '' ? server.serverName : server.label
       )
-      const namespaceNode = server.label === '' ? null : React.createElement('code', { className: 'dmc-namespace' }, namespace)
+      const namespaceNode = server.label === '' ? null : React.createElement('code', { className: 'dmw-namespace' }, namespace)
 
       return React.createElement(
         'div',
-        { className: 'dmc-row' },
+        { className: 'dmw-row' },
         React.createElement(
           'div',
-          { className: 'dmc-row-line' },
+          { className: 'dmw-row-line' },
           // 左：启停开关
           React.createElement('button', {
             type: 'button',
-            className: 'dmc-switch',
+            className: 'dmw-switch',
             role: 'switch',
             'aria-checked': server.enabled ? 'true' : 'false',
             'aria-label': `${server.enabled ? '停用' : '启用'} ${server.serverName}`,
@@ -823,16 +823,16 @@ window.__ModuleLoader__.load({
           // 中：名字（没有备注名时就显服务器名）+ 工具命名空间 + 状态 tag
           showTools
             ? React.createElement(ToolsTooltip, { tools, nameNode, namespaceNode, tag })
-            : React.createElement('div', { className: 'dmc-title-block' }, nameNode, namespaceNode, tag),
+            : React.createElement('div', { className: 'dmw-title-block' }, nameNode, namespaceNode, tag),
           // 右：编辑 / 删除
           React.createElement(
             'div',
-            { className: 'dmc-actions' },
+            { className: 'dmw-actions' },
             React.createElement(
               'button',
               {
                 type: 'button',
-                className: 'dmc-icon-button',
+                className: 'dmw-icon-button',
                 'aria-label': `编辑 ${server.serverName}`,
                 onClick: () => onEdit(server)
               },
@@ -842,7 +842,7 @@ window.__ModuleLoader__.load({
               'button',
               {
                 type: 'button',
-                className: 'dmc-icon-button danger',
+                className: 'dmw-icon-button danger',
                 'aria-label': `删除 ${server.serverName}`,
                 onClick: () => onDelete(server)
               },
@@ -918,7 +918,7 @@ window.__ModuleLoader__.load({
     /**
      * 表单里的一行：左边小标题、右边控件。
      *
-     * 外层必须包一层 `FieldGroup`（`.dmc-fields`）——它才是真正的 grid，
+     * 外层必须包一层 `FieldGroup`（`.dmw-fields`）——它才是真正的 grid，
      * `FieldLine` 自身 `display:contents` 把两个 span 直接塞进父 grid，
      * 于是**同一组里的标签列同宽、所有输入框左边缘对齐**。
      * 早先每行各自成 grid，标签长度不同导致输入框一个个错开（用户截图："看起来这么乱"）。
@@ -926,15 +926,15 @@ window.__ModuleLoader__.load({
     function FieldLine({ label, children }) {
       return React.createElement(
         'div',
-        { className: 'dmc-field-line' },
-        React.createElement('span', { className: 'dmc-field-key' }, label),
-        React.createElement('span', { className: 'dmc-field-ctl' }, children)
+        { className: 'dmw-field-line' },
+        React.createElement('span', { className: 'dmw-field-key' }, label),
+        React.createElement('span', { className: 'dmw-field-ctl' }, children)
       )
     }
 
     /** 一组字段行：共享标签列的 grid 容器。 */
     function FieldGroup({ children }) {
-      return React.createElement('div', { className: 'dmc-fields' }, children)
+      return React.createElement('div', { className: 'dmw-fields' }, children)
     }
 
     /**
@@ -954,11 +954,11 @@ window.__ModuleLoader__.load({
         { label: '前缀' },
         React.createElement(
           'span',
-          { className: 'dmc-select-wrap' },
+          { className: 'dmw-select-wrap' },
           React.createElement(
             'select',
             {
-              className: 'dmc-select',
+              className: 'dmw-select',
               value: mode,
               'aria-label': `${ariaLabel}前缀`,
               onChange: (event) => {
@@ -974,11 +974,11 @@ window.__ModuleLoader__.load({
               React.createElement('option', { key: 'custom', value: CUSTOM_PREFIX }, '其它…')
             ]
           ),
-          React.createElement(IconChevronDownOutline14, { size: 14, className: 'dmc-select-caret' })
+          React.createElement(IconChevronDownOutline14, { size: 14, className: 'dmw-select-caret' })
         ),
         custom
           ? React.createElement('input', {
-              className: 'dmc-input',
+              className: 'dmw-input',
               type: 'text',
               value,
               placeholder: '自定义前缀（例如 Token ）',
@@ -1001,7 +1001,7 @@ window.__ModuleLoader__.load({
         FieldLine,
         { label: '凭据键名' },
         React.createElement('input', {
-          className: 'dmc-input',
+          className: 'dmw-input',
           type: 'text',
           value,
           placeholder: '自己取一个（字母、数字、下划线）',
@@ -1012,7 +1012,7 @@ window.__ModuleLoader__.load({
           ? null
           : React.createElement(
               'span',
-              { className: 'dmc-key-hints' },
+              { className: 'dmw-key-hints' },
               '用过的键：',
               candidates.map((key) =>
                 React.createElement(
@@ -1020,7 +1020,7 @@ window.__ModuleLoader__.load({
                   {
                     key,
                     type: 'button',
-                    className: 'dmc-chip-button',
+                    className: 'dmw-chip-button',
                     'aria-label': `使用键名 ${key}`,
                     onClick: () => onChange(key)
                   },
@@ -1042,7 +1042,7 @@ window.__ModuleLoader__.load({
       const set = (patch) => onChange(joinCredential({ ...parts, ...patch }))
       if (parts === null) {
         const input = React.createElement('input', {
-          className: 'dmc-input',
+          className: 'dmw-input',
           type: 'text',
           value: String(value ?? ''),
           placeholder: placeholder ?? '值',
@@ -1054,8 +1054,8 @@ window.__ModuleLoader__.load({
         if (hideValueLabel === true) {
           return React.createElement(
             'div',
-            { className: 'dmc-field-line dmc-field-line-wide' },
-            React.createElement('span', { className: 'dmc-field-ctl dmc-field-ctl-wide' }, input)
+            { className: 'dmw-field-line dmw-field-line-wide' },
+            React.createElement('span', { className: 'dmw-field-ctl dmw-field-ctl-wide' }, input)
           )
         }
         return React.createElement(FieldLine, { label: valueLabel ?? '值' }, input)
@@ -1070,7 +1070,7 @@ window.__ModuleLoader__.load({
                 FieldLine,
                 { label: prefixHint ?? '地址前段' },
                 React.createElement('input', {
-                  className: 'dmc-input',
+                  className: 'dmw-input',
                   type: 'text',
                   value: parts.prefix,
                   placeholder: emptyPrefixHint ?? '可留空',
@@ -1086,7 +1086,7 @@ window.__ModuleLoader__.load({
               FieldLine,
               { label: '后缀' },
               React.createElement('input', {
-                className: 'dmc-input',
+                className: 'dmw-input',
                 type: 'text',
                 value: parts.suffix,
                 placeholder: '后缀',
@@ -1118,18 +1118,18 @@ window.__ModuleLoader__.load({
 
       return React.createElement(
         'div',
-        { className: 'dmc-pairs' },
+        { className: 'dmw-pairs' },
         rows.map((row, index) => {
           const parts = splitCredential(row.value)
           const credential = parts !== null
           return React.createElement(
             'div',
-            { className: 'dmc-pair', key: index },
+            { className: 'dmw-pair', key: index },
             React.createElement(
               'div',
-              { className: 'dmc-pair-head' },
+              { className: 'dmw-pair-head' },
               React.createElement('input', {
-                className: 'dmc-input dmc-pair-name',
+                className: 'dmw-input dmw-pair-name',
                 type: 'text',
                 value: row.name,
                 placeholder: kind === 'env' ? '变量名' : '请求头名字',
@@ -1140,7 +1140,7 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  className: `dmc-chip-button${credential ? ' on' : ''}`,
+                  className: `dmw-chip-button${credential ? ' on' : ''}`,
                   'aria-pressed': credential ? 'true' : 'false',
                   'aria-label': `${label}第 ${index + 1} 行引用凭据`,
                   title: credential ? '改回直接填写明文' : '改用凭据库里的值（界面不回显）',
@@ -1152,7 +1152,7 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  className: 'dmc-icon-button sm',
+                  className: 'dmw-icon-button sm',
                   'aria-label': `删除${label}第 ${index + 1} 行`,
                   onClick: () => remove(index)
                 },
@@ -1176,10 +1176,10 @@ window.__ModuleLoader__.load({
         }),
         React.createElement(
           'button',
-          { type: 'button', className: 'dmc-btn-sm dmc-pair-add', 'aria-label': `添加${label}`, onClick: add },
+          { type: 'button', className: 'dmw-btn-sm dmw-pair-add', 'aria-label': `添加${label}`, onClick: add },
           `+ 添加${kind === 'env' ? '环境变量' : '请求头'}`
         ),
-        issues.length === 0 ? null : React.createElement('span', { className: 'dmc-hint dmc-hint-error' }, issues[0])
+        issues.length === 0 ? null : React.createElement('span', { className: 'dmw-hint dmw-hint-error' }, issues[0])
       )
     }
 
@@ -1225,21 +1225,21 @@ window.__ModuleLoader__.load({
       const cardHead = (title, desc, extra, count) =>
         React.createElement(
           'div',
-          { className: 'dmc-card-head' },
+          { className: 'dmw-card-head' },
           React.createElement(
             'div',
-            { className: 'dmc-card-heading' },
+            { className: 'dmw-card-heading' },
             React.createElement(
               'h3',
-              { className: 'dmc-card-title' },
+              { className: 'dmw-card-title' },
               title,
-              count === undefined ? null : React.createElement('span', { className: 'dmc-count' }, `${count} 项`)
+              count === undefined ? null : React.createElement('span', { className: 'dmw-count' }, `${count} 项`)
             ),
-            React.createElement('p', { className: 'dmc-card-desc' }, desc)
+            React.createElement('p', { className: 'dmw-card-desc' }, desc)
           ),
           extra === undefined || extra === null
             ? null
-            : React.createElement('div', { className: 'dmc-card-extra' }, extra)
+            : React.createElement('div', { className: 'dmw-card-extra' }, extra)
         )
 
       // 传输方式仍然用两个原生 radio（键盘/读屏语义不变，测试也按 radio 顺序操作），
@@ -1247,11 +1247,11 @@ window.__ModuleLoader__.load({
       const transportOption = (value, label, Icon) =>
         React.createElement(
           'label',
-          { className: `dmc-seg-option${draft.transport === value ? ' on' : ''}` },
+          { className: `dmw-seg-option${draft.transport === value ? ' on' : ''}` },
           React.createElement('input', {
             type: 'radio',
-            name: `dmc-transport-${draft.id}`,
-            className: 'dmc-seg-input',
+            name: `dmw-transport-${draft.id}`,
+            className: 'dmw-seg-input',
             checked: draft.transport === value,
             onChange: () => setValue('transport', value)
           }),
@@ -1261,24 +1261,24 @@ window.__ModuleLoader__.load({
 
       const transport = React.createElement(
         'div',
-        { className: 'dmc-seg', role: 'group', 'aria-label': '传输方式' },
+        { className: 'dmw-seg', role: 'group', 'aria-label': '传输方式' },
         transportOption('stdio', '本地进程', IconCodeOutline16),
         transportOption('streamable-http', '远程服务', IconLinkOutline16)
       )
 
       const serverName = React.createElement(
         'div',
-        { className: 'dmc-field' },
+        { className: 'dmw-field' },
         React.createElement(
           'span',
-          { className: 'dmc-label' },
+          { className: 'dmw-label' },
           '服务器名',
-          React.createElement('span', { className: 'dmc-required' }, ' *'),
+          React.createElement('span', { className: 'dmw-required' }, ' *'),
           // 文案与运行时同源：工具全名就是 mcp__<服务器名>__<工具名>（见行上的命名空间 chip）。
-          React.createElement('span', { className: 'dmc-label-note' }, `(工具前缀为 mcp__${prefixName}__)`)
+          React.createElement('span', { className: 'dmw-label-note' }, `(工具前缀为 mcp__${prefixName}__)`)
         ),
         React.createElement('input', {
-          className: 'dmc-input',
+          className: 'dmw-input',
           type: 'text',
           placeholder: '例如 github',
           'aria-label': '服务器名',
@@ -1288,10 +1288,10 @@ window.__ModuleLoader__.load({
 
       const labelField = React.createElement(
         'div',
-        { className: 'dmc-field' },
-        React.createElement('span', { className: 'dmc-label' }, '备注名'),
+        { className: 'dmw-field' },
+        React.createElement('span', { className: 'dmw-label' }, '备注名'),
         React.createElement('input', {
-          className: 'dmc-input',
+          className: 'dmw-input',
           type: 'text',
           placeholder: '例如 GitHub',
           'aria-label': '备注名',
@@ -1301,10 +1301,10 @@ window.__ModuleLoader__.load({
 
       const commandField = React.createElement(
         'div',
-        { className: 'dmc-field' },
-        React.createElement('span', { className: 'dmc-label' }, '命令', React.createElement('span', { className: 'dmc-required' }, ' *')),
+        { className: 'dmw-field' },
+        React.createElement('span', { className: 'dmw-label' }, '命令', React.createElement('span', { className: 'dmw-required' }, ' *')),
         React.createElement('input', {
-          className: 'dmc-input',
+          className: 'dmw-input',
           type: 'text',
           placeholder: 'npx、uvx、node、python…',
           'aria-label': '命令',
@@ -1314,10 +1314,10 @@ window.__ModuleLoader__.load({
 
       const argsField = React.createElement(
         'div',
-        { className: 'dmc-field' },
-        React.createElement('span', { className: 'dmc-label' }, '参数（每行一个）'),
+        { className: 'dmw-field' },
+        React.createElement('span', { className: 'dmw-label' }, '参数（每行一个）'),
         React.createElement('textarea', {
-          className: 'dmc-textarea',
+          className: 'dmw-textarea',
           placeholder: '-y\n@modelcontextprotocol/server-github',
           'aria-label': '参数（每行一个）',
           ...field('argsText')
@@ -1326,10 +1326,10 @@ window.__ModuleLoader__.load({
 
       const cwdField = React.createElement(
         'div',
-        { className: 'dmc-field' },
-        React.createElement('span', { className: 'dmc-label' }, '工作目录'),
+        { className: 'dmw-field' },
+        React.createElement('span', { className: 'dmw-label' }, '工作目录'),
         React.createElement('input', {
-          className: 'dmc-input',
+          className: 'dmw-input',
           type: 'text',
           placeholder: '~/code（可留空）',
           'aria-label': '工作目录',
@@ -1342,9 +1342,9 @@ window.__ModuleLoader__.load({
           ? null
           : React.createElement(
               'div',
-              { className: 'dmc-cmd-preview' },
+              { className: 'dmw-cmd-preview' },
               React.createElement(IconCodeOutline16, { size: 14 }),
-              React.createElement('span', { className: 'dmc-cmd-label' }, '启动预览'),
+              React.createElement('span', { className: 'dmw-cmd-label' }, '启动预览'),
               React.createElement('code', { title: commandPreview }, commandPreview)
             )
 
@@ -1359,18 +1359,18 @@ window.__ModuleLoader__.load({
 
       const urlField = React.createElement(
         'div',
-        { className: 'dmc-field' },
+        { className: 'dmw-field' },
         React.createElement(
           'span',
-          { className: 'dmc-label dmc-label-line' },
+          { className: 'dmw-label dmw-label-line' },
           '服务器 URL',
-          React.createElement('span', { className: 'dmc-required' }, ' *'),
-          React.createElement('span', { className: 'dmc-label-spacer' }),
+          React.createElement('span', { className: 'dmw-required' }, ' *'),
+          React.createElement('span', { className: 'dmw-label-spacer' }),
           React.createElement(
             'button',
             {
               type: 'button',
-              className: `dmc-chip-button${splitCredential(draft.url) === null ? '' : ' on'}`,
+              className: `dmw-chip-button${splitCredential(draft.url) === null ? '' : ' on'}`,
               'aria-pressed': splitCredential(draft.url) === null ? 'false' : 'true',
               'aria-label': 'URL 引用凭据',
               title:
@@ -1407,27 +1407,27 @@ window.__ModuleLoader__.load({
 
       const timeoutField = React.createElement(
         'div',
-        { className: 'dmc-field' },
-        React.createElement('span', { className: 'dmc-label' }, '单次调用超时（毫秒）'),
+        { className: 'dmw-field' },
+        React.createElement('span', { className: 'dmw-label' }, '单次调用超时（毫秒）'),
         React.createElement(
           'div',
-          { className: 'dmc-timeout-row' },
+          { className: 'dmw-timeout-row' },
           React.createElement('input', {
-            className: 'dmc-input dmc-timeout-input',
+            className: 'dmw-input dmw-timeout-input',
             type: 'text',
             'aria-label': '单次调用超时（毫秒）',
             ...field('toolCallTimeoutMs')
           }),
           React.createElement(
             'div',
-            { className: 'dmc-quick' },
+            { className: 'dmw-quick' },
             [30000, 60000, 120000].map((ms) =>
               React.createElement(
                 'button',
                 {
                   key: ms,
                   type: 'button',
-                  className: `dmc-btn-sm${String(ms) === String(draft.toolCallTimeoutMs) ? ' on' : ''}`,
+                  className: `dmw-btn-sm${String(ms) === String(draft.toolCallTimeoutMs) ? ' on' : ''}`,
                   onClick: () => setValue('toolCallTimeoutMs', String(ms))
                 },
                 `${ms / 1000} 秒`
@@ -1439,55 +1439,55 @@ window.__ModuleLoader__.load({
 
       const advanced = React.createElement(
         'details',
-        { className: 'dmc-adv' },
+        { className: 'dmw-adv' },
         React.createElement(
           'summary',
           null,
-          React.createElement('span', { className: 'dmc-adv-title' }, '高级设置'),
+          React.createElement('span', { className: 'dmw-adv-title' }, '高级设置'),
           React.createElement(
             'span',
-            { className: 'dmc-adv-hint' },
+            { className: 'dmw-adv-hint' },
             `超时 ${timeoutText} · ${draft.failOnStartupError ? '启动失败中止' : '启动失败继续重连'}`
           ),
-          React.createElement('span', { className: 'dmc-adv-spacer' }),
-          React.createElement(IconChevronDownOutline14, { size: 14, className: 'dmc-adv-caret' })
+          React.createElement('span', { className: 'dmw-adv-spacer' }),
+          React.createElement(IconChevronDownOutline14, { size: 14, className: 'dmw-adv-caret' })
         ),
         React.createElement(
           'div',
-          { className: 'dmc-adv-body' },
+          { className: 'dmw-adv-body' },
           timeoutField,
           // 勾选项文本很长：单独占一整行，别和输入框挤同一行的两列（会换行、也很难看）
           React.createElement(
             'label',
-            { className: 'dmc-checkline' },
+            { className: 'dmw-checkline' },
             React.createElement('input', {
               type: 'checkbox',
               checked: draft.failOnStartupError === true,
               onChange: (event) => setValue('failOnStartupError', event.target.checked)
             }),
-            React.createElement('span', null, '启动连不上就报错', React.createElement('span', { className: 'dmc-hint' }, '（默认只记录日志并继续重连）'))
+            React.createElement('span', null, '启动连不上就报错', React.createElement('span', { className: 'dmw-hint' }, '（默认只记录日志并继续重连）'))
           )
         )
       )
 
       return React.createElement(
         'div',
-        { className: 'dmc-form' },
+        { className: 'dmw-form' },
         React.createElement(
           'section',
-          { className: 'dmc-card' },
+          { className: 'dmw-card' },
           cardHead('基本信息', '服务器名决定工具前缀，备注名只影响列表显示。'),
-          React.createElement('div', { className: 'dmc-field-row' }, serverName, labelField)
+          React.createElement('div', { className: 'dmw-field-row' }, serverName, labelField)
         ),
         React.createElement(
           'section',
-          { className: 'dmc-card' },
+          { className: 'dmw-card' },
           cardHead('连接方式', '用命令启动本地进程，或连接已经运行的远程服务。', transport),
-          React.createElement('div', { className: 'dmc-card-body' }, isHttp ? urlField : stdioPane)
+          React.createElement('div', { className: 'dmw-card-body' }, isHttp ? urlField : stdioPane)
         ),
         React.createElement(
           'section',
-          { className: 'dmc-card' },
+          { className: 'dmw-card' },
           cardHead(
             isHttp ? '请求头' : '环境变量',
             isHttp ? '请求远程端点时附带的 HTTP 头；密钥建议用「凭据」引用。' : '传给 MCP 子进程的环境变量；密钥建议用「凭据」引用。',
@@ -1496,7 +1496,7 @@ window.__ModuleLoader__.load({
           ),
           React.createElement(
             'div',
-            { className: 'dmc-card-body' },
+            { className: 'dmw-card-body' },
             React.createElement(PairEditor, {
               kind: isHttp ? 'headers' : 'env',
               rows,
@@ -1505,7 +1505,7 @@ window.__ModuleLoader__.load({
             }),
             React.createElement(
               'span',
-              { className: 'dmc-hint' },
+              { className: 'dmw-hint' },
               '密钥点「凭据」：键名自己取，值存进凭据库、界面不回显、可多处复用；直接填写的值会明文存进设置文件。'
             ),
             refs.length === 0 ? null : React.createElement(CredentialBox, { refs, section })
@@ -1525,14 +1525,14 @@ window.__ModuleLoader__.load({
     function ServerDialog({ mode, draft, verification, verifying, busy, notes, live, blockedReason, conflictNote, runtime, hostSupportsVerify, setDraft, onCancel, onVerify, onSave, credentialKeys }) {
       const footer = React.createElement(
         'div',
-        { className: 'dmc-dialog-footer' },
+        { className: 'dmw-dialog-footer' },
         React.createElement(FooterStatus, { verifying, verification, hostSupportsVerify }),
         React.createElement(
           'div',
-          { className: 'dmc-footer-actions' },
+          { className: 'dmw-footer-actions' },
           React.createElement(
             'button',
-            { type: 'button', className: 'dmc-button', 'aria-label': '取消', disabled: verifying, onClick: onCancel },
+            { type: 'button', className: 'dmw-button', 'aria-label': '取消', disabled: verifying, onClick: onCancel },
             '取消'
           ),
           // 只有「保存」一个动作：点它就自动先验证、通过才落盘（少一次点击）。
@@ -1540,7 +1540,7 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
-              className: 'dmc-button primary',
+              className: 'dmw-button primary',
               'aria-label': '保存',
               disabled: busy || verifying || hostSupportsVerify === false,
               title: hostSupportsVerify === false ? '当前 dsh web 进程没有「验证」接口，请重启后再试' : undefined,
@@ -1552,18 +1552,18 @@ window.__ModuleLoader__.load({
       )
       const body = React.createElement(
         'div',
-        { className: 'dmc-dialog-body' },
+        { className: 'dmw-dialog-body' },
         hostSupportsVerify === false
           ? React.createElement(
               'div',
-              { className: 'dmc-verify stale' },
+              { className: 'dmw-verify stale' },
               '当前 dsh web 进程还是旧版本，没有「验证」接口：请在 Warp 里 Ctrl+C 后重新执行 dsh web --no-open，再刷新页面重试。'
             )
           : null,
         visibleNotes(notes).length > 0
           ? React.createElement(
               'div',
-              { className: 'dmc-notes' },
+              { className: 'dmw-notes' },
               visibleNotes(notes).map((note, index) => React.createElement('div', { key: index }, note))
             )
           : null,
@@ -1577,8 +1577,8 @@ window.__ModuleLoader__.load({
         // 拿不到官方 Modal 时退化成页面内表单，功能不丢（但不再有遮罩）
         return React.createElement(
           'div',
-          { className: 'dmc-dialog-inline', role: 'dialog', 'aria-label': title },
-          React.createElement('div', { className: 'dmc-dialog-title' }, title),
+          { className: 'dmw-dialog-inline', role: 'dialog', 'aria-label': title },
+          React.createElement('div', { className: 'dmw-dialog-title' }, title),
           body,
           footer
         )
@@ -1591,7 +1591,7 @@ window.__ModuleLoader__.load({
           title,
           closeLabel: '关闭',
           description: '保存时会先验证连接，通过才写入；保存后立即生效，不需要重启。',
-          className: 'dmc-dialog',
+          className: 'dmw-dialog',
           footer
         },
         body
@@ -1605,27 +1605,27 @@ window.__ModuleLoader__.load({
     function LiveLogs({ logs }) {
       return React.createElement(
         'details',
-        { className: 'dmc-live-logs' },
+        { className: 'dmw-live-logs' },
         React.createElement('summary', null, `最近日志（${logs.length} 条）`),
-        React.createElement('div', { className: 'dmc-log' }, logs.join('\n'))
+        React.createElement('div', { className: 'dmw-log' }, logs.join('\n'))
       )
     }
 
     /**
      * 底部状态条：把「保存 = 先验证」讲清楚，验证中 / 成功 / 失败都在同一处反馈。
      *
-     * 保留 `dmc-verify` 这个 class：真机验收脚本按它读失败原因（旧版在表单末尾，
+     * 保留 `dmw-verify` 这个 class：真机验收脚本按它读失败原因（旧版在表单末尾，
      * 现在挪到底部，选择器不变）。
      */
     function FooterStatus({ verifying, verification, hostSupportsVerify }) {
       const node = (tone, text, spinner, title) =>
         React.createElement(
           'div',
-          { className: `dmc-verify dmc-foot-status ${tone}`, title },
+          { className: `dmw-verify dmw-foot-status ${tone}`, title },
           spinner === true
-            ? React.createElement('span', { className: 'dmc-spinner' })
-            : React.createElement('span', { className: 'dmc-foot-dot' }),
-          React.createElement('span', { className: 'dmc-foot-text' }, text)
+            ? React.createElement('span', { className: 'dmw-spinner' })
+            : React.createElement('span', { className: 'dmw-foot-dot' }),
+          React.createElement('span', { className: 'dmw-foot-text' }, text)
         )
       if (verifying === true) return node('run', '正在连接并读取工具清单…', true)
       if (hostSupportsVerify === false) {
@@ -1733,34 +1733,34 @@ window.__ModuleLoader__.load({
 
       return React.createElement(
         'div',
-        { className: 'dmc-cred' },
-        React.createElement('span', { className: 'dmc-label' }, '引用的凭据'),
-        state.error === '' ? null : React.createElement('div', { className: 'dmc-error' }, state.error),
+        { className: 'dmw-cred' },
+        React.createElement('span', { className: 'dmw-label' }, '引用的凭据'),
+        state.error === '' ? null : React.createElement('div', { className: 'dmw-error' }, state.error),
         refs.map((ref) => {
           const info = state.entries?.[ref]
           const configured = info?.configured === true
           const writable = info?.writable !== false
           return React.createElement(
             'div',
-            { key: ref, className: 'dmc-cred-row' },
+            { key: ref, className: 'dmw-cred-row' },
             // 第一行：键名 + 状态小标签（"未配置"是状态，不该长成一句说明）
             React.createElement(
               'div',
-              { className: 'dmc-cred-head' },
-              React.createElement('span', { className: 'dmc-cred-name', title: ref }, ref),
+              { className: 'dmw-cred-head' },
+              React.createElement('span', { className: 'dmw-cred-name', title: ref }, ref),
               React.createElement(
                 'span',
-                { className: `dmc-status ${configured ? 'ok' : 'warn'}` },
+                { className: `dmw-status ${configured ? 'ok' : 'warn'}` },
                 configured ? `已配置 · ${info?.source ?? 'credentials'}` : '未配置'
               ),
-              writable ? null : React.createElement('span', { className: 'dmc-status' }, '只读来源')
+              writable ? null : React.createElement('span', { className: 'dmw-status' }, '只读来源')
             ),
             // 第二行：输入框与两个小按钮同一行、垂直居中对齐
             React.createElement(
               'div',
-              { className: 'dmc-cred-input-row' },
+              { className: 'dmw-cred-input-row' },
               React.createElement('input', {
-                className: 'dmc-input dmc-cred-input',
+                className: 'dmw-input dmw-cred-input',
                 type: 'password',
                 placeholder: configured ? '输入新值以覆盖' : '输入值以保存',
                 value: drafts[ref] ?? '',
@@ -1771,7 +1771,7 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  className: 'dmc-btn-sm',
+                  className: 'dmw-btn-sm',
                   'aria-label': `保存凭据 ${ref}`,
                   disabled: !writable || busyRef === ref || (drafts[ref] ?? '') === '',
                   onClick: () => save(ref)
@@ -1782,7 +1782,7 @@ window.__ModuleLoader__.load({
                 'button',
                 {
                   type: 'button',
-                  className: 'dmc-btn-sm',
+                  className: 'dmw-btn-sm',
                   'aria-label': `清除凭据 ${ref}`,
                   disabled: !writable || !configured,
                   onClick: () => clear(ref)
@@ -1803,46 +1803,46 @@ window.__ModuleLoader__.load({
      * - **文案不出现实现细节**（profile / cordis.patch.yml / !!js 表达式都属实现），
      *   用户需要的只有一句话：这是只读的、来自启动配置、值不显示；
      * - **块自己成一个卡片**，不再复用托管条目的行长样式——两者层级不同，
-     *   混用同一套 `.dmc-row` 会让这一块看起来像"另一批可编辑条目"。
+     *   混用同一套 `.dmw-row` 会让这一块看起来像"另一批可编辑条目"。
      */
     function ProfileTargets({ rows, onImport, busy }) {
       if (!Array.isArray(rows) || rows.length === 0) return null
       return React.createElement(
         'section',
-        { className: 'dmc-targets' },
+        { className: 'dmw-targets' },
         React.createElement(
           'div',
-          { className: 'dmc-targets-head' },
-          React.createElement('h3', { className: 'dmc-targets-title' }, '配置文件中的服务器'),
-          React.createElement('span', { className: 'dmc-badge' }, `${rows.length} 个`),
-          React.createElement('span', { className: 'dmc-targets-hint' }, '只读 · 值不显示')
+          { className: 'dmw-targets-head' },
+          React.createElement('h3', { className: 'dmw-targets-title' }, '配置文件中的服务器'),
+          React.createElement('span', { className: 'dmw-badge' }, `${rows.length} 个`),
+          React.createElement('span', { className: 'dmw-targets-hint' }, '只读 · 值不显示')
         ),
         rows.map((row) =>
           React.createElement(
             'div',
-            { key: row.entryId, className: 'dmc-target' },
+            { key: row.entryId, className: 'dmw-target' },
             React.createElement(
               'div',
-              { className: 'dmc-target-copy' },
+              { className: 'dmw-target-copy' },
               React.createElement(
                 'div',
-                { className: 'dmc-target-name-line' },
-                React.createElement('span', { className: 'dmc-target-name' }, row.serverName || row.entryId),
-                React.createElement('span', { className: 'dmc-badge' }, row.transport === 'streamable-http' ? 'HTTP' : 'stdio'),
-                row.enabled ? null : React.createElement('span', { className: 'dmc-badge off' }, '已停用')
+                { className: 'dmw-target-name-line' },
+                React.createElement('span', { className: 'dmw-target-name' }, row.serverName || row.entryId),
+                React.createElement('span', { className: 'dmw-badge' }, row.transport === 'streamable-http' ? 'HTTP' : 'stdio'),
+                row.enabled ? null : React.createElement('span', { className: 'dmw-badge off' }, '已停用')
               ),
               row.endpoint === ''
                 ? null
-                : React.createElement('div', { className: 'dmc-target-endpoint', title: row.endpoint }, row.endpoint),
+                : React.createElement('div', { className: 'dmw-target-endpoint', title: row.endpoint }, row.endpoint),
               fieldSummary(row) === ''
                 ? null
-                : React.createElement('div', { className: 'dmc-target-fields' }, fieldSummary(row))
+                : React.createElement('div', { className: 'dmw-target-fields' }, fieldSummary(row))
             ),
             React.createElement(
               'button',
               {
                 type: 'button',
-                className: 'dmc-button',
+                className: 'dmw-button',
                 disabled: busy,
                 title: '复制成一条可以在这里编辑的托管条目（地址与凭据需要重新填写）',
                 onClick: () => onImport(row)
@@ -2086,10 +2086,10 @@ window.__ModuleLoader__.load({
       if (loading) {
         return React.createElement(
           'div',
-          { className: 'dmc-section' },
+          { className: 'dmw-section' },
           React.createElement(
             'div',
-            { className: 'dmc-loading' },
+            { className: 'dmw-loading' },
             React.createElement(IconLoadingOutline16, { size: 16 }),
             '正在读取宿主状态…'
           )
@@ -2098,18 +2098,18 @@ window.__ModuleLoader__.load({
 
       return React.createElement(
         'div',
-        { className: 'dmc-section' },
+        { className: 'dmw-section' },
         React.createElement(
           'div',
-          { className: 'dmc-heading' },
-          React.createElement('h2', { className: 'dmc-title' }, SECTION_LABEL),
-          React.createElement('span', { className: 'dmc-count' }, `${enabledCount}/${snapshot.servers.length} 已启用`),
-          React.createElement('span', { className: 'dmc-heading-spacer' }),
+          { className: 'dmw-heading' },
+          React.createElement('h2', { className: 'dmw-title' }, SECTION_LABEL),
+          React.createElement('span', { className: 'dmw-count' }, `${enabledCount}/${snapshot.servers.length} 已启用`),
+          React.createElement('span', { className: 'dmw-heading-spacer' }),
           React.createElement(
             'button',
             {
               type: 'button',
-              className: 'dmc-icon-button',
+              className: 'dmw-icon-button',
               'aria-label': '重新对账',
               disabled: refreshing || busy,
               onClick: async () => {
@@ -2125,7 +2125,7 @@ window.__ModuleLoader__.load({
           ),
           React.createElement(
             'button',
-            { type: 'button', className: 'dmc-icon-button', 'aria-label': '新增服务器', disabled: busy, onClick: () => openEditor('create', null) },
+            { type: 'button', className: 'dmw-icon-button', 'aria-label': '新增服务器', disabled: busy, onClick: () => openEditor('create', null) },
             React.createElement(IconPlusOutline16, { size: 16 })
           )
         ),
@@ -2133,16 +2133,16 @@ window.__ModuleLoader__.load({
           ? null
           : React.createElement(
               'div',
-              { className: 'dmc-error' },
+              { className: 'dmw-error' },
               `${runtimeText(runtime)}${status?.mcpModule?.errors?.length ? `\n${status.mcpModule.errors.join('\n')}` : ''}`
             ),
         status?.settingsAvailable === false
-          ? React.createElement('div', { className: 'dmc-error' }, '宿主这一条没有可写的设置 schema，改动无法持久化（请看宿主日志）。')
+          ? React.createElement('div', { className: 'dmw-error' }, '宿主这一条没有可写的设置 schema，改动无法持久化（请看宿主日志）。')
           : null,
-        error === '' ? null : React.createElement('div', { className: 'dmc-error' }, error),
+        error === '' ? null : React.createElement('div', { className: 'dmw-error' }, error),
         React.createElement(
           'label',
-          { className: 'dmc-radio' },
+          { className: 'dmw-radio' },
           React.createElement('input', {
             type: 'checkbox',
             checked: snapshot.enabled,
@@ -2155,10 +2155,10 @@ window.__ModuleLoader__.load({
           '启用托管的所有服务器（关闭后全部断开）'
         ),
         snapshot.servers.length === 0
-          ? React.createElement('div', { className: 'dmc-empty' }, '还没有托管任何 MCP 服务器；用右上角的 + 新增，或从下面「配置文件中的服务器」导入一条。')
+          ? React.createElement('div', { className: 'dmw-empty' }, '还没有托管任何 MCP 服务器；用右上角的 + 新增，或从下面「配置文件中的服务器」导入一条。')
           : React.createElement(
               'div',
-              { className: 'dmc-list' },
+              { className: 'dmw-list' },
               snapshot.servers.map((server) => {
                 const live = liveOf(server.id)?.live ?? null
                 const blockedReason = liveOf(server.id)?.blockedReason ?? ''
@@ -2214,28 +2214,28 @@ window.__ModuleLoader__.load({
       if (Modal === undefined) {
         return React.createElement(
           'div',
-          { className: 'dmc-notice' },
+          { className: 'dmw-notice' },
           `确认删除「${server.serverName}」？`,
-          React.createElement('button', { type: 'button', className: 'dmc-button danger', onClick: onConfirm }, '删除')
+          React.createElement('button', { type: 'button', className: 'dmw-button danger', onClick: onConfirm }, '删除')
         )
       }
       return React.createElement(
         Modal,
-        { open: true, onClose: onCancel, className: 'dmc-dialog' },
+        { open: true, onClose: onCancel, className: 'dmw-dialog' },
         React.createElement(
           'div',
-          { className: 'dmc-confirm' },
-          React.createElement('div', { className: 'dmc-name' }, `删除「${server.serverName}」？`),
+          { className: 'dmw-confirm' },
+          React.createElement('div', { className: 'dmw-name' }, `删除「${server.serverName}」？`),
           React.createElement(
             'p',
-            { className: 'dmc-hint' },
+            { className: 'dmw-hint' },
             '只会从托管清单里移除，并立即卸载它；已经写入的凭据不会被删除。'
           ),
           React.createElement(
             'div',
-            { className: 'dmc-footer' },
-            React.createElement('button', { type: 'button', className: 'dmc-button', onClick: onCancel }, '取消'),
-            React.createElement('button', { type: 'button', className: 'dmc-button danger', onClick: onConfirm }, '删除')
+            { className: 'dmw-footer' },
+            React.createElement('button', { type: 'button', className: 'dmw-button', onClick: onCancel }, '取消'),
+            React.createElement('button', { type: 'button', className: 'dmw-button danger', onClick: onConfirm }, '删除')
           )
         )
       )
@@ -2264,15 +2264,15 @@ window.__ModuleLoader__.load({
       }
 
       componentDidCatch(error) {
-        console.error('dsh-mcp-console section failed:', error)
+        console.error('dsh-mcp-workbench section failed:', error)
       }
 
       render() {
         if (this.state.error !== null) {
           return React.createElement(
             'div',
-            { className: 'dmc-section' },
-            React.createElement('div', { className: 'dmc-error' }, `MCP 服务器分区渲染失败：${String(this.state.error?.message ?? this.state.error)}`)
+            { className: 'dmw-section' },
+            React.createElement('div', { className: 'dmw-error' }, `MCP 服务器分区渲染失败：${String(this.state.error?.message ?? this.state.error)}`)
           )
         }
         return this.props.children
@@ -2445,7 +2445,7 @@ window.__ModuleLoader__.load({
       if (typeof IconLinkOutline16 !== 'function') return null
       return React.createElement(
         'div',
-        { ref: templateRef, className: 'dmc-nav-icon-template', 'aria-hidden': true },
+        { ref: templateRef, className: 'dmw-nav-icon-template', 'aria-hidden': true },
         React.createElement(IconLinkOutline16, { size: 16 })
       )
     }
@@ -2464,7 +2464,7 @@ window.__ModuleLoader__.load({
     const inject = ['slots', 'configForms', 'remote', 'remote.credentials']
 
     function apply(ctx) {
-      // 本插件的设置就是 profile 里 `dsh-mcp-console` 条目的 config：官方客户端通道是
+      // 本插件的设置就是 profile 里 `dsh-mcp-workbench` 条目的 config：官方客户端通道是
       // `configForms.get(<条目 id>)`（自带 revision 栅栏与写入排队）。0.1.6 的
       // `settingsScope.bind({ namespace, decode })` 已不存在，所以这里按能力探测。
       const controller = typeof ctx.configForms?.get === 'function' ? ctx.configForms.get(SETTINGS_ENTRY) : null

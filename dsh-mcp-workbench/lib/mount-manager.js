@@ -12,7 +12,7 @@
  * - 工具表每个 step 由 system prompt 组装时重新收集，所以增删在**下一步**生效，
  *   不需要重启宿主（host 组合与 bundle 列表不含本插件的改动）。
  *
- * @module dsh-mcp-console/mount-manager
+ * @module dsh-mcp-workbench/mount-manager
  */
 
 import { mountConfigFor, substituteCredentials, credentialRefsIn, canonicalJson, validateServer } from './store.js'

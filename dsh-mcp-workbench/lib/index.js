@@ -1,5 +1,5 @@
 /**
- * dsh-mcp-console 宿主半体。
+ * dsh-mcp-workbench 宿主半体。
  *
  * 职责：把「MCP 服务器清单」做成设置页可维护的数据，并在运行时投影成真正
  * 运行的 MCP 客户端实例——不写用户的 profile patch、不需要重启宿主。
@@ -15,7 +15,7 @@
  * - profile 组合里已有的 MCP 行（cordis.patch.yml 手写 insert）只读展示，
  *   不回显任何值（组合层的 `!!js` 求值后可能是明文密钥）。
  *
- * @module dsh-mcp-console
+ * @module dsh-mcp-workbench
  */
 
 import { randomUUID } from 'node:crypto'
@@ -54,10 +54,10 @@ export {
   normalizeSettings
 }
 
-export const STATUS_PATH = '/dsh-mcp-console/status'
-export const ACTION_PATH = '/dsh-mcp-console/action'
-export const CLIENT_HEADER = 'x-dsh-mcp-console-client'
-export const CSRF_HEADER = 'x-dsh-mcp-console-csrf'
+export const STATUS_PATH = '/dsh-mcp-workbench/status'
+export const ACTION_PATH = '/dsh-mcp-workbench/action'
+export const CLIENT_HEADER = 'x-dsh-mcp-workbench-client'
+export const CSRF_HEADER = 'x-dsh-mcp-workbench-csrf'
 export const MAX_BODY_BYTES = 16 * 1024
 export const MCP_CLIENT_MODULE = '@deepseek-ai/dsh-mcp-client'
 

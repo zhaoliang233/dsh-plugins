@@ -61,7 +61,7 @@ if ! is_verified_dsh_version "$NORMALIZED_DSH_VERSION"; then
   echo "警告: DSH $ACTUAL_DSH_VERSION 位于兼容发布线内，但尚未列入逐版本验证清单；安装后请到设置页确认状态。" >&2
 fi
 
-echo "== dsh-mcp-console 本地安装 =="
+echo "== dsh-mcp-workbench 本地安装 =="
 echo "  插件目录: $PLUGIN_DIR"
 echo "  profile:  $DSH_PROFILE"
 

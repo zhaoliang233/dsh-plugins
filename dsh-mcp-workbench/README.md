@@ -1,4 +1,4 @@
-# dsh-mcp-console
+# dsh-mcp-workbench
 
 在 DSH 设置页里管理 MCP（Model Context Protocol）服务器：**增删改、启停、连接与工具状态、凭据**，不用手写 profile 配置、不用重启 `dsh web`。
 
@@ -10,12 +10,10 @@
 
 ## 安装与卸载
 
-> **本插件尚未发布到 npm**：registry 上还没有任何版本，下面的命令暂时装不到东西。请用源码路线：下载本仓库后进入本目录执行 `./install.sh`。
-
 ```bash
-dsh plugin --profile web add dsh-mcp-console        # 安装 / 升到 caret 范围内的最新版
-dsh plugin --profile web add dsh-mcp-console@0.1.0  # 指定版本（升级必须显式写版本号）
-dsh plugin --profile web remove dsh-mcp-console     # 卸载
+dsh plugin --profile web add dsh-mcp-workbench        # 安装 / 升到 caret 范围内的最新版
+dsh plugin --profile web add dsh-mcp-workbench@0.1.0  # 指定版本（升级必须显式写版本号）
+dsh plugin --profile web remove dsh-mcp-workbench     # 卸载
 ```
 
 安装或卸载会改变 profile 的 bundle 列表，**需要重启 `dsh web` 并刷新页面**才生效。源码开发路线用本目录的 `./install.sh` / `./uninstall.sh`。
@@ -28,7 +26,7 @@ dsh plugin --profile web remove dsh-mcp-console     # 卸载
 - **保存即验证**：点「保存」时宿主会先用临时实例连一次——**连得上才写入**；连不上就把原因显示在弹窗底部（不落盘），改完再点保存即可。验证通过后弹窗关闭，列表行会显示「已连接 · N 个工具」；把鼠标停在这枚标签上可以看完整清单。
   升级插件后若弹窗提示"宿主进程还是旧版本"并禁用保存，说明宿主进程还在跑旧代码——在终端里 `Ctrl+C` 后重新执行 `dsh web --no-open` 即可（浏览器侧刷新就够，宿主侧必须重启）。
 - **编辑**用每行右侧的铅笔图标，同一个弹窗、同样的规则（每次保存都重新验证）。
-- **保存即生效**：清单就是本插件在 profile 里的**条目配置**，写入经官方设置通道落到该 profile 的 `cordis.patch.yml` 里 `dsh-mcp-console` 那一条的 `config`；保存后宿主立刻对账——新增/改动会挂载，停用/删除会卸载。**不需要重启**。
+- **保存即生效**：清单就是本插件在 profile 里的**条目配置**，写入经官方设置通道落到该 profile 的 `cordis.patch.yml` 里 `dsh-mcp-workbench` 那一条的 `config`；保存后宿主立刻对账——新增/改动会挂载，停用/删除会卸载。**不需要重启**。
 - **启停**：每行左侧开关。总开关在标题下方，关掉会逐一卸载全部托管服务器。
 - **状态**：每行只有一行——左边是启停开关，中间是名字 + 工具命名空间 + 状态高亮标签（已连接 N 个工具 / 配置不完整 / 挂载失败 / 已停用），右边是编辑与删除。鼠标移到「已连接 · N 个工具」这个标签上会弹出**完整工具清单**（浮层不超出设置面板，列表长了可以在标签上滚动滚轮翻看）；其它状态把鼠标停在标签上能看到完整原因。保存后会等宿主完成这一轮对账再显示结果，所以看到的就是实际生效的状态。
 - **工具名**：与手写组合行完全一致，形如 `mcp__<服务器名>__<工具名>`。所有会话与子代理都能用；改动对**进行中的对话**在下一步请求生效。
@@ -54,7 +52,7 @@ MCP 服务器目前也能手写在 profile 的 `cordis.patch.yml` 里（你们�
 - 导入时**敏感字段不会进清单**：请求头/环境变量里名字或值像凭证的（`Authorization`、`*_TOKEN`、`Bearer xxx`…），以及 URL 里带 token 的整条地址，都会被搬进 DSH 的凭据库；弹窗里这些字段直接就是「凭据」形态（名字 + 键名 + 前缀），会说明搬了哪几个键，界面上不回显值。
 - 同一个服务器名在整个 host 作用域内只能存在一个实例：托管条目与配置文件条目重名时，托管那条会被拦下并说明原因。
 
-两者最终在同一个文件里：托管清单是 `dsh-mcp-console` 那一条的 `config`，你手写的 MCP 行是各自的条目。**插件只写自己那一条**，你手写的内容（含注释与 `!!js` 表达式）不会被改写。
+两者最终在同一个文件里：托管清单是 `dsh-mcp-workbench` 那一条的 `config`，你手写的 MCP 行是各自的条目。**插件只写自己那一条**，你手写的内容（含注释与 `!!js` 表达式）不会被改写。
 
 ## 注意事项与已知边界
 
