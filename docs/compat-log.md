@@ -1708,3 +1708,95 @@ rc.2 是**全仓版本提升**（72 个组件改版本号，新增 `@deepseek-ai
 - `dsh-local-plugin-manager`：rc.2 的 `dsh-atomic-write`/`dsh-plugin-manager`/`dsh-app-boot` 改动逐项核对后**无需适配**（写锁路径/mode/waitMs 未变、`writePluginEnabled` 四条语义全在、`include:<rowId>` 仍成立、`settings.section` 内置 order 上限仍是 20）；隔离宿主上 `npm run verify`（44）与 `npm run gui:check`（21）全过，并额外跑通「与官方插件管理并存」的真 GUI 双向往返。**两条跨轮有效的结论**：热重载的真源是 `dsh-hmr` 的 profile 配置监听，**不是** profile 里的 `patchReload` 字段（写入后约 3 秒生效）；官方插件页列表上的「启用 <包名>」开关是 bundle 选择（`setBundleEnabled`），行级启停要点进「查看 <包名>」详情页用「启用组件 <包名>」。
 - `dsh-sticky-user-bubble`：chat/conversation/layout/primitives 改动逐项核对后**无需适配**——行标记齐全（user 行三键同值、`groupPart` 只在 assistant-step 拆分行上）、`[data-conversation-scroll]` 仍是 scrollport 且内层 padding 仍 16px、`[data-composer-seat]` 仍是直接子元素且 sticky、overlay 层与 `retainedBy.mainView` 未变；唯一新事实是 `.EvIC1a_root` 多了 `overflow:visible clip`（实测不改变绘制边界）。隔离宿主 + 无头 Chrome 量到：出现阈值 = scrollport clip 边 76（不是阅读线 92）、让位清距恒 16px 且 `clip-path = inset(push − 16)`、三行折叠 = 3×22 + 20 = 86px、展开上限随下一张卡收到 `incomingTop − 16`、展开不越过 composer seat（685）。
 - **本轮仍未实机验证**（交接给后续 L2/L3 会话）：`dsh-default-workspace` 的受管 Workspace 行为（B1 已补）、`dsh-chat-archive-manager` 的删除事务、`dsh-mcp-console` 的 GUI 验收。
+
+---
+
+## P0：`dsh-mcp-workbench` 改造为官方 `mcp-manager` 的设置 UI（2026-11-12）
+
+**背景**：用户升级到 `0.2.2-rc.2` 后发现官方 `@deepseek-ai/dsh-mcp-manager` 默认挂载在 web profile、有 Remote 管理面却**没有浏览器 UI**，要求把本插件从「自建挂载与对账」改成官方管理器的设置页。
+
+**契约核对（0.2.2-rc.2 安装树，逐包实读）**：
+
+| 包 | 结论 |
+|---|---|
+| `dsh-mcp-manager`（rc.2 新增） | `Config.servers: Record<serverName, Entry>`（volatile）、`Entry` 含 `transport/command/args/env/cwd/url/headers/enabled/toolCallTimeoutMs?/startupTimeoutMs(默认 30000)/closeTimeoutMs?/reconnect(默认 500/30000/10)`；服务 `register/list/restart/probe/watch`；Remote 面 `mcpManager/watch|restart|probe`；无 client bundle |
+| `dsh-web-app/cordis.patch.yml` | `- id: mcp-manager` 默认行，`inject: [credentials]`；**默认挂载** |
+| `dsh-settings` | `describe()` 的 `ns = entry.options.id`；**不是 loader 行 id**（`entry.id` 为 `include:mcp-manager`） |
+| `dsh-client-ui-settings` | `configForms.get(ns)` → `{getSnapshot,subscribe,mutate,set,unset}`；`mutate` 的 op 是 `{op:'set'|'unset', path:string[]}` |
+| `dsh-mcp-client` | `McpConnectionStatus` union（closed/waiting-credentials/connecting/connected{toolCount}/reconnecting{attempt,maxAttempts}/failed{reason}）；`McpProbeResult`（`ok:false` 不抛错）；凭据模板 `${credential:REF}` 支持六处 |
+| `dsh-api-remotes` | 客户端装配含 `mcpManager` 命名空间；带点号命名空间必须单独 inject `remote.mcpManager` |
+| `dsh-client-ui-settings-general` | `settings.section.icon` 槽（list/root/inline，`renderSlot(..., {only, fallback})`）在 rc.2 稳定 |
+
+**改造内容**：删除自建挂载/对账（`lib/mount-manager.js`、`lib/plan.js` 及测试，备份于 `/tmp/dsh-mcp-workbench-legacy-20261112-145223/`）；清单改存官方条目 `config.servers`；客户端经 `configForms` 读写、`remote.mcpManager.watch` 展示状态、`probe/restart` 走官方；保存 = 「写停用态 → probe → 通过才启用」；旧清单迁移按钮（`credential:KEY` → `${credential:KEY}`）；启动配置导入仍保留（敏感值 → 凭据库 + 模板）；导航图标优先官方槽、DOM 补丁兜底。
+
+**验证**：`npm run check` / `npm test` **47/47** / `pack:check`（10 文件）；隔离宿主（`DSH_HOME=/tmp/dsh-mcp-ui-check/home`、端口 4399，验证后停止）`/status` 200、`manager.entryId='mcp-manager'`、`runtime:ready`；boot graph 含本包 4 处（id/url/rev/inject）；combo bundle 200；无头 Chrome 打开页面 **0 控制台错误**。
+
+**踩坑**：`manager.entryId` 最初取 `entry.id` 得到 `include:mcp-manager`，客户端 `configForms.get()` 会拿到 `unavailable`——必须取 `entry.options.id`（隔离宿主实测发现并修正）。
+
+**未覆盖**：真机设置面板交互（隔离 HOME 停在首启引导，`scripts/gui-flow.mjs` 仍是旧 UI 断言，需按新界面重写）；真实 MCP 端点的连接/探测往返。
+
+---
+
+## P1：`dsh-auto-load-history` 接入 rc.2 的延迟分页 API（2026-11-12）
+
+**背景**：`0.2.2-rc.2` 的 `dsh-api-session-controller` 新增 `Session.loadOlder({ deferConsumption: true })`、`Session.consumeOlder()`、`SessionSnapshot.historyLoadStatus`（`idle|loading|pendingConsumption|error`）与 `historyWasPartial`。本插件原先用 `loadThrough(head - 600)` 一次请求内连续 prepend，每个 prepend 都提交渲染。
+
+**改造**：`startRun()` 做能力探测（`consumeOlder` 与 `loadOlder` 都存在 → rc.2 路径）：`loadOlder({ deferConsumption: true })` 只取回一页不提交；快照进入 `pendingConsumption` 后状态机返回新动作 `'consume'`，由 `consumeOlder()` 在批间的调度槽（`requestIdleCallback` / `BATCH_GAP_MS`）里同步 prepend。`pendingConsumption` 期间不结算停滞（窗口未动，提前结算会被误记成一页没推进）；`consumeOlder()` 返回 `false`（窗口被替换、页失效）时清掉本轮 `pendingHead`/锚点并重新取页。旧版本（无 `consumeOlder`）走原 `loadThrough` 路径，**不按版本号分叉**。
+
+**验证**：`npm run check` / `npm test` **40/40**（新增 2 条 rc.2 用例：延迟取页+消费、消费被拒后重取；状态机矩阵加 `pendingConsumption`）/ `pack:check`（8 文件）。隔离宿主（`DSH_HOME=/tmp/dsh-mcp-ui-check/home`、端口 4399，验证后停止）：boot graph 含 `dsh-auto-load-history` 4 处（id/url/rev/inject，rev 为新构建）；无头 Chrome 打开页面 **0 控制台错误**。**未覆盖**：真机长会话的帧间隔/锚点实测（需要真实长会话）。
+
+**版本**：`0.4.0 → 0.5.0`（同线向后兼容的功能优化，按 minor）；逐版本清单加 `0.2.2-rc.2`（四处同源，含 `test/manifest.test.js` 的硬编码断言）。
+
+---
+
+## P2：`dsh-chat-archive-manager` 接入取消归档守卫（2026-11-12）
+
+**背景**：`0.2.2-rc.2` 的 `dsh-workspace` 新增 `workspace/session-unarchiving`（`unarchiveSession` 写 state **之前**分发；parallel，任一监听器抛错即保留归档）与 `workspace/session-archived`（归档持久化、stop 之后分发，失败只告警）。本插件的永久删除与恢复原本只靠自己的 `runArchiveMutation` 串行队列互斥——**DSH 原生恢复入口（侧栏 / 搜索结果）不经过该队列**，删除事务进行中从原生入口恢复会与删除争抢同一批文件。
+
+**改造**：
+- `lib/archive-deletion.js` 新增 `transactionInFlight`，`deleteOne` 用 `try/finally` 维护，`status()` 返回 `pending`；
+- `lib/index.js` 新增纯函数 `unarchiveBlockReason(deletionService)`（quarantined 优先于 pending），并在 `applyCompatibleRuntime` 注册 `workspace/session-unarchiving` 监听（`typeof ctx.on === 'function'` 能力探测）；插件自己的恢复走共享队列，事务完成后 `pending` 已复位，不会误伤。
+- 客户端侧 `workspace/archive-notice` / `archive-followup-*` **未采用**（本插件不负责归档通知）。
+
+**验证**：`npm run check` / `npm test` **81/81**（新增守卫纯函数矩阵、Host 上下文监听注册、删除进行中 `pending` 回归）/ `pack:check`（9 文件）。隔离宿主（`DSH_HOME=/tmp/dsh-mcp-ui-check/home`、端口 4399，验证后停止）：`/dsh-chat-archive-manager/status` 200 且 `deletionSupported`/`sessionQuiescenceSupported`/`restorationSupported` 全 true、`dshVersionVerified:true`；boot graph 含本包 4 处；无头 Chrome 打开页面 **0 控制台错误**。**未覆盖**：真实归档会话上的「删除进行中 → 原生恢复被拒」端到端（需要构造归档会话与进行中的删除事务，隔离 HOME 没有会话数据）。
+
+**版本**：`0.4.0 → 0.5.0`（同线向后兼容的功能新增，按 minor）；逐版本清单加 `0.2.2-rc.2`（四处同源 + `test/manifest.test.js` 硬编码断言）。
+
+---
+
+## P3：四个图标补丁插件改用官方 `settings.section.icon` 槽（2026-11-12）
+
+**背景**：`0.2.2-alpha.3` 起壳层提供 `settings.section.icon`（list/root/inline，`renderSlot(..., {only: row.id, fallback: navIcon(row.id)})`）。此前四个插件（`dsh-extra-context` / `dsh-chat-archive-manager` / `dsh-local-plugin-manager` / `dsh-mcp-workbench`）都靠 DOM 补丁给设置导航行换图标——补丁要处理 sprite 壳、`span.navIcon` 包装层、HMR 引用计数，且官方槽已存在时属于重复实现。
+
+**改造（四个插件统一）**：
+- `apply()` 额外注册 `settings.section.icon`：id 与各自分区 id 相同（`extra-context` / `archived-chats` / `plugin-dev` / `mcp-console`），组件返回官方图标并带 `data-*-section-icon` 标记；
+- DOM 补丁保留为旧壳层（alpha.2）兜底：`installNavIconPatch()` 安装前检测官方槽；补丁的每轮 `mark()` 检测 `[data-slot="settings.section.icon"]`，官方槽接管后**撤销自己的标记与 mask**（即使补丁先安装、官方槽后渲染也不会出现两个图标）；
+- 旧壳层没有该 slot 声明，`ctx.slots.inject` 回调不会触发，补丁照旧工作。
+
+**验证**：四包 `npm run publish:check` 全过——`dsh-extra-context` 77/77、`dsh-chat-archive-manager` 81/81、`dsh-local-plugin-manager` 48/48、`dsh-mcp-workbench` 47/47；新增「官方槽存在时不打补丁并撤销已有补丁」用例（extra-context 用真实桩模拟 `[data-slot]` 出现）。隔离宿主（`DSH_HOME=/tmp/dsh-mcp-ui-check/home`、端口 4399，验证后停止）boot graph 含四个插件、rev 均为新构建；无头 Chrome 打开页面 **0 控制台错误**。
+
+**未覆盖**：rc.2 真机设置页的图标目视（隔离 HOME 停在首启、没有设置入口）；旧壳层（alpha.2）上的回归（本机只有 rc.2）。
+
+**版本**：`dsh-extra-context` 0.4.0→0.5.0、`dsh-local-plugin-manager` 0.5.0→0.6.0（同线功能新增，minor）；`dsh-chat-archive-manager` 0.5.0、`dsh-mcp-workbench` 0.2.0 已在 P0/P2 计入；四包逐版本清单均加 `0.2.2-rc.2`（四处同源 + manifest 硬编码断言同步）。
+
+---
+
+## 总览：`0.2.2-rc.2` 侦察与 P0–P3 改造（2026-11-12）
+
+**侦察方法**：`npm install @deepseek-ai/dsh@0.2.2-rc.2` 到临时目录，与运行中的 rc.1 全树逐包「抹版本号 + 去空白」比对；rc.2 包内首次携带 `src/`，契约按源码复核。官方升级指南**没有 rc.2 条目**，但实际存在客户端契约变化（见下）。
+
+**与 10 个插件相关的真实改动**：`dsh-workspace` 新增 `workspace/session-archived` / `session-unarchiving`；`dsh-api-session-controller` 新增 `loadOlder({deferConsumption})` / `consumeOlder()` / `historyLoadStatus` / `historyWasPartial` 与生成续跑；`dsh-client-ui-workspace` 新增 `archive-notice` 事件族、`sidebar.workspaces` 的 `useSectionScroller`；`dsh-mcp-client` 模块化重构（Config 新增 `startupTimeoutMs`/`closeTimeoutMs`/`expandTemplates`）；**新增官方 `dsh-mcp-manager`（web profile 默认挂载、只有 Host/Remote、无浏览器 UI）**；`dsh-plugin-manager` 的 `expected` 安装校验与 `pinnedGitOrigin`；`dsh-app-boot` 的 `wsl` 平台；`settings.section.icon` 槽（alpha.3 起）在 rc.2 保持稳定。
+
+**本轮改造（P0–P3）**：
+
+| 插件 | 改造 | 版本 |
+|---|---|---|
+| `dsh-mcp-workbench` | 自建挂载/对账 → 官方 `mcp-manager` 的设置 UI（`configForms` 读写 `config.servers`、`remote.mcpManager.watch/probe/restart`、旧清单迁移、启动配置导入） | 0.1.0 → 0.2.0 |
+| `dsh-auto-load-history` | `loadOlder({deferConsumption:true})` + `consumeOlder()`（取页与提交分离），旧版本走原 `loadThrough` | 0.4.0 → 0.5.0 |
+| `dsh-chat-archive-manager` | `workspace/session-unarchiving` 守卫覆盖 DSH 原生恢复入口；删除服务 `status().pending` | 0.4.0 → 0.5.0 |
+| `dsh-extra-context` | `settings.section.icon` 官方槽 + DOM 补丁自动让位 | 0.4.0 → 0.5.0 |
+| `dsh-local-plugin-manager` | 同上 | 0.5.0 → 0.6.0 |
+
+**未改动的插件及理由**：`dsh-default-workspace`（`sidebar.footer.action` 与 workspace 客户端契约逐字未变）；`dsh-default-tuner`（`session-title` 家族 lib 逐字相同，`dsh-base` 未动目标条目默认值，`dsh-config-editor`/`dsh-settings` 无实质变化）；`dsh-sticky-user-bubble` 与 `dsh-workspace-running-indicator`（用户使用确认无问题，代码不调整；两包清单仍只到 rc.1，rc.2 在同线内带警告运行）；`dsh-mobile-compat`（上一线 `0.2.0`，按既定决定不处理）。
+
+**验证**：五包 `publish:check` 全过（77 / 81 / 48 / 47 / 40 项）；隔离宿主（`/tmp/dsh-mcp-ui-check/home`、4399 端口，验证后均停止）状态接口、boot graph、combo bundle、无头 Chrome 0 控制台错误逐项通过。**所有改动均未提交**（等待用户授权）。
