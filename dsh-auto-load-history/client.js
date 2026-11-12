@@ -171,14 +171,18 @@ window.__ModuleLoader__.load({
      * compensating while pages land — must keep paging, otherwise the run stalls
      * until the reader happens to scroll back down.
      * @param input - snapshot facts, scroll position, reader intent, and stall budget.
-     * @returns 'idle' | 'wait' | 'done' | 'defer' | 'page'.
+     * @returns 'idle' | 'wait' | 'consume' | 'done' | 'defer' | 'page'.
      */
     function nextAutoLoadAction(input) {
       if (input.enabled !== true) return 'idle'
       if (input.openState !== 'open') return 'wait'
       if (input.removed === true) return 'idle'
-      if (input.hasMore !== true) return 'done'
       if (input.loadingOlder === true) return 'wait'
+      // 0.2.2-rc.2: a page is fetched but not published yet. Consume it before
+      // anything else — `hasMore` is still true, and another `loadOlder` would just
+      // await the same pending request without ever publishing it.
+      if (input.pendingConsumption === true) return 'consume'
+      if (input.hasMore !== true) return 'done'
       if (input.atBottom !== true && input.readerScrolled === true) return 'defer'
       if (input.stalled >= input.maxStalled) return 'idle'
       return 'page'
@@ -731,6 +735,14 @@ window.__ModuleLoader__.load({
        * @returns the run's completion.
        */
       function startRun(face) {
+        // 0.2.2-rc.2: separate fetching from publishing. `loadOlder({ deferConsumption: true })`
+        // fetches one page without committing it; `step()` consumes it in an idle slot, so
+        // the prepend lands where the browser has layout budget instead of inside the fetch
+        // task. Older releases have neither the option nor `consumeOlder`, so they keep the
+        // jump-loader path (which commits its pages inside the Controller loop).
+        if (typeof face.session.consumeOlder === 'function' && typeof face.session.loadOlder === 'function') {
+          return face.session.loadOlder({ deferConsumption: true })
+        }
         if (typeof face.session.loadThrough === 'function') {
           const head = windowHead(face.events)
           const target = head === null ? 0 : Math.max(0, head - BATCH_EVENTS)
@@ -766,13 +778,18 @@ window.__ModuleLoader__.load({
         }
         const snapshot = face.session.getSnapshot()
         const loadingOlder = snapshot.loadingOlder === true
+        // 0.2.2-rc.2 adds `historyLoadStatus`: a fetched page waits in
+        // `pendingConsumption` until `consumeOlder()` publishes it. While it waits the
+        // window has not moved, so a settle must not be scored yet (it would look like
+        // a stalled page); the next step consumes first.
+        const pendingConsumption = snapshot.historyLoadStatus === 'pendingConsumption'
         const head = windowHead(face.events)
         // One run settled: score it by whether the window actually grew, then put the
         // reader's anchor back. A smaller head than the one captured when the run was
         // issued means older history landed above the viewport. The re-entrant drive
         // published by the load itself is filtered here, because `loadingOlder` is
         // already true at that point.
-        if (pendingHead !== null && !loadingOlder) {
+        if (pendingHead !== null && !loadingOlder && !pendingConsumption) {
           if (head !== null) {
             stalled = advanceStall(stalled, pendingHead, head)
             const prepended = head < pendingHead
@@ -793,11 +810,32 @@ window.__ModuleLoader__.load({
           removed: snapshot.removed === true,
           hasMore: snapshot.hasMore === true,
           loadingOlder,
+          pendingConsumption,
           atBottom: readerAtBottom(metrics()),
           readerScrolled,
           stalled,
           maxStalled: MAX_STALLED_PAGES
         })
+        if (action === 'consume') {
+          // Publish the page fetched by `loadOlder({deferConsumption:true})`. This
+          // prepend is synchronous: it runs in the scheduled slot (idle / batch gap),
+          // not inside the fetch task, and the snapshot it publishes drives the next
+          // step that scores the run. A refused consume means the page was invalidated
+          // (the window was replaced); drop this run's bookkeeping and fetch again.
+          try {
+            const consumed = typeof face.session.consumeOlder === 'function' ? face.session.consumeOlder() : false
+            if (!consumed) {
+              pendingHead = null
+              pendingAnchor = null
+            }
+          } catch (error) {
+            pendingHead = null
+            pendingAnchor = null
+            console.warn(`[${PLUGIN_ID}] history consume failed:`, error)
+          }
+          schedule(PAGE_DELAY_MS)
+          return
+        }
         if (action === 'page') {
           // Give the previous batch a quiet moment: the browser lays out and answers
           // input before the next slice of history lands.

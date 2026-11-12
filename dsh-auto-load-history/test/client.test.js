@@ -183,8 +183,14 @@ function createHarness(options = {}) {
     runTargets: [],
     revision: 0,
     openState: options.openState ?? 'open',
-    sessionUnsubscribes: 0
+    sessionUnsubscribes: 0,
+    /** 0.2.2-rc.2 deferred paging: a fetched page waiting for `consumeOlder()`. */
+    historyLoadStatus: 'idle',
+    pendingPage: null,
+    deferredLoads: 0,
+    consumes: 0
   }
+  const deferred = options.deferred === true
   const listeners = new Set()
   const publish = () => {
     for (const listener of [...listeners]) listener()
@@ -202,7 +208,8 @@ function createHarness(options = {}) {
       openState: state.openState,
       removed: false,
       hasMore: state.hasMore,
-      loadingOlder: state.loadingOlder
+      loadingOlder: state.loadingOlder,
+      historyLoadStatus: state.historyLoadStatus
     }),
     subscribe: (listener) => {
       listeners.add(listener)
@@ -211,24 +218,62 @@ function createHarness(options = {}) {
         state.sessionUnsubscribes += 1
       }
     },
-    loadOlder: () => {
+    loadOlder: (loadOptions) => {
+      // 0.2.2-rc.2: `{ deferConsumption: true }` fetches the page without publishing
+      // it; `consumeOlder()` prepends it later. The legacy call still commits at once.
+      const defer = deferred && loadOptions?.deferConsumption === true
       state.pages += 1
+      if (defer) state.deferredLoads += 1
       state.loadingOlder = true
+      state.historyLoadStatus = 'loading'
       publish()
       // One page per macrotask, like the real fetch round trip.
       return new Promise((resolve) => {
         setTimeout(() => {
-          if (options.advance !== false && typeof state.head === 'number') {
+          const advance = options.advance !== false && typeof state.head === 'number'
+          if (defer) {
+            state.pendingPage = advance ? pageSize : 0
+            state.loadingOlder = false
+            state.historyLoadStatus = advance ? 'pendingConsumption' : 'idle'
+            if (!advance) state.hasMore = false
+            publish()
+            resolve()
+            return
+          }
+          if (advance) {
             state.head = Math.max(0, state.head - pageSize)
             state.revision += 1
             if (state.head <= 0) state.hasMore = false
           }
           state.loadingOlder = false
+          state.historyLoadStatus = 'idle'
           publish()
           resolve()
         }, 0)
       })
     },
+    ...(deferred
+      ? {
+          /**
+           * 0.2.2-rc.2: publish the page fetched by `loadOlder({ deferConsumption: true })`.
+           * @returns whether a pending page was published.
+           */
+          consumeOlder: () => {
+            if (state.historyLoadStatus !== 'pendingConsumption') return false
+            state.consumes += 1
+            state.loadingOlder = false
+            state.historyLoadStatus = 'idle'
+            state.pendingPage = null
+            if (options.advance !== false && typeof state.head === 'number') {
+              state.head = Math.max(0, state.head - pageSize)
+              state.revision += 1
+              if (state.head <= 0) state.hasMore = false
+            }
+            publish()
+            return true
+          }
+        }
+      : {}),
     /**
      * The Controller's jump loader: one request served as a continuous sequence of
      * prepends, one page per macrotask, until the window covers the target seq.
@@ -327,6 +372,10 @@ test('decides the next auto-load action from the Session snapshot', () => {
   assert.equal(nextAutoLoadAction({ ...base, removed: true }), 'idle')
   assert.equal(nextAutoLoadAction({ ...base, hasMore: false }), 'done')
   assert.equal(nextAutoLoadAction({ ...base, loadingOlder: true }), 'wait')
+  // 0.2.2-rc.2: a fetched but unpublished page is consumed before anything else.
+  assert.equal(nextAutoLoadAction({ ...base, pendingConsumption: true }), 'consume')
+  assert.equal(nextAutoLoadAction({ ...base, pendingConsumption: true, hasMore: false }), 'consume')
+  assert.equal(nextAutoLoadAction({ ...base, loadingOlder: true, pendingConsumption: true }), 'wait')
   // Away from the bottom only defers once the reader drives the viewport...
   assert.equal(nextAutoLoadAction({ ...base, atBottom: false }), 'page')
   assert.equal(nextAutoLoadAction({ ...base, atBottom: false, readerScrolled: true }), 'defer')
@@ -765,6 +814,47 @@ test('follows the identity the view hands over, not a stored selection', async (
   // The unmount of the replaced view must not unbind the Session that replaced it.
   loader.detach('session-1')
   assert.equal((await waitFor(() => state.pages === 2, 20)), true)
+  loader.dispose()
+})
+
+test('rc.2 deferred paging: fetch without commit, then consume in the scheduled slot', async () => {
+  const { sessions, state } = createHarness({ startHead: 40, pageSize: 10, deferred: true })
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => null
+  })
+  loader.start()
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  assert.equal(state.runs, 0, 'deferred path must not use the jump loader')
+  assert.equal(state.deferredLoads, 4, 'four deferred fetches for a four-page window')
+  assert.equal(state.consumes, 4, 'each fetched page is consumed exactly once')
+  assert.equal(state.pages, 4)
+  loader.dispose()
+})
+
+test('a refused consume drops the run bookkeeping and fetches again', async () => {
+  const { sessions, session, state } = createHarness({ startHead: 20, pageSize: 10, deferred: true })
+  const realConsume = session.consumeOlder
+  let refusals = 0
+  session.consumeOlder = () => {
+    if (refusals === 0) {
+      refusals += 1
+      return false
+    }
+    return realConsume()
+  }
+  const loader = createAutoLoader({
+    sessions,
+    preference: createPreferenceStore(createStorage()),
+    documentRef: () => null
+  })
+  loader.start()
+  loader.attach('session-1')
+  assert.equal(await waitFor(() => state.hasMore === false), true)
+  assert.equal(refusals, 1, 'the invalidated page was refused once')
+  assert.equal(state.deferredLoads, 2)
   loader.dispose()
 })
 

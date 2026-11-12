@@ -2,6 +2,20 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.5.0] - 2026-11-12
+
+### 变更
+
+- **接入 `0.2.2-rc.2` 的延迟分页 API**：`SessionFace.loadOlder({ deferConsumption: true })` 先取回一页但**不提交**，再由 `consumeOlder()` 把 prepend 落在批与批之间的调度槽（空闲回调 / 最小间隔）里，而不是落在 fetch 任务的回调里。旧版本没有这两个能力，因此仍走原来的 `loadThrough(head - BATCH_EVENTS)`（回退 `loadOlder()`）路径——能力探测在 `startRun` 里完成，两种路径都不依赖版本号。
+- 状态机新增 `'consume'` 动作：`SessionSnapshot.historyLoadStatus === 'pendingConsumption'` 时先发布已取回的页，再继续下一页；`pendingConsumption` 期间不结算停滞（窗口还没动，提前结算会被误记成一页没推进）。
+- `consumeOlder()` 返回 `false`（页因窗口替换而失效）时丢弃本轮的 `pendingHead`/锚点并重新取页，不会卡在待发布状态。
+- 把 `0.2.2-rc.2` 加入逐版本验证清单（`package.json` / `lib/index.js` / `install.sh` / 插件文档四处同源）。
+
+### 验证
+
+- 单测 40/40：新增「延迟分页：取回不提交、再在调度槽消费」「消费被拒后丢弃记账并重取」两条，以及 `nextAutoLoadAction` 的 `pendingConsumption` 判定；旧路径（无 `consumeOlder`）的全部用例保持不变。
+- 本机 `0.2.2-rc.2` 上刷新页面即生效（纯客户端改动）；长会话真机补齐留给日常使用观察。
+
 ## [0.4.0] - 2026-11-05
 
 ### 变更

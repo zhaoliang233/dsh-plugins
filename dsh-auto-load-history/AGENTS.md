@@ -28,12 +28,14 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }`：**至少 50 条消息且至少 2 个 turn 起点，最多 500 条**，`dsh-api-session-controller/lib/types/client/sessions/session.js:19`/`:20`）和回合导航未加载圆点的 `loadThrough(seq)`（同选项上限 500、下限改为 200，循环到覆盖目标 seq，同文件 `:22`/`:25`/`:338`）。两者在 rc.2 前是**固定 50 / 200**，现在是 turn 对齐的区间——插件只依赖「一次调用推进多少 seq」，不依赖页大小本身。服务端 `paginate` 仍用 `cut > 0` 决定 `hasMore`（`lib/types/history.js:425`，0.1.7-rc.2 时是 `:445`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。顶部按钮的渲染条件是 `hasMore && …`（`dsh-client-ui-chat/lib/client.js:5271`，0.1.7 时是 `:5179`），因此**按钮消失就是 `hasMore === false` 的可观测等价物**。
 
-## 依赖的契约（0.1.7-alpha.1 起各线已核对，0.2.2-alpha.2 于 2026-10-28、0.2.2-rc.1 于 2026-11-05 复核；下表行号取自 0.2.0-rc.2）
+## 依赖的契约（0.1.7-alpha.1 起各线已核对，0.2.2-alpha.2 于 2026-10-28、0.2.2-rc.1 于 2026-11-05、0.2.2-rc.2 于 2026-11-12 复核；下表行号取自 0.2.0-rc.2，rc.2 新增项按源码文件给）
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
-| `ISession.loadOlder(): Promise<void>` | `dsh-api-session-controller/lib/types/client/contract/session.d.ts:127`（实现 `lib/types/client/sessions/session.js:313`） | 逐页回退（回退路径）：`openState !== 'open'`、`!hasMore`、`loadingOlder` 三种情况下自 noexcept 跳过 |
-| `ISession.loadThrough(seq): Promise<void>` | 同文件 `:140`（实现 `session.js:338`，结算 `prependWindow` 在 `:392`） | **主路径**：Controller 内部按 JUMP 页（`{ maxMessages: 500, turnWindow: { minMessages: 200, minTurns: 2 } }`，即每页至少 200 条且至少 2 个 turn、最多 500 条）prepend 到覆盖 `seq`；插件传 `head - BATCH_EVENTS` 实现分批（详见「运行模型」）。调用不可中断，失败会跳出循环并 resolve；普通 `loadOlder` 正在飞时直接 resolve（插件本就等待，无影响） |
+| `ISession.loadOlder(options?: { deferConsumption?: boolean }): Promise<void>` | `dsh-api-session-controller/lib/types/client/contract/session.d.ts:127`（实现 `src/client/sessions/session.ts:432`） | 逐页回退。rc.2 起支持 **`deferConsumption: true`**：取回一页但不发布，留给 `consumeOlder()`；空页仍会立即消费（顺带把 `hasMore` 变 false）。`openState !== 'open'`、`!hasMore`、`loadingOlder` 时自 noexcept 跳过 |
+| `ISession.consumeOlder(): boolean` | 同文件（实现 `session.ts:484`） | 同步发布 `loadOlder({deferConsumption:true})` 取回的页；generation/cursor 不匹配时返回 `false` 并清空待发布页。**rc.2 新增** |
+| `SessionSnapshot.historyLoadStatus` | 同包 `contract/snapshot.d.ts`（rc.2 新增） | `'idle'｜'loading'｜'pendingConsumption'｜'error'`；`pendingConsumption` = 有页待发布。`loadingOlder` 变为「正在加载（含 Turn-jump）」的派生 |
+| `ISession.loadThrough(seq): Promise<void>` | 同文件 `:140`（实现 `session.js:338`，结算 `prependWindow` 在 `:392`） | **旧版本主路径**（无 `consumeOlder` 时）：Controller 内部按 JUMP 页（`{ maxMessages: 500, turnWindow: { minMessages: 200, minTurns: 2 } }`，即每页至少 200 条且至少 2 个 turn、最多 500 条）prepend 到覆盖 `seq`；插件传 `head - BATCH_EVENTS` 实现分批（详见「运行模型」）。调用不可中断，失败会跳出循环并 resolve；普通 `loadOlder` 正在飞时直接 resolve（插件本就等待，无影响） |
 | `SessionSnapshot.openState/removed/hasMore/loadingOlder` | 同包 `lib/types/client/contract/snapshot.d.ts:68-72` | 驱动状态机 |
 | 会话作用域 list slot `conversation.session.header.actions` | `dsh-client-ui-conversation/lib/client.js:18268` 声明、`:16502` 渲染（0.1.7 时是 `:18191`/`:16425`） | **唯一的身份来源**：slot props 注入 `sessionId`（`SessionStandardProps`，经 `dsh-client-ui-session` 的 `props: { sessionId: binding.sessionId }` 座位落到 occupant，`session/client.js:128`）；list slot 直接渲染 occupant，渲染 `null` 无 DOM |
 | `ctx.sessions.binding(id).session` / `.eventSource` | 同包 `lib/types/client/sessions/service.d.ts:76-83`（`sessionId`/`session`/`eventSource`） | 会话面 + 事件窗口（只读窗口头 seq 作为进度信号）；id 由 slot 给出 |
@@ -47,15 +49,22 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 **`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-api-session-controller` 只有两处内部改动（`walkJsonValue` 重写、控制帧由单键改成 `frame.changes` 批量），`loadThrough`/`loadOlder`/`hasMore`/`loadingOlder`/`prependWindow` 符号计数与 alpha.2 完全相同；`dsh-client-ui-conversation` 的 `conversation.session.header.actions` 与 `[data-conversation-scroll]` 未变。隔离宿主实测启动图含本包、0 控制台报错。未覆盖：真机长会话补齐（需要真实模型会话）。
 
+**`0.2.2-rc.2`（2026-11-12）**：`dsh-api-session-controller` 新增 `loadOlder({ deferConsumption })` / `consumeOlder()` / `SessionSnapshot.historyLoadStatus`（以及 `historyWasPartial`）；`loadThrough`/`hasMore`/`prependWindow` 仍在。本插件改为「取页与提交分离」的 rc.2 路径，旧版本走原路径（能力探测，不看版本号）。单测 40/40（新增 2 条延迟分页用例 + 状态机判定）。**未覆盖**：真机长会话的帧间隔与锚点实测（需要真实长会话；rc.2 路径的首次实测数据留到日常使用或下一轮 GUI 验收补）。
+
 ## 运行模型
 
 不轮询：状态机只在**会话快照发布**时前进一步（`session.subscribe`）。一次运行在飞时（自己的，或读者点的「加载更早」）只等待；Controller 在 `loadThrough` 期间把 `loadingOlder` 置真并持续发布快照，因此重入的 drive 会被 `loadingOlder === true` 挡掉，不会误记一次“停滞”（`pendingHead` 只在 `!loadingOlder` 时才结算）。
 
-**分批拉取**：`page` 动作走 `startRun()` —— 优先 `session.loadThrough(head - BATCH_EVENTS)`（Controller 内部按 JUMP 页 prepend 到覆盖目标 seq；页大小是 turn 对齐的区间而不是固定条数），没有 `loadThrough` 时回退 `session.loadOlder()`。一批只拉 `BATCH_EVENTS = 600` 条，因为**每个 prepend 都会提交一次渲染**：一个 run 吞掉整段历史会把主线程占住几秒（实测最差帧间隔 ~3000ms），读者恰好在那时滚动就是"页面完全不动"。批与批之间 `scheduleBatchYield()` 等浏览器空闲（`requestIdleCallback`，不可用或超时则回退 `schedule(BATCH_GAP_MS)`），并保留 `BATCH_GAP_MS = 32` 的最小间隔。单批运行**不可中断**（循环在 Controller 里），所以让位只能发生在批与批之间：读者在滚动时暂停**发起**下一批，而不是打断进行中的那一批。
+**分批拉取**：`page` 动作走 `startRun()`。
+
+- **rc.2 路径（能力探测：`consumeOlder` 与 `loadOlder` 都存在）**：`loadOlder({ deferConsumption: true })` 只取回一页、**不提交**；快照进入 `historyLoadStatus === 'pendingConsumption'` 后，状态机返回 `'consume'`，由 `consumeOlder()` 在批间的调度槽（空闲回调 / `BATCH_GAP_MS`）里同步 prepend。**取页与提交渲染因此分开**：fetch 的往返不再把渲染带在自己的任务里，读者在加载期间滚动不会被那次提交卡住。`pendingConsumption` 期间不结算停滞（窗口还没动）。`consumeOlder()` 返回 `false`（窗口被替换、页失效）时清掉本轮 `pendingHead`/锚点并重新取页。
+- **旧路径（无 `consumeOlder`）**：优先 `session.loadThrough(head - BATCH_EVENTS)`（Controller 内部按 JUMP 页 prepend 到覆盖目标 seq），没有 `loadThrough` 时回退 `session.loadOlder()`。
+
+旧路径一批只拉 `BATCH_EVENTS = 600` 条，因为**每个 prepend 都会提交一次渲染**：一个 run 吞掉整段历史会把主线程占住几秒（实测最差帧间隔 ~3000ms）。批与批之间 `scheduleBatchYield()` 等浏览器空闲（`requestIdleCallback`，不可用或超时则回退 `schedule(BATCH_GAP_MS)`），并保留 `BATCH_GAP_MS = 32` 的最小间隔。单批运行**不可中断**（Controller 内部循环 / 一次 fetch），所以让位只能发生在批与批之间：读者在滚动时暂停**发起**下一批，而不是打断进行中的那一批。
 
 身份驱动：驱动组件在 `useEffect` 里 `loader.attach(sessionId)`，卸载时 `loader.detach(sessionId)`（带 id 的解绑只在身份匹配时生效，避免被替换视图的 cleanup 拆掉新会话）。`attach` 是幂等切换：同一 id 只重新 drive，不同 id 先 `detach()` 再绑定。绑定后 `step()` 通过 `resolveFace(boundSessionId)` 分类：`ready` 用 `binding.session`/`binding.eventSource`；`pending`（视图先画、Controller 尚未 retain）按 `MAX_BINDING_RETRIES = 30` 帧重试；`unsupported`（`loadThrough` 与 `loadOlder` 都没有）直接惰性，不重试。
 
-纯函数（可测）：`parseStoredEnabled`、`readerAtBottom`、`advanceStall`、`nextAutoLoadAction`、`windowHead`。判定顺序 `enabled → openState → removed → hasMore(done) → loadingOlder(wait) → 读者滚动中且不在底部(defer) → stalled(idle) → page`。
+纯函数（可测）：`parseStoredEnabled`、`readerAtBottom`、`advanceStall`、`nextAutoLoadAction`、`windowHead`。判定顺序 `enabled → openState → removed → loadingOlder(wait) → pendingConsumption(consume) → hasMore(done) → 读者滚动中且不在底部(defer) → stalled(idle) → page`。
 
 - **进度**：用事件窗口头 seq（`eventSource.getSnapshot().entries[0].event.seq`）判断一次运行有没有真的把窗口往前推；连续 `MAX_STALLED_PAGES = 3` 次运行没推进就停止本次补齐，把控制权还给原生按钮，避免请求失败时无限重试。reject 与同步抛错都会重新调度一次（否则没有后续快照可响应），仍受同一停滞预算约束。
 - **让位阅读**：`readerAtBottom(metrics, 64)` 用 scrollport 的 `scrollHeight - scrollTop - clientHeight` 判断，但**只有读者自己驱动过视口**（`USER_INTENT_EVENTS` = `wheel`/`touchstart`/`touchmove`/`pointerdown`/`keydown`，document 捕获阶段）**且不在底部**时才 `defer`；读者意图带 `READER_IDLE_MS = 1000` 的存活期，停手后自动过期并恢复运行——读者不会因为"顺手翻了两下"就把功能停死。defer 期间挂捕获阶段 `scroll` 监听（scroll 不冒泡但捕获阶段到得了 document），回到底部立即恢复；监听不缓存元素，Chat ↔ Trajectory 切换、scrollport 被替换都不需要重挂。
@@ -89,7 +98,7 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 ## 已知限制与升级策略
 
 - 只处理**当前查看会话**，不预加载后台会话；一次运行在会话打开后立即开始，长会话可能需要数秒；读者滚动时只暂停**发起**下一次运行（进行中的那一次在 Controller 内部循环，插件无法打断）。
-- 一次运行不可中断：`loadThrough` 由 Controller 服务，读者中途滚动不会停止它——补偿负责让这个过程中视口稳定（见「运行模型」的锚点补偿）。
+- 一次取页不可中断：rc.2 路径的一次 `loadOlder({deferConsumption:true})` 与旧路径的 `loadThrough` 都由 Controller 服务，读者中途滚动不会停止它——补偿负责让取回与提交之间视口稳定（见「运行模型」的锚点补偿）。
 - 锚点补偿依赖 DSH 的行标记：优先 `data-chat-anchor-key`（DSH 自己 paging 用的行），回退 `data-turn-tail`；两者都取不到时不补（视口可能被 prepend 推动，退回 0.1.3 的行为）。
 - defer 依赖 `[data-conversation-scroll]`：DSH 改名后 `metrics()` 返回 null，`readerAtBottom` 视为“在底部”继续分页，只是不再让位阅读（fail open，退回 v0 语义）。
 - 读者意图靠 `USER_INTENT_EVENTS` 判断（document 捕获阶段、passive）：滚动条拖动会触发 `pointerdown`、点击会话内容也算，因此"点了某处之后又不在底部"会让位（可接受：读者确实在交互）；反过来，非常规的视口驱动方式（脚本滚动、DSH 自身的滚动）一律不算读者意图，插件继续补齐而不是停住——宁可补完，也不要停在半路。
@@ -120,7 +129,7 @@ npm run publish:check     # check + test + pack:check
 ./install.sh
 ```
 
-单元测试覆盖（38 个；跨线时新增一条四处同源守卫，2026-10-19 新增一条「补偿落在落地当帧」）；偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、**补偿先同步落一次再在随后两帧复验（且复验是空操作，不会二次修正）**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
+单元测试覆盖（40 个；跨线时新增一条四处同源守卫，2026-10-19 新增一条「补偿落在落地当帧」）；偏好解析/降级、底部判定、停滞计分、状态机判定矩阵（含"不在底部但读者没驱动过视口仍 page"与"读者滚动中且不在底部才 defer"）、窗口头防御读取、**首批只拉 `BATCH_EVENTS` 条、整段历史分多批拉完**、**小会话一批即完（`loadThrough` 只调一次）**、**rc.2 延迟分页（取回不提交、在调度槽消费；消费被拒后重取）**、**无 `loadThrough` 时回退逐页 `loadOlder`**、关→开恢复、**进行中的运行不被偏好关闭打断、但不再发起新运行**、读者滚动离底后 defer 再回底恢复、**停手后（`READER_IDLE_MS`）自动恢复**、**重新 attach 不继承上一次的读者意图**、**批落地后按锚点行位移修正 `scrollTop`**、**补偿先同步落一次再在随后两帧复验（且复验是空操作，不会二次修正）**、停滞 3 次运行后放弃、`openState` 未开时等待、加载能力全缺时惰性、未 retain 身份的绑定重试、身份切换（attach/detach，含 id 不匹配的解绑不生效）、reject/同步抛错后重试到停滞上限、dispose 后不再动作（已发起的运行让它跑完）、apply 的注册（两类落点）与清理标签、驱动组件挂载/卸载调用 attach/detach、**设置行必须是官方 `Switch` 且 order ≥ 100**（自绘按钮/Menu/把 order 调回 13 都会变红）、**用户可见文案（`package.json#description`/README/PUBLISHING/client 字典）不得再声称服务于折叠**（把 0.1.5 那句旧描述写回 `description` 就会变红，2026-09-23 实测验证过这条守卫）。harness 用 `loadThrough` 模拟 Controller 的连续 prepend（每页一个宏任务，贴近真实往返，并尊重传入的目标 seq），并支持 `advance: false` 模拟"请求没推进窗口"。
 
 历次浏览器实测数据（`0.1.6-alpha.2` / `0.1.7-rc.2` / `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.2-alpha.2`）见 [`docs/compat-log.md`](../docs/compat-log.md)：当前轮的判据、数据与仪器自身的两个坑在 J6。
 
