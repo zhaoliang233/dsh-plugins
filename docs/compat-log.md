@@ -45,22 +45,36 @@
 
 ---
 
-## 当前发布记录（截至 2026-11-09）
+## 当前发布记录（截至 2026-11-12）
 
 | 包 | 版本 | 发布线 |
 |---|---|---|
 | `dsh-default-tuner` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-default-workspace` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
-| `dsh-extra-context` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
-| `dsh-local-plugin-manager` | `0.5.0` | `>=0.2.2-alpha.2 <0.2.3` |
-| `dsh-auto-load-history` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
-| `dsh-chat-archive-manager` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-extra-context` | `0.5.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-local-plugin-manager` | `0.6.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-auto-load-history` | `0.5.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-chat-archive-manager` | `0.5.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-sticky-user-bubble` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-mobile-compat` | `0.5.1` | `>=0.2.0-rc.2 <0.2.1` |
-| `dsh-mcp-workbench` | `0.1.0` | `>=0.2.2-alpha.2 <0.2.3`（2026-11-09 首发；原名 `dsh-mcp-console`） |
+| `dsh-mcp-workbench` | `0.2.0` | `>=0.2.2-alpha.2 <0.2.3`（2026-11-12 改造为官方 mcp-manager UI；2026-11-09 首发 `0.1.0`；原名 `dsh-mcp-console`） |
 | `dsh-workspace-running-indicator` | `0.1.0` | `>=0.2.2-alpha.3 <0.2.3`（2026-11-09 首发） |
 
 发版前用 `npm view <包名> version maintainers` 复核；上表是历史快照，不是长期真相。
+
+## R3：P0–P3 改造发布（2026-11-12）
+
+五个包经 tag 触发 `release.yml` 经 OIDC 发布，五个 run 全部 success（2–4 分钟）：
+
+| 包 | 版本 | tag | registry | attestations | Release |
+|---|---|---|---|---|---|
+| `dsh-mcp-workbench` | 0.2.0 | `dsh-mcp-workbench-v0.2.0` | ✅ | ✅ | ✅ |
+| `dsh-auto-load-history` | 0.5.0 | `dsh-auto-load-history-v0.5.0` | ✅ | ✅ | ✅ |
+| `dsh-chat-archive-manager` | 0.5.0 | `dsh-chat-archive-manager-v0.5.0` | ✅ | ✅ | ✅ |
+| `dsh-extra-context` | 0.5.0 | `dsh-extra-context-v0.5.0` | ✅ | ✅ | ✅ |
+| `dsh-local-plugin-manager` | 0.6.0 | `dsh-local-plugin-manager-v0.6.0` | ✅ | ✅ | ✅ |
+
+发版前已核 `npm view <包名> maintainers` 全部为 `zhaoliang233`；本地/远端 tag 集合一致、全部符合 `<包名>-v<版本>`；三项判据（registry 版本、`dist.attestations`、按 tag 名查到的 GitHub Release 非 draft）逐包核对通过。提交分组：`feat(mcp-workbench)` / `feat(auto-load-history)` / `feat(chat-archive-manager)` / `feat(extra-context)` / `feat(local-plugin-manager)` / `docs(compat)`。
 
 ## R2：首发两个未发布插件（2026-11-09）
 
