@@ -104,7 +104,10 @@ function instantiate(options = {}) {
     },
     slots: {
       inject(name, factory) {
-        assert.equal(['settings.section', 'settings.action'].includes(name), true, `unexpected slot: ${name}`)
+        assert.equal(['settings.section', 'settings.section.icon', 'settings.action'].includes(name), true, `unexpected slot: ${name}`)
+        // 官方图标槽只在壳层声明时才会注入；测试里模拟 rc.2 壳层：让它注入，
+        // 从而验证双路径注册（icon 槽 + settings.action 兜底）都在。
+
         return factory()
       },
       register(options, component) {
@@ -182,7 +185,8 @@ test('registers a 插件开发 settings section with reversible current-theme st
   withDocument({
     body(harness, fixture) {
       assert.deepEqual(harness.plugin.inject, ['slots'])
-      assert.equal(harness.registrations.length, 2)
+      // settings.section + settings.section.icon（0.2.2-alpha.3 起）+ settings.action（旧壳层兜底）
+      assert.equal(harness.registrations.length, 3)
       // 开发者面板是设置面板菜单里的独立分区，**不是**官方「插件」分区里的第三个 tab：
       // 共用官方插件管理入口会被当成官方功能的第二部分，与"面向插件开发者"的定位冲突。
       assert.equal(source.includes('settings.plugins.tab'), false)
@@ -192,8 +196,14 @@ test('registers a 插件开发 settings section with reversible current-theme st
         order: 110,
         label: '插件开发'
       })
-      // 导航图标补丁的挂载点，与分区同档 order，排到 DSH 自带项之后。
+      // 官方图标槽：id 必须等于分区 id（壳层按 only: row.id 匹配）。
       assert.deepEqual(harness.registrations[1].options, {
+        name: 'settings.section.icon',
+        id: 'plugin-dev',
+        order: 110
+      })
+      // 导航图标补丁的挂载点，与分区同档 order，排到 DSH 自带项之后。
+      assert.deepEqual(harness.registrations[2].options, {
         name: 'settings.action',
         id: 'dsh-local-plugin-manager-nav-icon',
         order: 110

@@ -174,6 +174,35 @@ window.__ModuleLoader__.load({
       return navIconMaskSource(typeof svg.outerHTML === 'string' ? svg.outerHTML : '')
     }
 
+    /** 官方图标槽的 outlet 标记（renderSlot 总会插入）。 */
+    const OFFICIAL_ICON_SELECTOR = '[data-slot="settings.section.icon"]'
+    /** 本插件注册到官方槽的图标自带标记。 */
+    const SECTION_ICON_MARK = 'data-dlp-section-icon'
+
+    /** @param {any} doc @returns {boolean} */
+    function hasOfficialSectionIcon(doc) {
+      if (doc === null || doc === undefined || typeof doc.querySelector !== 'function') return false
+      try {
+        return doc.querySelector(OFFICIAL_ICON_SELECTOR) !== null || doc.querySelector(`[${SECTION_ICON_MARK}]`) !== null
+      } catch {
+        return false
+      }
+    }
+
+    /**
+     * 注册到官方 `settings.section.icon` 槽（0.2.2-alpha.3 起）的图标组件。
+     * 旧版本没有这个槽，组件不会被挂载，DOM 补丁继续兜底。
+     */
+    function DevSectionIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 16
+      if (typeof IconCodeOutline16 !== 'function') return null
+      return React.createElement(
+        'span',
+        { [SECTION_ICON_MARK]: '' },
+        React.createElement(IconCodeOutline16, { size })
+      )
+    }
+
     /**
      * 给设置页导航里本插件那一行换上专属图标。
      *
@@ -200,6 +229,18 @@ window.__ModuleLoader__.load({
 
       const mark = () => {
         for (const button of doc.querySelectorAll('nav button')) {
+          // 官方 `settings.section.icon` 槽接管这一行后撤销 DOM 补丁，避免两个图标。
+          // 每轮 mark 都检查，因此即使补丁先装、官方槽后渲染也会自动让位。
+          const official = typeof button.querySelector === 'function' ? button.querySelector(OFFICIAL_ICON_SELECTOR) : null
+          if (official !== null) {
+            if (touched.has(button)) {
+              delete button.dataset[NAV_PATCH_FLAG]
+              delete button.dataset[NAV_PATCH_COUNT]
+              button.style.removeProperty(NAV_PATCH_MASK)
+              touched.delete(button)
+            }
+            continue
+          }
           // 只认文本恰好等于本分区菜单名的那一行：设置页导航里没有别的同名项。
           if (button.textContent.trim() !== label || touched.has(button)) continue
           button.dataset[NAV_PATCH_FLAG] = ''
@@ -242,6 +283,8 @@ window.__ModuleLoader__.load({
      * 单独抽出来是为了可测：DOM 结构（模板 → svg → outerHTML）与补丁行为分开验证。
      */
     function installNavIconPatch(template, doc) {
+      // 官方 `settings.section.icon` 槽已渲染时直接用官方图标，不再打 DOM 补丁。
+      if (hasOfficialSectionIcon(doc)) return () => {}
       const svg = template !== null && template !== undefined && typeof template.querySelector === 'function' ? template.querySelector('svg') : null
       if (svg === null || svg === undefined) return () => {}
       const source = navIconSymbolSource(svg)
@@ -576,6 +619,13 @@ window.__ModuleLoader__.load({
         order: SECTION_ORDER,
         label: SECTION_LABEL
       }, DevPluginsSection))
+      // 官方图标槽（0.2.2-alpha.3 起）：同 id 注册即可替换；旧壳层没有该槽，
+      // 回调不会触发，下面的 DOM 补丁继续兜底。
+      ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
+        name: 'settings.section.icon',
+        id: SECTION_ID,
+        order: SECTION_ORDER
+      }, DevSectionIcon))
       // 导航图标补丁的挂载点（壳层 settings.section 没有 icon 选项，见 patchSettingsNavIcon）。
       ctx.slots.inject('settings.action', () => ctx.slots.register({
         name: 'settings.action',
