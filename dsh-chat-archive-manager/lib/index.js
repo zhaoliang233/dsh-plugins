@@ -23,7 +23,7 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  */
 export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2', '0.2.2-rc.1']
+export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2', '0.2.2-rc.1', '0.2.2-rc.2']
 
 /**
  * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.1`、`0.2.1-<channel>.N`）。
@@ -320,6 +320,29 @@ export const inject = [
   'connection'
 ]
 
+/**
+ * 判断一次「取消归档」是否必须被拒绝。
+ *
+ * 0.2.2-rc.2 的 `WorkspaceRegistry.unarchiveSession()` 会在写 state 之前分发
+ * `workspace/session-unarchiving`（parallel）：任一监听器抛错都会保留归档状态。
+ * 本插件用它覆盖 **DSH 原生恢复入口**（侧边栏 / 搜索结果里的恢复）——那些入口
+ * 不经过插件的串行队列，删除事务进行中从原生入口恢复会与删除竞争同一批文件。
+ *
+ * 判定只读删除服务的状态，不做任何副作用；返回空串表示放行。
+ * @param deletionService - `createArchiveDeletionService()` 的实例，或 undefined
+ * @returns 拒绝原因；空串 = 放行
+ */
+export function unarchiveBlockReason(deletionService) {
+  const status = typeof deletionService?.status === 'function' ? deletionService.status() : {}
+  if (status?.quarantined === true) {
+    return '永久删除恢复日志需要人工检查，暂不能恢复聊天；处理完成并重启 dsh web 后再试。'
+  }
+  if (status?.pending === true) {
+    return '有永久删除事务正在进行，等它完成后再恢复聊天。'
+  }
+  return ''
+}
+
 export function createArchiveMutationCoordinator() {
   let tail = Promise.resolve()
   return function runExclusive(operation) {
@@ -389,6 +412,16 @@ export async function applyCompatibleRuntime(ctx, compatibility = classifyDshVer
           )
       ctx.logger?.warn?.(`${PLUGIN_NAME}: restoration unavailable: ${String(error)}`)
     }
+  }
+
+  // 覆盖 DSH 原生恢复入口：删除事务进行中或 quarantine 时，在 registry 层面拒绝取消归档。
+  // 插件自己的恢复路径走共享串行队列，删除完成后 `pending` 已复位，因此不会被误伤。
+  // `on` 按能力探测：宿主 ctx 一定有，但纯逻辑测试桩可能不提供。
+  if (typeof ctx.on === 'function') {
+    ctx.on('workspace/session-unarchiving', () => {
+      const reason = unarchiveBlockReason(deletionService)
+      if (reason !== '') throw new Error(reason)
+    })
   }
 
   registerRoutes(ctx, {

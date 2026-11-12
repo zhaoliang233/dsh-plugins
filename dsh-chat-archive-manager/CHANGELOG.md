@@ -1,5 +1,26 @@
 # 变更记录
 
+## [0.5.0] - 2026-11-12
+
+### 新增
+
+- **取消归档守卫（接入 DSH 0.2.2-rc.2 的 `workspace/session-unarchiving` 事件）**：`WorkspaceRegistry.unarchiveSession()` 现在会在写 state 之前分发该 parallel 事件，任一监听器抛错即保留归档状态。插件用它覆盖 **DSH 原生恢复入口**（侧栏「已归档会话」与搜索结果里的“恢复”）：
+  - 永久删除事务进行中（`status().pending`）→ 拒绝恢复，等事务完成；
+  - 删除日志需要人工检查（`status().quarantined`）→ 拒绝恢复并沿用 quarantine 文案。
+  插件自己的恢复入口本来就与删除共用串行队列，不会被误伤；旧版本（无该事件）不注册监听，行为退回原状（能力探测，不看版本号）。
+- 删除服务 `status()` 新增 `pending` 字段（删除事务在飞时为 `true`，结算后复位）；`lib/archive-deletion.js` 的删除入口改用 `try/finally` 维护该标志。
+- **导航图标改为官方槽优先（0.2.2-rc.2 双路径）**：同时注册官方 `settings.section.icon`（id `archived-chats`，组件 `ArchiveSectionIcon` 带 `data-dac-section-icon` 标记）与 `settings.action` 的 DOM 补丁；补丁每轮 `mark()` 检测官方槽并撤销自身，避免两个图标。旧壳层（alpha.2）没有该槽，补丁照旧兜底。
+- 把 `0.2.2-rc.2` 加入逐版本验证清单（`package.json` / `lib/index.js` / `install.sh` / 文档四处同源）。
+
+### 说明
+
+- 客户端侧新增的 `workspace/archive-notice` / `archive-followup-*` 提示事件**未采用**：本插件不负责归档通知（批量归档有自己的结果面板，侧边栏归档提示由 DSH 渲染）。
+
+### 验证
+
+- 单测 81/81（新增「取消归档守卫」纯函数矩阵、Host 上下文监听注册与删除进行中 `pending` 状态回归）；
+- `npm run check`、`pack:check`（9 文件）通过。
+
 本文件记录本项目的所有重要变更。
 
 ## [0.4.0] - 2026-11-05

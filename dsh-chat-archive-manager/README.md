@@ -66,6 +66,8 @@ $DSH_HOME/.dsh-archived-chats-trash/                 # 同文件系统 trash（�
 
 删除与恢复共用同一个串行队列。存在未完成的事务时，删除与恢复都会暂停并保持现场，等待人工检查；插件不会依据日志自动重命名、回滚、前滚或递归删除。
 
+永久删除进行中，**任何入口**的恢复都会被拒绝（包括 DSH 侧栏与搜索结果里的“恢复”）——插件在 Workspace 注册表层面挂了一个取消归档守卫，避免原生入口绕过队列、与删除事务争抢同一批文件。等删除结束后再恢复即可。
+
 ## 注意事项
 
 - 永久删除是严格的私有 ABI 兼容层：只有 JSONL backend、Workspace registry、handle tracker、迁移任务与缓存结构都与已验证契约一致时才开放；不匹配时列表与恢复仍可用，删除会 fail closed，页面上会给出原因。日志 generation（`session.vN.jsonl[.zstd]`）不是写死的常量，按运行中的 DSH 实际写的那个 generation 工作。

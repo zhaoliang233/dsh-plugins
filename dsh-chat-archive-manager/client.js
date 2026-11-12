@@ -637,6 +637,20 @@ window.__ModuleLoader__.load({
       return `${parts.join('、')}。`
     }
 
+    /**
+     * 注册到官方 `settings.section.icon` 槽（0.2.2-alpha.3 起）的图标组件：
+     * 壳层按 section id 匹配后直接渲染它。旧版本没有这个槽，组件不会被挂载，
+     * `ArchiveNavIconMarker` 的 DOM 补丁继续兜底。
+     */
+    function ArchiveSectionIcon(props) {
+      const size = typeof props?.size === 'number' ? props.size : 16
+      return React.createElement(
+        'span',
+        { 'data-dac-section-icon': '' },
+        React.createElement(IconArchiveOutline20, { size })
+      )
+    }
+
     function ArchiveNavIconMarker() {
       const templateRef = React.useRef(null)
       React.useLayoutEffect(() => {
@@ -650,6 +664,20 @@ window.__ModuleLoader__.load({
 
         const mark = () => {
           for (const button of document.querySelectorAll('nav button')) {
+            // 官方 `settings.section.icon` 槽接管这一行后撤销 DOM 补丁，避免两个图标。
+            // 每轮 mark 都检查，因此即使补丁先装、官方槽后渲染也会自动让位。
+            const official = typeof button.querySelector === 'function'
+              ? button.querySelector('[data-slot="settings.section.icon"]')
+              : null
+            if (official !== null) {
+              if (touched.has(button)) {
+                delete button.dataset.dacArchiveNav
+                delete button.dataset.dacArchiveNavReferences
+                button.style.removeProperty('--dac-archive-nav-mask')
+                touched.delete(button)
+              }
+              continue
+            }
             if (button.textContent.trim() !== SECTION_TITLE || touched.has(button)) continue
             const parsedReferences = Number(button.dataset.dacArchiveNavReferences)
             const references = Number.isSafeInteger(parsedReferences) && parsedReferences >= 0
@@ -1516,6 +1544,13 @@ window.__ModuleLoader__.load({
         order: SECTION_ORDER,
         label: SECTION_TITLE
       }, ArchiveSettingsSection))
+      // 官方图标槽（0.2.2-alpha.3 起）：同 id 注册即可替换图标；旧壳层没有该槽，
+      // 回调不会触发，下面的 DOM 补丁继续兜底。
+      ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
+        name: 'settings.section.icon',
+        id: 'archived-chats',
+        order: SECTION_ORDER
+      }, ArchiveSectionIcon))
       ctx.slots.inject('settings.action', () => ctx.slots.register({
         name: 'settings.action',
         id: 'dsh-chat-archive-manager.nav-icon',

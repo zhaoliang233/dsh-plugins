@@ -13,7 +13,8 @@ import {
   classifyDshVersion,
   legacyArchiveWorkspacePath,
   removeLegacyArchiveWorkspace,
-  resolveDshHome
+  resolveDshHome,
+  unarchiveBlockReason
 } from '../lib/index.js'
 
 class FakeRegistry {
@@ -36,6 +37,50 @@ class FakeRegistry {
 test('resolves the legacy archive path below DSH_HOME', () => {
   assert.equal(resolveDshHome({ DSH_HOME: '  /tmp/custom-dsh  ' }, '/unused'), '/tmp/custom-dsh')
   assert.equal(legacyArchiveWorkspacePath('/tmp/custom-dsh'), '/tmp/custom-dsh/workspaces/archived')
+})
+
+test('refuses unarchive while a deletion transaction or quarantine owns the session', () => {
+  assert.equal(unarchiveBlockReason(undefined), '')
+  assert.equal(unarchiveBlockReason({ status: () => ({ quarantined: false, pending: false }) }), '')
+  assert.match(
+    unarchiveBlockReason({ status: () => ({ quarantined: true, pending: false }) }),
+    /人工检查/u
+  )
+  assert.match(
+    unarchiveBlockReason({ status: () => ({ quarantined: false, pending: true }) }),
+    /正在进行/u
+  )
+  // quarantine 优先：日志需要人工检查时，不能只说"等它完成"。
+  assert.match(
+    unarchiveBlockReason({ status: () => ({ quarantined: true, pending: true }) }),
+    /人工检查/u
+  )
+})
+
+test('registers a workspace/session-unarchiving guard on the Host context', async () => {
+  const listeners = []
+  const cleanups = []
+  const routes = []
+  const registry = new WorkspaceRegistry()
+  const context = {
+    workspaceRegistry: registry,
+    sessionPersistence: {},
+    sessions: {},
+    agents: {},
+    storageDomain: {},
+    connection: { requestRejection: () => undefined },
+    logger: { info() {}, warn() {}, error() {} },
+    effect(factory) { cleanups.push(factory()) },
+    inject(names, callback) {
+      callback({ webServer: { register(route) { routes.push(route); return () => {} } }, effect(factory) { factory() } })
+    },
+    on(event, listener) { listeners.push({ event, listener }) }
+  }
+  await apply(context)
+  const guard = listeners.find(row => row.event === 'workspace/session-unarchiving')
+  assert.ok(guard, 'the unarchive guard must be registered')
+  // deletion service is unavailable in this fixture (no persistence runtime) → allow.
+  assert.doesNotThrow(() => guard.listener({ sessionId: 'archived' }))
 })
 
 test('removes only the exact legacy archive Workspace registration', async () => {

@@ -769,8 +769,15 @@ test('registers the Settings section and archive nav icon marker with reversible
     plugin.apply(harness.ctx)
     await settle()
 
-    assert.equal(harness.registrations.length, 2)
+    // settings.section + settings.section.icon（0.2.2-alpha.3 起的官方图标槽）+ settings.action（旧壳层兜底）
+    assert.equal(harness.registrations.length, 3)
     const sectionRegistration = harness.registrations.find(entry => entry.options.name === 'settings.section')
+    const sectionIconRegistration = harness.registrations.find(entry => entry.options.name === 'settings.section.icon')
+    assert.deepEqual(sectionIconRegistration.options, {
+      name: 'settings.section.icon',
+      id: 'archived-chats',
+      order: 140
+    })
     const navIconRegistration = harness.registrations.find(entry => entry.options.name === 'settings.action')
     assert.deepEqual(sectionRegistration.options, {
       name: 'settings.section',
@@ -965,7 +972,7 @@ test('renders grouped archive management inside Settings and leaves core list se
     const harness = context(workspaces, sessions)
     plugin.apply(harness.ctx)
 
-    assert.equal(harness.registrations.length, 2)
+    assert.equal(harness.registrations.length, 3)
     const sectionRegistration = harness.registrations.find(entry => entry.options.name === 'settings.section')
     const { options, component: ArchiveSettingsSection } = sectionRegistration
     assert.deepEqual(options, {

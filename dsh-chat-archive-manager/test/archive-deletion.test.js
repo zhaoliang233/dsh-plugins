@@ -864,3 +864,31 @@ test('leaves a build without pinnedSessionIds untouched', async () => {
     await rm(data.root, { recursive: true, force: true })
   }
 })
+
+test('exposes an in-flight deletion through status().pending', async () => {
+  const data = await fixture()
+  try {
+    const persistence = fakePersistence(data.persistenceRoot, data.snapshots)
+    const harness = fakeContext({ sessionId: data.header.id, persistence })
+    let release
+    let reached
+    const gate = new Promise(resolve => { reached = resolve })
+    const service = createArchiveDeletionService(harness.ctx, {
+      dshHome: data.dshHome,
+      afterTombstone: async () => {
+        reached()
+        await new Promise(resolve => { release = resolve })
+      }
+    })
+    await service.initialize()
+    const deletion = service.delete(data.header.id)
+    await gate
+    assert.equal(service.status().pending, true, 'the transaction owns the Session while it runs')
+    release()
+    await deletion
+    assert.equal(service.status().pending, false, 'the flag clears after settlement')
+    await service.dispose()
+  } finally {
+    await rm(data.root, { recursive: true, force: true })
+  }
+})

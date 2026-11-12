@@ -784,6 +784,13 @@ export function createArchiveDeletionService(ctx, options = {}) {
   let operationTail = Promise.resolve()
   let disposed = false
   let quarantined = false
+  /**
+   * A delete is between its first await and its settlement. Exposed through
+   * `status().pending` so the archive manager can refuse unarchive requests from
+   * *every* entry point (including DSH's own sidebar) while the transaction owns
+   * the Session's artifacts.
+   */
+  let transactionInFlight = false
   let disposePromise
 
   async function updatePhase(transaction, phase) {
@@ -848,6 +855,15 @@ export function createArchiveDeletionService(ctx, options = {}) {
 
   async function deleteOne(sessionId) {
     if (disposed) throw new ArchiveDeleteError('plugin-disposed', '插件正在卸载，不能删除会话', 503)
+    transactionInFlight = true
+    try {
+      return await runDeleteTransaction(sessionId)
+    } finally {
+      transactionInFlight = false
+    }
+  }
+
+  async function runDeleteTransaction(sessionId) {
     await assertNoPendingTransaction()
     const { header, artifact } = await preflight(sessionId)
     const [sourceState, trashState] = await Promise.all([
@@ -906,7 +922,11 @@ export function createArchiveDeletionService(ctx, options = {}) {
     tombstones,
     initialize: assertNoPendingTransaction,
     status() {
-      return { quarantined, quiescenceSupported: quiescenceRuntime !== undefined }
+      return {
+        quarantined,
+        pending: transactionInFlight,
+        quiescenceSupported: quiescenceRuntime !== undefined
+      }
     },
     delete(sessionId) {
       const result = operationTail.then(() => runExclusive(() => deleteOne(sessionId)))
