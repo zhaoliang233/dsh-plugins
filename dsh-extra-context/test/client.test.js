@@ -587,7 +587,12 @@ test('apply 绑定设置条目并注册设置页分区', () => {
 
   // 0.1.7 契约：控制器读的是**本插件在 profile 里的条目 id**，宿主 describe() 的 ns 同值。
   assert.equal(state.bound, 'dsh-extra-context')
-  assert.deepEqual(state.slots, ['settings.section', 'settings.action'])
+  // 0.2.2-alpha.3 起官方提供 `settings.section.icon` 槽：先注册它（有槽时优先），
+  // `settings.action` 的 DOM 补丁只作为旧壳层兜底。
+  assert.deepEqual(state.slots, ['settings.section', 'settings.section.icon', 'settings.action'])
+  const sectionIcon = state.registrations.find((entry) => entry.options.name === 'settings.section.icon')
+  assert.notEqual(sectionIcon, undefined, '必须注册官方图标槽')
+  assert.equal(sectionIcon.options.id, 'extra-context', '图标槽的 id 必须与分区 id 相同（壳层按 only: row.id 匹配）')
   const section = state.registrations.find((entry) => entry.options.name === 'settings.section')
   assert.equal(section.options.id, 'extra-context')
   // 插件分区必须排到 DSH 自带分区之后（内置最大 order = archived-sessions 25）。
@@ -1104,10 +1109,15 @@ test('样式表由 apply() 插件级注入：打标签、引用计数、HMR 复�
  * 补丁的逻辑全是"找元素 → 打标记 → 回滚"，用假 DOM 就能把分支逐条打到位；
  * 真实几何（图标摆在哪、有多大）由浏览器里的固定场景验证，不在单测里假装测得到。
  */
-function fakeNavButton(text) {
+function fakeNavButton(text, official = false) {
   const properties = new Map()
   return {
     textContent: text,
+    /** 模拟壳层 `settings.section.icon` 槽已渲染这一行。 */
+    official,
+    querySelector(selector) {
+      return this.official && selector === '[data-slot="settings.section.icon"]' ? { nodeType: 1 } : null
+    },
     dataset: {},
     style: {
       setProperty: (name, value) => { properties.set(name, value) },
@@ -1174,6 +1184,26 @@ test('导航图标补丁：只改本插件那一行，退出时干净还原（�
   assert.equal(mine.dataset.decNavIconReferences, undefined, '标记要清干净，不留脏 dataset')
   assert.equal(mine.style.getProperty('--dec-nav-icon-mask'), undefined, '内联 mask 变量必须移除')
   assert.equal(doc.observers.every((observer) => observer.disconnected === true), true, '观察者必须断开，不能常驻')
+})
+
+test('导航图标补丁：官方 settings.section.icon 槽接管后不再打补丁，并撤销已有补丁', () => {
+  const { patchSettingsNavIcon } = loadPlugin().__internals
+  const taken = fakeNavButton('额外上下文', true)
+  const doc = fakeNavDocument([taken])
+  const cleanup = patchSettingsNavIcon(doc, '<svg viewBox="0 0 16 16"/>', '额外上下文')
+  assert.equal(taken.dataset.decNavIcon, undefined, '官方槽已渲染时不得再打 DOM 补丁')
+
+  // 先装补丁、官方槽后渲染：观察者回调必须把补丁撤掉（否则会出现两个图标）。
+  const late = fakeNavButton('额外上下文')
+  const doc2 = fakeNavDocument([late])
+  const cleanup2 = patchSettingsNavIcon(doc2, '<svg viewBox="0 0 16 16"/>', '额外上下文')
+  assert.equal(late.dataset.decNavIcon, '', '官方槽出现前补丁照常兜底')
+  late.official = true
+  doc2.observers[0].callback()
+  assert.equal(late.dataset.decNavIcon, undefined, '官方槽接管后必须撤销补丁标记')
+  assert.equal(late.style.getProperty('--dec-nav-icon-mask'), undefined, 'mask 变量也要清掉')
+  cleanup()
+  cleanup2()
 })
 
 test('导航图标补丁：前置条件不满足时安静退化，绝不抛错', () => {

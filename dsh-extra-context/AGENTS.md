@@ -32,7 +32,7 @@
 | 宿主侧 schema 必须是真正的 schemastery 对象 | 同上（`z<T>` + `toJSON` 序列化方言） |
 | 客户端 `ctx.configForms.get(<条目 id>)` 返回 `{getSnapshot, subscribe, mutate, set, unset}`（写入带 revision 栅栏与排队）；`settingsScope` 服务在 0.1.7 已被删除 | `dsh-client-ui-settings/lib/client.js`①`configForms` 服务、`lib/types/client/config-form-types.d.ts` |
 | `settings.section` 是 list slot，注册需要 `id`（+ 可选 `order`/`label`） | 实时 Slot 树查询 |
-| **设置页导航图标**：`settings.section` 本身仍没有 `icon` 选项；0.2.2-alpha.3 起壳层另提供 `settings.section.icon`（list/root/inline），并把 fallback 图标包进 `span.navIcon[aria-hidden=true]`。本包为兼容 alpha.2 仍走 DOM 补丁；CSS 同时隐藏旧结构的直接 `svg` 与新包装层/内部 svg（只认直接 `svg` 会漏掉，表现为「自定义图标 + 齿轮」） | `dsh-client-ui-settings-general/lib/client.js` 的 `SettingsPanel`/`navIcon`（0.2.2-alpha.3 已核对） |
+| **设置页导航图标**：`settings.section` 本身仍没有 `icon` 选项；0.2.2-alpha.3 起壳层另提供 `settings.section.icon`（list/root/inline），并把 fallback 图标包进 `span.navIcon[aria-hidden=true]`。**0.2.2-rc.2 起改为双路径**：优先注册官方 `settings.section.icon`（id 与分区 id 相同），DOM 补丁只在旧壳层（无该槽）兜底；补丁的每轮 `mark()` 检测 `[data-slot="settings.section.icon"]`，官方槽接管后自动撤销，避免两个图标 | `dsh-client-ui-settings-general/lib/client.js` 的 `SettingsPanel`/`navIcon`（0.2.2-alpha.3 已核对） |
 | `settings.action` 与 `settings.section` 同属 `sidebar.settings` 的 children 表（同时声明），随设置面板挂载/卸载 | 同上 `register({ name: 'sidebar.settings', children: {...} })` |
 | `agent.inject(UserMessage)` 是官方「补模型可见上下文」通道，空闲时不唤醒 driver | `dsh-agent/lib/types/runtime-types.d.ts`；`dsh-user-approval`、`dsh-cordis-host-runner` 同款用法 |
 | **开关一律用壳层自己的 `Switch`**：`Switch({ checked, onChange, label, disabled, title, className })` → `<button role="switch" aria-checked>`（36×20、开启态 `--dsw-alias-brand-primary` 轨道、视觉由 `aria-checked` 驱动、`disabled` 时 `opacity:.5`）；它在 primitives 静态 seed 里，`require('@deepseek-ai/dsh-client-ui-primitives').Switch` 直接可用 | `dsh-client-ui-primitives/lib/types/Switch.d.ts`、`lib/Switch.module.css`、`lib/index.js:1786`（0.1.6-alpha.2 实测） |
@@ -88,6 +88,8 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 全部状态都在按钮 dataset / 内联样式上并做引用计数，清理函数能完整还原成齿轮；`document`、模板 svg、`querySelectorAll` 任一拿不到都静默退化（最差继续显示齿轮，绝不报错到设置页）。
 
 > 壳层哪天支持在 slot 选项里声明 `icon`，这段补丁就该整块删掉——它不是能力，是权宜。**改前先回读 `dsh-client-ui-settings-general` 的 `navIcon`/`rows` 两处源码。**
+>
+> **0.2.2-rc.2 起已经是双路径**：`apply()` 同时注册官方 `settings.section.icon`（id `extra-context`，组件 `ExtraContextSectionIcon` 带 `data-dec-section-icon` 标记）与 `settings.action` 的 DOM 补丁。补丁的 `mark()` 每轮检查按钮内是否有官方槽标记，有则撤销本插件补丁；`installNavIconPatch()` 在安装前也先检测官方槽。旧壳层（alpha.2）没有该槽，`inject` 回调不触发、补丁照旧工作。
 
 ### 5. 压缩摘要的写作语言必须被拉回用户的额外上下文
 
