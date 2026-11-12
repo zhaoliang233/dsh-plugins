@@ -255,6 +255,7 @@ export function createHarness() {
     useCallback,
     useEffect,
     useLayoutEffect,
+    useMemo: (factory) => factory(),
     useId: () => 'id',
     Component
   }

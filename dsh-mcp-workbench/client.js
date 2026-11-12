@@ -1,16 +1,19 @@
 /**
  * dsh-mcp-workbench 客户端半体（单文件 CJS 惰性 bundle，无构建步骤）。
  *
- * 职责：设置页「MCP 服务器」分区——列表、编辑、启停、状态、凭据、以及
- * 把 profile 组合里已有的 MCP 条目导入到托管清单。
+ * 职责：设置页「MCP 服务器」分区——官方 `@deepseek-ai/dsh-mcp-manager` 的
+ * 管理界面：列表、编辑、启停、状态、重启、探测、凭据，以及旧版本本插件
+ * 托管清单的迁移。
  *
- * 数据流（三条各自独立）：
- * 1. 清单真相 = 本插件在 profile 里的**条目 config**（`settings.describe()` 的 `ns`
- *    与 `ctx.configForms.get()` 用的都是条目 id `dsh-mcp-workbench`），经
- *    `ctx.configForms.get(<条目 id>)` 读写（带 revision 栅栏，写入即触发宿主对账）；
- * 2. 运行态（是否挂载、工具、最近日志、与组合层重名）来自宿主状态路由；
- * 3. 凭据值经 `ctx.remote.credentials` 写进 credentials 存储，
- *    条目 config 里只留 `credential:KEY` 占位符。
+ * 数据流（四条各自独立）：
+ * 1. **清单真相 = 官方 mcp-manager 条目的 `config.servers`**（`Record<serverName, Entry>`），
+ *    经 `ctx.configForms.get(<官方条目 id>)` 读写（带 revision 栅栏）；
+ * 2. 运行态（连接状态、工具数、重连/失败原因）来自 `ctx.remote.mcpManager.watch()`；
+ * 3. 探测 / 重启走 `ctx.remote.mcpManager.probe()/restart()`；
+ * 4. 凭据值经 `ctx.remote.credentials` 写进 credentials 存储，
+ *    条目值里只留 `${credential:KEY}` 模板。
+ *
+ * 官方条目 id 由宿主状态路由告诉客户端（浏览器侧拿不到「条目名 → 包名」的映射）。
  */
 
 window.__ModuleLoader__.load({
@@ -49,12 +52,13 @@ window.__ModuleLoader__.load({
 
     const PLUGIN_ID = 'dsh-mcp-workbench'
     /**
-     * 本插件在 profile 里的条目 id —— 0.1.7 起插件的设置就是条目 config，
-     * `configForms.get(<条目 id>)` 与宿主 `settings.describe()` 的 `ns` 都是它。
-     * 客户端 bundle 与宿主半体各写一遍字面量（bundle 不能 import 宿主模块），
-     * 两处必须同源：`test/client.test.js` 与 `test/host.test.js` 各有一条断言。
+     * 本插件在 profile 里的条目 id —— 仍保留这个条目，但它只承载「迁移源」
+     * （旧版本的 `servers` 数组）与宿主侧版本门；服务器清单本身在官方条目里。
      */
     const SETTINGS_ENTRY = 'dsh-mcp-workbench'
+    /** 官方 MCP 管理器包名与默认条目 id（探测不到真实 id 时的兜底）。 */
+    const MANAGER_MODULE = '@deepseek-ai/dsh-mcp-manager'
+    const DEFAULT_MANAGER_ENTRY = 'mcp-manager'
     const STATUS_PATH = '/dsh-mcp-workbench/status'
     const ACTION_PATH = '/dsh-mcp-workbench/action'
     const CLIENT_HEADER = 'x-dsh-mcp-workbench-client'
@@ -69,10 +73,18 @@ window.__ModuleLoader__.load({
      */
     const SECTION_ORDER = 130
     const NAV_ICON_ID = 'mcp-console-nav-icon'
-    const STYLE_OWNER = `${PLUGIN_ID}-v1`
-    const CREDENTIAL_TOKEN = /credential:([A-Za-z_][A-Za-z0-9_]*)/gu
-    /** 存在设置里的占位符前缀；界面不暴露它，用户看到的是「凭据」开关 + 键名。 */
-    const CREDENTIAL_PREFIX = 'credential:'
+    const STYLE_OWNER = `${PLUGIN_ID}-v2`
+    /**
+     * 官方凭据模板语法：`${credential:KEY}`（`dsh-credentials` / `mcp-client` 的约定）。
+     * 旧版本本插件用的是不带模板包装的 `credential:KEY`，只在迁移时识别。
+     */
+    const CREDENTIAL_TOKEN = /\$\{credential:([A-Za-z_][A-Za-z0-9_]*)\}/gu
+    const CREDENTIAL_PREFIX = '${credential:'
+    const CREDENTIAL_SUFFIX = '}'
+    const LEGACY_CREDENTIAL_TOKEN = /(?<![\w$])credential:([A-Za-z_][A-Za-z0-9_]*)(?![\w}])/gu
+    /** 官方 mcp-manager 的条目默认值（与 `ServerEntrySchema` 同源）。 */
+    const DEFAULT_STARTUP_TIMEOUT_MS = 30000
+    const DEFAULT_RECONNECT = { enabled: true, initialDelayMs: 500, maxDelayMs: 30000, maxAttempts: 10 }
     const NAV_PATCH_FLAG = 'dmwNavIcon'
     const NAV_PATCH_COUNT = 'dmwNavIconReferences'
     const NAV_PATCH_MASK = '--dmw-nav-icon-mask'
@@ -296,26 +308,37 @@ window.__ModuleLoader__.load({
       return typeof value === 'string' ? value : ''
     }
 
-    /** 设置快照解码：任何缺字段都补默认值，绝不抛错。 */
-    function decodeSettings(section) {
-      const source = section !== null && typeof section === 'object' ? section : {}
-      return {
-        enabled: source.enabled !== false,
-        servers: Array.isArray(source.servers) ? source.servers.map(normalizeServer) : []
-      }
+    /**
+     * 官方条目的解码：`config.servers` 是 `Record<serverName, Entry>`。
+     * 任何缺字段都补默认值，绝不抛错。
+     */
+    function decodeServers(value) {
+      const source = value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
+      const servers = source.servers
+      if (servers === null || typeof servers !== 'object' || Array.isArray(servers)) return []
+      return Object.keys(servers)
+        .sort()
+        .map((name) => normalizeServer(servers[name], name))
     }
 
-    /** 单个条目规范化（字段与宿主 store.normalizeServer 对齐）。 */
-    function normalizeServer(raw) {
+    /**
+     * 单个官方条目规范化（字段与宿主 store.normalizeEntry / mcp-manager 的
+     * `McpManagedServerEntry` 对齐）。`id` 是本地展示用的稳定 key（= serverName）。
+     */
+    function normalizeServer(raw, fallbackName = '') {
       const source = raw !== null && typeof raw === 'object' ? raw : {}
       const transport = source.transport === 'streamable-http' ? 'streamable-http' : 'stdio'
       const timeout = Number(source.toolCallTimeoutMs)
+      const startup = Number(source.startupTimeoutMs)
+      const close = Number(source.closeTimeoutMs)
+      const name = asText(fallbackName) || asText(source.serverName)
+      const reconnect = asRecord(source.reconnect)
       return {
-        id: asText(source.id),
-        label: asText(source.label),
+        id: name,
+        serverName: name,
+        label: '',
         enabled: source.enabled !== false,
         transport,
-        serverName: asText(source.serverName),
         command: asText(source.command),
         args: Array.isArray(source.args) ? source.args.filter((item) => typeof item === 'string') : [],
         cwd: asText(source.cwd),
@@ -323,7 +346,14 @@ window.__ModuleLoader__.load({
         url: asText(source.url),
         headers: asRecord(source.headers),
         toolCallTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : 60000,
-        failOnStartupError: source.failOnStartupError === true
+        startupTimeoutMs: Number.isFinite(startup) && startup > 0 ? Math.floor(startup) : DEFAULT_STARTUP_TIMEOUT_MS,
+        closeTimeoutMs: Number.isFinite(close) && close > 0 ? Math.floor(close) : 0,
+        reconnect: {
+          enabled: reconnect.enabled !== false,
+          initialDelayMs: Number(reconnect.initialDelayMs) > 0 ? Math.floor(Number(reconnect.initialDelayMs)) : DEFAULT_RECONNECT.initialDelayMs,
+          maxDelayMs: Number(reconnect.maxDelayMs) > 0 ? Math.floor(Number(reconnect.maxDelayMs)) : DEFAULT_RECONNECT.maxDelayMs,
+          maxAttempts: Number(reconnect.maxAttempts) > 0 ? Math.floor(Number(reconnect.maxAttempts)) : DEFAULT_RECONNECT.maxAttempts
+        }
       }
     }
 
@@ -390,28 +420,27 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 把一个值拆成「前缀 + 凭据键 + 后缀」；值里没有 `credential:` 时返回 null（= 直接填写）。
+     * 把一个值拆成「前缀 + 凭据键 + 后缀」；值里没有 `${credential:` 时返回 null（= 直接填写）。
      *
-     * 凭据键仍以 `credential:<键名>` 存进设置（settings 里只能放字符串），但**用户不必知道这个写法**：
-     * 界面上是一个「凭据」开关 + 键名输入框（键名可以自己取，也可以从用过的键里挑）。
-     * 键名不合法时保留原文（放进后缀），既不吞输入，也交给下面的提示去说明。
+     * 官方模板语法是 `${credential:KEY}`：键名必须合法，且模板可以出现在值中间
+     * （例如 `https://…?token=${credential:TOKEN}`）。键名还没写完时把剩余文本
+     * 放进 `key`，界面可以继续编辑；保存前由 `credentialKeyIssue` 报错。
      */
     function splitCredential(value) {
       const text = String(value ?? '')
       const at = text.indexOf(CREDENTIAL_PREFIX)
       if (at === -1) return null
       const rest = text.slice(at + CREDENTIAL_PREFIX.length)
-      const valid = /^([A-Za-z_][A-Za-z0-9_]*)/u.exec(rest)
-      return {
-        prefix: text.slice(0, at),
-        key: valid === null ? '' : valid[1],
-        suffix: valid === null ? rest : rest.slice(valid[1].length)
+      const valid = /^([A-Za-z_][A-Za-z0-9_]*)\}/u.exec(rest)
+      if (valid !== null) {
+        return { prefix: text.slice(0, at), key: valid[1], suffix: rest.slice(valid[1].length + 1) }
       }
+      return { prefix: text.slice(0, at), key: rest.replace(/\}$/u, ''), suffix: '' }
     }
 
     /** 反向拼回要存进设置的值。 */
     function joinCredential(parts) {
-      return `${parts?.prefix ?? ''}${CREDENTIAL_PREFIX}${parts?.key ?? ''}${parts?.suffix ?? ''}`
+      return `${parts?.prefix ?? ''}${CREDENTIAL_PREFIX}${parts?.key ?? ''}${CREDENTIAL_SUFFIX}${parts?.suffix ?? ''}`
     }
 
     /** 请求头常见的前缀档位（用户不必知道能自己拼字符串，但也允许「其它」自己填）。 */
@@ -476,17 +505,29 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** 键名不合法（值里有 credential: 但后面不是合法键名）时给出可读原因。 */
+    /** 键名不合法（模板里的键不是合法标识符）时给出可读原因。 */
     function credentialKeyIssue(parts) {
-      if (parts === null || parts.key !== '') return ''
-      if (parts.suffix === '') return ''
+      if (parts === null) return ''
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/u.test(parts.key)) return ''
+      if (parts.key === '' && parts.suffix === '') return ''
       return '凭据键名要以字母或下划线开头，后面只能是字母、数字或下划线'
     }
 
-    /** 条目里引用到的凭据键（去重、保持出现顺序）。 */
+    /**
+     * 条目里引用到的凭据键（去重、保持出现顺序）。
+     * 官方模板可以出现在 command/args/cwd/env/url/headers 六个位置，全都要算。
+     */
     function credentialRefsOf(server) {
       const keys = []
-      for (const value of [server?.url ?? '', ...Object.values(server?.env ?? {}), ...Object.values(server?.headers ?? {})]) {
+      const values = [
+        server?.command ?? '',
+        ...(Array.isArray(server?.args) ? server.args : []),
+        server?.cwd ?? '',
+        server?.url ?? '',
+        ...Object.values(server?.env ?? {}),
+        ...Object.values(server?.headers ?? {})
+      ]
+      for (const value of values) {
         for (const match of String(value).matchAll(CREDENTIAL_TOKEN)) {
           if (!keys.includes(match[1])) keys.push(match[1])
         }
@@ -495,40 +536,64 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 一行到底在说什么：先看宿主阻塞原因，再看运行态。
-     * @returns {{tone:'error'|'warn'|'idle'|'ok', text:string}}
+     * 一行到底在说什么：先看宿主/管理器可用性，再看官方连接状态。
+     * `live` 是 `ctx.remote.mcpManager.watch()` 里同名的 `McpManagedServerView`。
+     * @returns {{tone:'error'|'warn'|'idle'|'ok', text:string, short?:string, detail?:string}}
      */
-    function rowState(server, live, blockedReason, runtime, conflictNote) {
+    function rowState(server, live, runtime, conflictNote) {
       if (runtime !== 'ready') return { tone: 'error', text: runtimeText(runtime), short: '宿主未就绪', detail: runtimeText(runtime) }
-      if (!server.enabled) return { tone: 'idle', text: '已停用', short: '已停用' }
-      if (blockedReason !== '') {
-        return { tone: 'warn', text: blockedReason, short: shortReason(blockedReason), detail: blockedReason }
-      }
       if (typeof conflictNote === 'string' && conflictNote !== '') {
         return { tone: 'warn', text: conflictNote, short: '与配置文件重名', detail: conflictNote }
       }
-      if (live === null || live === undefined) return { tone: 'idle', text: '等待宿主对账', short: '等待生效' }
-      if (live.state === 'failed') {
-        return {
-          tone: 'error',
-          text: `挂载失败：${live.error || '原因未知'}`,
-          short: '挂载失败',
-          detail: `挂载失败：${live.error || '原因未知'}`
+      if (!server.enabled) return { tone: 'idle', text: '已停用', short: '已停用' }
+      if (live === null || live === undefined) return { tone: 'idle', text: '等待连接状态', short: '等待状态' }
+      const status = live.status ?? {}
+      switch (status.state) {
+        case 'connected':
+          return status.toolCount > 0
+            ? { tone: 'ok', text: `已连接，提供 ${status.toolCount} 个工具`, short: `已连接 · ${status.toolCount} 个工具` }
+            : { tone: 'warn', text: '已连接，但该服务器未提供工具', short: '已连接 · 无工具', detail: '该服务器未提供工具' }
+        case 'connecting':
+          return { tone: 'warn', text: status.attempt > 0 ? `正在重试连接（第 ${status.attempt} 次失败后）` : '正在连接', short: '连接中' }
+        case 'reconnecting':
+          return {
+            tone: 'warn',
+            text: `重连等待中（${status.attempt}/${status.maxAttempts}）：${status.lastError ?? '原因未知'}`,
+            short: `重连 ${status.attempt}/${status.maxAttempts}`,
+            detail: status.lastError ?? ''
+          }
+        case 'waiting-credentials':
+          return { tone: 'warn', text: `缺少凭据：${status.lastError}`, short: '缺凭据', detail: status.lastError }
+        case 'disabled':
+          return { tone: 'idle', text: '已停用', short: '已停用' }
+        case 'closed':
+          return { tone: 'idle', text: '已关闭', short: '已关闭' }
+        case 'failed': {
+          const reason =
+            status.reason === 'gave-up'
+              ? '重连次数用尽，已停止'
+              : status.reason === 'reconnect-disabled'
+                ? '连接已断开，且未启用自动重连'
+                : status.reason === 'load'
+                  ? '配置加载失败'
+                  : status.reason === 'cleanup'
+                    ? '清理未完成，重启宿主才能恢复'
+                    : '连接无法继续'
+          const detail = status.lastError ?? status.result?.cleanupError ?? ''
+          return { tone: 'error', text: detail === '' ? reason : `${reason}：${detail}`, short: '连接失败', detail: detail === '' ? reason : `${reason}：${detail}` }
         }
+        default:
+          return { tone: 'idle', text: '状态未知', short: '状态未知' }
       }
-      if (live.tools.length === 0) {
-        return { tone: 'warn', text: '已挂载，但该服务器未提供工具', short: '已连接 · 无工具', detail: '该服务器未提供工具' }
-      }
-      return { tone: 'ok', text: `已连接，提供 ${live.tools.length} 个工具`, short: `已连接 · ${live.tools.length} 个工具` }
     }
 
     /**
-     * 把宿主给的长原因压成列表能用的短标签（全文在弹窗里）。
+     * 把失败原因压成列表能用的短标签（全文在弹窗里）。
      * @param {string} reason
      * @returns {string}
      */
     function shortReason(reason) {
-      if (/凭据.*未配置/u.test(reason)) return '缺凭据'
+      if (/凭据/u.test(reason)) return '缺凭据'
       if (/已被/u.test(reason) && /使用/u.test(reason)) return '名字被占用'
       if (/重复/u.test(reason)) return '名字重复'
       if (/必须填写/u.test(reason) || /必须是/u.test(reason)) return '配置不完整'
@@ -538,7 +603,7 @@ window.__ModuleLoader__.load({
 
     function runtimeText(runtime) {
       if (runtime === 'unsupported-dsh') return '当前 DSH 版本不在本插件支持的范围内，未装配'
-      if (runtime === 'mcp-client-unavailable') return '无法加载 @deepseek-ai/dsh-mcp-client，无法挂载任何服务器'
+      if (runtime === 'manager-missing') return '没有找到官方 MCP 管理器（需要 DSH 0.2.2-rc.2 及以上，且 mcp-manager 条目已启用）'
       if (runtime === 'starting') return '宿主仍在装配，请刷新'
       return '宿主状态未知'
     }
@@ -602,42 +667,45 @@ window.__ModuleLoader__.load({
     const SectionContext = React.createContext(null)
     const useSection = () => React.useContext(SectionContext)
 
-    /** 一个 O(n) 的乐观写入队列：成功后由设置镜像回灌，失败则报错并读回。 */
-    function useSettings(controller, onError) {
-      const [snapshot, setSnapshot] = React.useState(() => decodeSettings(controller?.getSnapshot?.()?.value))
-      const [busy, setBusy] = React.useState(false)
+    /**
+     * 订阅一个 `configForm`（官方条目或本插件旧条目）并返回解码后的快照。
+     * @param {any} controller `ctx.configForms.get(id)`，可为 null
+     * @param {(value: any) => any} decode 把原始 value 解成界面模型
+     */
+    function useConfigForm(controller, decode) {
+      const [snapshot, setSnapshot] = React.useState(() => (controller === null || controller === undefined ? undefined : decode(controller.getSnapshot?.()?.value)))
       React.useEffect(() => {
         if (controller === null || controller === undefined) return undefined
-        const sync = () => setSnapshot(decodeSettings(controller.getSnapshot()?.value))
+        const sync = () => setSnapshot(decode(controller.getSnapshot()?.value))
         sync()
         return controller.subscribe(sync)
-      }, [controller])
-      const write = React.useCallback(
-        async (next) => {
-          if (controller === null || controller === undefined) {
-            onError?.('设置接口不可用：宿主里这一条没有可写 schema（宿主日志里有 dsh-mcp-workbench: 前缀的告警）')
-            return
-          }
-          setBusy(true)
-          setSnapshot(next)
-          try {
-            // 一次原子写入：两次 set 会有两个 revision 栅栏，中途失败就会留下半套配置。
-            const accepted = await controller.mutate([
-              { op: 'set', path: ['servers'], value: next.servers },
-              { op: 'set', path: ['enabled'], value: next.enabled }
-            ])
-            // 0.1.7 的 mutate 用返回值表示"宿主是否接受"，被拒时**不抛错**；
-            // 漏掉这层判断会让界面把"没写进去"当成功（随后的状态刷新才暴露）。
-            if (accepted === false) onError?.('写入被宿主拒绝：这一条当前不可写（刷新页面重试，或看宿主日志）。')
-          } catch (error) {
-            onError?.(`写入失败：${String(error?.message ?? error)}`)
-          } finally {
-            setBusy(false)
-          }
-        },
-        [controller, onError]
-      )
-      return { snapshot, setSnapshot, busy, write }
+      }, [controller, decode])
+      return snapshot
+    }
+
+    /**
+     * 一次原子写入：`ops` 按顺序落在同一个 revision 栅栏里。
+     *
+     * `mutate` 用返回值表示"宿主是否接受"，被拒时**不抛错**；漏掉这层判断
+     * 会让界面把"没写进去"当成功（随后的状态刷新才暴露）。
+     * @returns {Promise<boolean>}
+     */
+    async function writeConfig(ctx, controller, ops, onError) {
+      if (controller === null || controller === undefined) {
+        onError?.('设置接口不可用：目标条目没有可写的设置 schema（请看宿主日志）')
+        return false
+      }
+      try {
+        const accepted = await controller.mutate(ops)
+        if (accepted === false) {
+          onError?.('写入被宿主拒绝：目标条目当前不可写（刷新页面重试，或看宿主日志）。')
+          return false
+        }
+        return true
+      } catch (error) {
+        onError?.(`写入失败：${String(error?.message ?? error)}`)
+        return false
+      }
     }
 
     /** 面板里可用的浮层尺寸（宽高都不超过设置面板本身）。 */
@@ -780,29 +848,19 @@ window.__ModuleLoader__.load({
     /**
      * 列表行：**只有一行**——开关在左、标题信息居中、编辑/删除在右。
      *
-     * 工具清单不再铺在行里（用户要求"列表页改为一行，去掉工具说明"）：
-     * 它挂在「已连接 · N 个工具」这个 tag 上，悬停看全部（见 `ToolsTooltip`）；
-     * 传输方式、命令/URL、环境变量与请求头、超时、被拦原因、最近日志依旧全部收进编辑弹窗。
+     * 工具数来自官方 `watch` 的 `toolCount`（没有工具名清单，名字要 probe 才拿得到）；
+     * 传输方式、命令/URL、环境变量与请求头、超时、失败原因全部收进编辑弹窗。
      */
-    function ServerRow({ server, live, blockedReason, conflictNote, runtime, onToggle, onEdit, onDelete, busy }) {
-      const state = rowState(server, live, blockedReason, runtime, conflictNote)
+    function ServerRow({ server, live, conflictNote, runtime, onToggle, onEdit, onDelete, busy }) {
+      const state = rowState(server, live, runtime, conflictNote)
       const namespace = `mcp__${server.serverName}__`
-      const tools = Array.isArray(live?.tools) ? live.tools.filter((name) => typeof name === 'string') : []
-      // 只有"真连上、而且真有工具"才挂 tooltip：其它状态下浮层只是把 tag 上的话再说一遍。
-      const showTools = live !== null && live !== undefined && live.state === 'mounted' && tools.length > 0
-
-      // 挂 tooltip 时 tag 自己要能吃悬停事件（外层标题区是 pointer-events:none）。
       const tag = React.createElement(
         'span',
-        { className: `dmw-status ${state.tone}${showTools ? ' dmw-tip-trigger' : ''}`, title: showTools ? undefined : state.text },
+        { className: `dmw-status ${state.tone}`, title: state.text },
         state.short ?? state.text
       )
-      const nameNode = React.createElement(
-        'span',
-        { className: 'dmw-name', title: server.label === '' ? server.serverName : `${server.label}（${server.serverName}）` },
-        server.label === '' ? server.serverName : server.label
-      )
-      const namespaceNode = server.label === '' ? null : React.createElement('code', { className: 'dmw-namespace' }, namespace)
+      const nameNode = React.createElement('span', { className: 'dmw-name', title: server.serverName }, server.serverName)
+      const namespaceNode = React.createElement('code', { className: 'dmw-namespace' }, namespace)
 
       return React.createElement(
         'div',
@@ -820,10 +878,8 @@ window.__ModuleLoader__.load({
             disabled: busy,
             onClick: () => onToggle(server)
           }),
-          // 中：名字（没有备注名时就显服务器名）+ 工具命名空间 + 状态 tag
-          showTools
-            ? React.createElement(ToolsTooltip, { tools, nameNode, namespaceNode, tag })
-            : React.createElement('div', { className: 'dmw-title-block' }, nameNode, namespaceNode, tag),
+          // 中：名字 + 工具命名空间 + 状态 tag
+          React.createElement('div', { className: 'dmw-title-block' }, nameNode, namespaceNode, tag),
           // 右：编辑 / 删除
           React.createElement(
             'div',
@@ -857,7 +913,7 @@ window.__ModuleLoader__.load({
       return {
         id: server.id,
         enabled: server.enabled !== false,
-        label: server.label,
+        label: server.label ?? '',
         serverName: server.serverName,
         transport: server.transport,
         command: server.command,
@@ -867,17 +923,18 @@ window.__ModuleLoader__.load({
         url: server.url,
         headerRows: recordToRows(server.headers),
         toolCallTimeoutMs: String(server.toolCallTimeoutMs),
-        failOnStartupError: server.failOnStartupError
+        startupTimeoutMs: String(server.startupTimeoutMs)
       }
     }
 
+    /**
+     * 草稿 → 官方条目记录（写进 `config.servers.<name>` 的值）。
+     * `label`/`id` 只属于界面，不写回设置。
+     */
     function fromDraft(draft) {
       const timeout = Number(draft.toolCallTimeoutMs)
+      const startup = Number(draft.startupTimeoutMs)
       return {
-        id: draft.id,
-        enabled: draft.enabled !== false,
-        label: draft.label.trim(),
-        serverName: draft.serverName.trim(),
         transport: draft.transport,
         command: draft.command.trim(),
         args: parseArgs(draft.argsText),
@@ -885,23 +942,23 @@ window.__ModuleLoader__.load({
         env: rowsToRecord(draft.envRows),
         url: draft.url.trim(),
         headers: rowsToRecord(draft.headerRows),
-        toolCallTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : 60000,
-        failOnStartupError: draft.failOnStartupError === true
+        enabled: draft.enabled !== false,
+        ...(Number.isFinite(timeout) && timeout > 0 ? { toolCallTimeoutMs: Math.floor(timeout) } : {}),
+        startupTimeoutMs: Number.isFinite(startup) && startup > 0 ? Math.floor(startup) : DEFAULT_STARTUP_TIMEOUT_MS,
+        reconnect: { ...DEFAULT_RECONNECT }
       }
     }
 
     /**
-     * 新条目的初始草稿。刻意在**弹窗里**才生成、只有验证通过后才写进设置——
-     * 早先的版本点「+」就直接落一条空条目（用户实测反馈：不符合预期，
-     * 而且会留下一条永远连不上的垃圾配置）。
+     * 新条目的初始草稿。刻意在**弹窗里**才生成、保存成功后才写进官方设置——
+     * 点「+」不直接落一条空条目，避免留下一条永远连不上的垃圾配置。
      */
     function emptyDraft(id) {
       return {
         id,
         enabled: true,
         label: '',
-        // 服务器名留空、给占位符：以前默认填 `srv-xxxx`，用户看到的是一个没有
-        // 意义的随机串；把它当成"必填项"更符合运行时语义（工具前缀由它决定）。
+        // 服务器名留空、给占位符：它是官方 dict 的 key，直接决定工具前缀。
         serverName: '',
         transport: 'stdio',
         command: '',
@@ -911,7 +968,7 @@ window.__ModuleLoader__.load({
         url: '',
         headerRows: [],
         toolCallTimeoutMs: '60000',
-        failOnStartupError: false
+        startupTimeoutMs: String(DEFAULT_STARTUP_TIMEOUT_MS)
       }
     }
 
@@ -1437,6 +1494,38 @@ window.__ModuleLoader__.load({
         )
       )
 
+      const startupField = React.createElement(
+        'div',
+        { className: 'dmw-field' },
+        React.createElement('span', { className: 'dmw-label' }, '启动超时（毫秒）'),
+        React.createElement(
+          'div',
+          { className: 'dmw-timeout-row' },
+          React.createElement('input', {
+            className: 'dmw-input dmw-timeout-input',
+            type: 'text',
+            'aria-label': '启动超时（毫秒）',
+            ...field('startupTimeoutMs')
+          }),
+          React.createElement(
+            'div',
+            { className: 'dmw-quick' },
+            [15000, 30000, 60000].map((ms) =>
+              React.createElement(
+                'button',
+                {
+                  key: ms,
+                  type: 'button',
+                  className: `dmw-btn-sm${String(ms) === String(draft.startupTimeoutMs) ? ' on' : ''}`,
+                  onClick: () => setValue('startupTimeoutMs', String(ms))
+                },
+                `${ms / 1000} 秒`
+              )
+            )
+          )
+        )
+      )
+
       const advanced = React.createElement(
         'details',
         { className: 'dmw-adv' },
@@ -1447,7 +1536,7 @@ window.__ModuleLoader__.load({
           React.createElement(
             'span',
             { className: 'dmw-adv-hint' },
-            `超时 ${timeoutText} · ${draft.failOnStartupError ? '启动失败中止' : '启动失败继续重连'}`
+            `调用超时 ${timeoutText} · 启动超时 ${Number(draft.startupTimeoutMs) > 0 ? `${Number(draft.startupTimeoutMs) / 1000} 秒` : '未设置'}`
           ),
           React.createElement('span', { className: 'dmw-adv-spacer' }),
           React.createElement(IconChevronDownOutline14, { size: 14, className: 'dmw-adv-caret' })
@@ -1456,16 +1545,11 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'dmw-adv-body' },
           timeoutField,
-          // 勾选项文本很长：单独占一整行，别和输入框挤同一行的两列（会换行、也很难看）
+          startupField,
           React.createElement(
-            'label',
-            { className: 'dmw-checkline' },
-            React.createElement('input', {
-              type: 'checkbox',
-              checked: draft.failOnStartupError === true,
-              onChange: (event) => setValue('failOnStartupError', event.target.checked)
-            }),
-            React.createElement('span', null, '启动连不上就报错', React.createElement('span', { className: 'dmw-hint' }, '（默认只记录日志并继续重连）'))
+            'span',
+            { className: 'dmw-hint' },
+            '启动超时覆盖「解析模板 + 连接 + 首次工具发现」的总预算；重连策略沿用官方默认（500ms 起、最长 30 秒、单次中断最多 10 次）。'
           )
         )
       )
@@ -1516,17 +1600,17 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 新增/编辑弹窗：一个表单 + 三个按钮（取消 / 验证 / 保存）。
+     * 新增/编辑弹窗：表单 + 取消/保存。
      *
-     * 「先验证、后保存」是用户明确要求的口径：保存按钮在验证通过前是禁用的，
-     * 表单任何改动都会让上一次的验证结果作废。这样不会再出现"点一下就多一条
-     * 连不上的空条目"。
+     * 保存语义跟随官方管理器：写入 `config.servers` 并立即生效；若用户要「先验证」，
+     * 保存时会先以停用态写入、调用官方 `probe` 探测，通过后再启用（失败则保持停用
+     * 并把原因留在弹窗里，配置不丢）。
      */
-    function ServerDialog({ mode, draft, verification, verifying, busy, notes, live, blockedReason, conflictNote, runtime, hostSupportsVerify, setDraft, onCancel, onVerify, onSave, credentialKeys }) {
+    function ServerDialog({ mode, draft, verification, verifying, busy, notes, runtime, setDraft, onCancel, onSave, credentialKeys }) {
       const footer = React.createElement(
         'div',
         { className: 'dmw-dialog-footer' },
-        React.createElement(FooterStatus, { verifying, verification, hostSupportsVerify }),
+        React.createElement(FooterStatus, { verifying, verification }),
         React.createElement(
           'div',
           { className: 'dmw-footer-actions' },
@@ -1535,15 +1619,14 @@ window.__ModuleLoader__.load({
             { type: 'button', className: 'dmw-button', 'aria-label': '取消', disabled: verifying, onClick: onCancel },
             '取消'
           ),
-          // 只有「保存」一个动作：点它就自动先验证、通过才落盘（少一次点击）。
           React.createElement(
             'button',
             {
               type: 'button',
               className: 'dmw-button primary',
               'aria-label': '保存',
-              disabled: busy || verifying || hostSupportsVerify === false,
-              title: hostSupportsVerify === false ? '当前 dsh web 进程没有「验证」接口，请重启后再试' : undefined,
+              disabled: busy || verifying || runtime !== 'ready',
+              title: runtime !== 'ready' ? runtimeText(runtime) : undefined,
               onClick: onSave
             },
             verifying ? '验证并保存中…' : '保存'
@@ -1553,13 +1636,6 @@ window.__ModuleLoader__.load({
       const body = React.createElement(
         'div',
         { className: 'dmw-dialog-body' },
-        hostSupportsVerify === false
-          ? React.createElement(
-              'div',
-              { className: 'dmw-verify stale' },
-              '当前 dsh web 进程还是旧版本，没有「验证」接口：请在 Warp 里 Ctrl+C 后重新执行 dsh web --no-open，再刷新页面重试。'
-            )
-          : null,
         visibleNotes(notes).length > 0
           ? React.createElement(
               'div',
@@ -1567,9 +1643,6 @@ window.__ModuleLoader__.load({
               visibleNotes(notes).map((note, index) => React.createElement('div', { key: index }, note))
             )
           : null,
-        // 状态本身在列表行里高亮显示，弹窗不再重复一遍（放这里既挤、也不显眼）。
-        // 只有真出了问题时，才把 mcp-client 的最近日志收在折叠块里供排查。
-        (live?.logs ?? []).length === 0 ? null : React.createElement(LiveLogs, { logs: live.logs }),
         React.createElement(ServerEditor, { draft, setDraft, busy, verifying, verification, credentialKeys })
       )
       const title = mode === 'edit' ? '编辑 MCP 服务器' : '新增 MCP 服务器'
@@ -1590,7 +1663,7 @@ window.__ModuleLoader__.load({
           onClose: onCancel,
           title,
           closeLabel: '关闭',
-          description: '保存时会先验证连接，通过才写入；保存后立即生效，不需要重启。',
+          description: '保存会写入官方 MCP 管理器的服务器清单并立即生效；连接状态在列表里显示，不需要重启。',
           className: 'dmw-dialog',
           footer
         },
@@ -1617,7 +1690,7 @@ window.__ModuleLoader__.load({
      * 保留 `dmw-verify` 这个 class：真机验收脚本按它读失败原因（旧版在表单末尾，
      * 现在挪到底部，选择器不变）。
      */
-    function FooterStatus({ verifying, verification, hostSupportsVerify }) {
+    function FooterStatus({ verifying, verification }) {
       const node = (tone, text, spinner, title) =>
         React.createElement(
           'div',
@@ -1627,15 +1700,9 @@ window.__ModuleLoader__.load({
             : React.createElement('span', { className: 'dmw-foot-dot' }),
           React.createElement('span', { className: 'dmw-foot-text' }, text)
         )
-      if (verifying === true) return node('run', '正在连接并读取工具清单…', true)
-      if (hostSupportsVerify === false) {
-        return node('stale', '当前 dsh web 进程还是旧版本，保存不可用；请重启后再试。')
-      }
+      if (verifying === true) return node('run', '正在写入并连接探测…', true)
       if (verification === null || verification === undefined || verification.status === 'idle') {
-        return node('', '保存时会先验证连接，通过后立即生效')
-      }
-      if (verification.status === 'failed' && verification.hostOutdated === true) {
-        return node('stale', verification.error ?? '当前 dsh web 进程还是旧版本，请重启后再试。')
+        return node('', '保存会写入官方 MCP 管理器；勾选「先验证」时先探测、通过才启用')
       }
       if (verification.status === 'failed') {
         const error = verification.error ?? '原因未知'
@@ -1866,109 +1933,252 @@ window.__ModuleLoader__.load({
       return parts.join(' · ')
     }
 
-    /** 设置页分区主体。 */
+    /**
+     * 调官方 `probe` 探测一个已写入清单的服务器（不注册工具、不抢命名空间）。
+     * @returns {{ok: true, tools: string[]} | {ok: false, error: string}}
+     */
+    async function probeServer(ctx, name) {
+      try {
+        const manager = ctx?.remote?.mcpManager
+        if (typeof manager?.probe !== 'function') return { ok: false, error: '宿主没有挂载官方 MCP 管理器' }
+        const result = await manager.probe(name)
+        if (result?.ok !== true) {
+          return { ok: false, error: String(result?.error?.message ?? result?.error ?? '探测被拒绝') }
+        }
+        const value = result.value ?? {}
+        if (value.ok !== true) {
+          const stage = value.stage === 'list' ? '列出工具' : '连接'
+          return { ok: false, error: `${stage}失败：${String(value.message ?? '原因未知')}` }
+        }
+        return { ok: true, tools: Array.isArray(value.toolNames) ? value.toolNames : [] }
+      } catch (cause) {
+        return { ok: false, error: String(cause?.message ?? cause) }
+      }
+    }
+
+    /**
+     * 保存前的本地校验：与官方 mcp-manager 的写时校验同口径（名字、传输必填项、URL、
+     * 凭据键名）。官方仍会再校验一次，这里只负责把问题提前说清楚。
+     * @returns {string[]}
+     */
+    function validateDraft(draft, name, servers, originalName) {
+      const issues = []
+      if (!/^[A-Za-z0-9_-]{1,32}$/u.test(name)) {
+        issues.push('服务器名必须是 1-32 位的字母、数字、下划线或短横线')
+      } else if (servers.some((item) => item.serverName === name && item.serverName !== originalName)) {
+        issues.push(`服务器名「${name}」已被另一个条目占用`)
+      }
+      if (draft.transport === 'stdio') {
+        if (String(draft.command ?? '').trim() === '') issues.push('stdio 传输必须填写可执行命令')
+      } else {
+        const url = String(draft.url ?? '').trim()
+        if (url === '') {
+          issues.push('streamable-http 传输必须填写 URL')
+        } else if (!url.includes(CREDENTIAL_PREFIX)) {
+          try {
+            const parsed = new URL(url)
+            if (!/^https?:$/u.test(parsed.protocol)) issues.push('URL 只支持 http/https')
+          } catch {
+            issues.push(`URL「${url}」无法解析`)
+          }
+        }
+      }
+      const texts = [
+        draft.command,
+        draft.cwd,
+        draft.url,
+        ...parseArgs(draft.argsText),
+        ...Object.values(rowsToRecord(draft.envRows)),
+        ...Object.values(rowsToRecord(draft.headerRows))
+      ]
+      const template = /\$\{credential:([^}]*)\}/gu
+      const unclosed = /\$\{credential:[^}]*$/u
+      for (const value of texts) {
+        const text = String(value ?? '')
+        for (const match of text.matchAll(template)) {
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(match[1])) issues.push(`凭据键名「${match[1]}」不合法`)
+        }
+        if (unclosed.test(text)) issues.push('凭据模板没有闭合（缺少 }）')
+      }
+      return issues
+    }
+
+    /** 旧版本条目（`credential:KEY`）→ 官方条目（`${credential:KEY}`）。 */
+    function legacyToManaged(legacy, fallbackName) {
+      const source = legacy !== null && typeof legacy === 'object' ? legacy : {}
+      const convert = (value) =>
+        String(value ?? '').replace(LEGACY_CREDENTIAL_TOKEN, (_whole, key) => `${CREDENTIAL_PREFIX}${key}${CREDENTIAL_SUFFIX}`)
+      const name = String(source.serverName ?? '').trim() || fallbackName || ''
+      const entry = {
+        serverName: name,
+        transport: source.transport === 'streamable-http' ? 'streamable-http' : 'stdio',
+        command: convert(source.command),
+        args: Array.isArray(source.args) ? source.args.map(convert) : [],
+        cwd: convert(source.cwd),
+        env: Object.fromEntries(Object.entries(asRecord(source.env)).map(([key, value]) => [key, convert(value)])),
+        url: convert(source.url),
+        headers: Object.fromEntries(Object.entries(asRecord(source.headers)).map(([key, value]) => [key, convert(value)])),
+        enabled: source.enabled !== false,
+        toolCallTimeoutMs: Number(source.toolCallTimeoutMs) > 0 ? Math.floor(Number(source.toolCallTimeoutMs)) : 60000,
+        startupTimeoutMs: DEFAULT_STARTUP_TIMEOUT_MS,
+        reconnect: { ...DEFAULT_RECONNECT }
+      }
+      return { entry, notes: [] }
+    }
+
+    /** 界面条目 → 写进 `config.servers` 的记录（去掉界面专用的 serverName）。 */
+    function toManagedRecord(entry) {
+      const { serverName: _name, ...record } = entry
+      return record
+    }
+
+    /** 设置页分区主体：官方 mcp-manager 的服务器清单管理界面。 */
     function McpManagerSection() {
-      const { ctx, scope } = useSection()
+      const { ctx } = useSection()
       const [status, setStatus] = React.useState(null)
       const [error, setError] = React.useState('')
       const [loading, setLoading] = React.useState(true)
-      const [refreshing, setRefreshing] = React.useState(false)
+      const [busy, setBusy] = React.useState(false)
+      const [views, setViews] = React.useState([])
       const [confirming, setConfirming] = React.useState(null)
-      // 新增后自动展开这条的编辑器：用户点「+」的意图就是"马上填这台服务器"。
-      /**
-       * 编辑器弹窗状态：null 表示关闭。
-       * `{ mode: 'create'|'edit', draft, verification, verifying }`
-       * verification = { status: 'idle'|'ok'|'failed', tools?, error? }
-       */
       const [editor, setEditor] = React.useState(null)
-      const { snapshot, setSnapshot, busy, write } = useSettings(scope, setError)
+      const [migrating, setMigrating] = React.useState(false)
+      const [migrationNote, setMigrationNote] = React.useState('')
 
-      /**
-       * 读宿主状态。
-       *
-       * `since` 用于「刚写完设置」的场景：宿主的对账由设置变更触发，可能晚于
-       * 这一次读取，于是页面会停在**上一次**的对账结论上（比如刚把配置改好，
-       * 行上还挂着旧的被拦原因）。带上写入时刻后，一直重读到对账时间追上为止。
-       */
-      const refresh = React.useCallback(async (since) => {
-        setRefreshing(true)
+      const refreshStatus = React.useCallback(async () => {
         try {
-          let payload = null
-          for (let attempt = 0; attempt < 6; attempt += 1) {
-            payload = await fetchStatus(ctx)
-            setStatus(payload)
-            setError('')
-            const reconciled = typeof payload.lastReconcile?.at === 'number' ? payload.lastReconcile.at : 0
-            if (since === undefined || reconciled >= since) break
-            await new Promise((resolve) => setTimeout(resolve, 700))
-          }
+          const payload = await fetchStatus(ctx)
+          setStatus(payload)
+          setError('')
           return payload
         } catch (cause) {
           setError(`读取宿主状态失败：${String(cause?.message ?? cause)}`)
           return null
         } finally {
           setLoading(false)
-          setRefreshing(false)
         }
       }, [ctx])
 
-      /** 写入之后调用：等到宿主完成这一轮对账再收工。 */
-      const refreshAfterWrite = React.useCallback(() => refresh(Date.now() - 50), [refresh])
-
       React.useEffect(() => {
-        void refresh()
-      }, [refresh])
+        void refreshStatus()
+      }, [refreshStatus])
 
-      const liveOf = React.useCallback(
-        (id) => {
-          const row = (status?.servers ?? []).find((item) => item.id === id)
-          return row ?? null
+      const runtime = status?.runtime ?? 'starting'
+      const managerEntryId = status?.manager?.entryId ?? DEFAULT_MANAGER_ENTRY
+      const managerAvailable = status?.manager?.available === true
+
+      const managerForm = React.useMemo(
+        () => (typeof ctx?.configForms?.get === 'function' ? ctx.configForms.get(managerEntryId) : null),
+        [ctx, managerEntryId]
+      )
+      const legacyForm = React.useMemo(
+        () => (typeof ctx?.configForms?.get === 'function' ? ctx.configForms.get(SETTINGS_ENTRY) : null),
+        [ctx]
+      )
+      const decodeManager = React.useCallback((value) => decodeServers(value), [])
+      const decodeLegacy = React.useCallback((value) => (Array.isArray(value?.servers) ? value.servers : []), [])
+      const managerValue = useConfigForm(managerForm, decodeManager)
+      const legacyServers = useConfigForm(legacyForm, decodeLegacy)
+      const servers = React.useMemo(() => (Array.isArray(managerValue) ? managerValue : []), [managerValue])
+
+      // 运行状态：官方 manager 的 watch 流（断线由 $stream 处理，拿不到时退回裸流）。
+      React.useEffect(() => {
+        const manager = ctx?.remote?.mcpManager
+        if (managerAvailable !== true || typeof manager?.watch !== 'function') return undefined
+        const controller = new AbortController()
+        let disposed = false
+        const run = async () => {
+          try {
+            const stream =
+              typeof ctx.remote.$stream === 'function'
+                ? ctx.remote.$stream({
+                    name: 'mcp servers',
+                    open: (signal) => manager.watch(signal),
+                    ended: () => new Error('MCP 服务器状态流已结束'),
+                    carrierFailed: () => {
+                      if (!disposed) setError('连接中断，正在重连…')
+                    }
+                  })
+                : manager.watch(controller.signal)
+            for await (const frame of stream) {
+              if (disposed) return
+              const value = typeof frame?.accept === 'function' ? frame.value : frame
+              frame?.accept?.()
+              setViews(Array.isArray(value) ? value : [])
+            }
+          } catch (cause) {
+            if (!disposed) setError(`读取连接状态失败：${String(cause?.message ?? cause)}`)
+          }
+        }
+        void run()
+        return () => {
+          disposed = true
+          controller.abort()
+        }
+      }, [ctx, managerAvailable])
+
+      const viewOf = React.useCallback((name) => views.find((item) => item?.name === name) ?? null, [views])
+
+      const write = React.useCallback(
+        async (ops) => {
+          setBusy(true)
+          try {
+            return await writeConfig(ctx, managerForm, ops, setError)
+          } finally {
+            setBusy(false)
+          }
         },
-        [status]
+        [ctx, managerForm]
       )
 
-      /** 打开弹窗：新增（空草稿）或编辑（按现有条目预填）。 */
       const openEditor = (mode, server) => {
-        const draft = server === null || server === undefined ? emptyDraft(newId(snapshot.servers.map((item) => item.id))) : toDraft(server)
-        setEditor({ mode, draft, verification: { status: 'idle' }, verifying: false })
+        setEditor({
+          mode,
+          draft: server === null || server === undefined ? emptyDraft('') : toDraft(server),
+          verification: { status: 'idle' },
+          verifying: false
+        })
       }
 
-      /** 表单任何改动都让上一次的验证结果作废——"验证通过"必须对应眼前这份内容。 */
       const changeDraft = (next) => {
         setEditor((current) => (current === null ? current : { ...current, draft: next, verification: { status: 'idle' } }))
       }
 
-      const closeEditor = () => setEditor(null)
-
-      /** 点「验证」：把表单交给宿主做一次临时挂载探针（不保存任何东西）。 */
-      const verifyDraft = async () => {
-        if (editor === null) return
-        const candidate = fromDraft(editor.draft)
-        const csrf = status?.csrf
-        if (csrf === undefined) {
-          setEditor((current) => (current === null ? current : { ...current, verification: { status: 'failed', error: '还没拿到宿主状态，请先刷新' } }))
+      /**
+       * 保存：写入官方清单；要启用时先写停用态、`probe` 通过再启用。
+       * 失败时配置仍以停用态留在清单里（不丢数据），弹窗显示原因可继续修正。
+       */
+      const saveDraft = async () => {
+        if (editor === null || editor.verifying === true) return
+        const name = String(editor.draft.serverName ?? '').trim()
+        const originalName = editor.mode === 'edit' ? editor.draft.id : undefined
+        const issues = validateDraft(editor.draft, name, servers, originalName)
+        if (issues.length > 0) {
+          setEditor((current) => (current === null ? current : { ...current, verification: { status: 'failed', error: issues.join('；') } }))
           return
         }
+        const entry = fromDraft(editor.draft)
         setEditor((current) => (current === null ? current : { ...current, verifying: true }))
         try {
-          const response = await postAction(ctx, csrf, { action: 'verify', server: candidate })
-          const value = response.value ?? {}
-          setEditor((current) =>
-            current === null
-              ? current
-              : {
-                  ...current,
-                  verifying: false,
-                  verification: value.ok === true
-                    ? { status: 'ok', tools: value.tools ?? [] }
-                    : { status: 'failed', error: value.error ?? '验证失败' }
-                }
-          )
-        } catch (error) {
-          const message = String(error?.message ?? error)
-          // 宿主进程比客户端旧时，动作路由不认识 verify（400 unknown action）。
-          // 这不是配置问题，必须说清"去重启 dsh web"，否则用户会一直改表单重试。
-          const hostOutdated = /unknown action/u.test(message)
+          const renamed = editor.mode === 'edit' && originalName !== name
+          /** @type {any[]} */
+          const ops = []
+          if (renamed) ops.push({ op: 'unset', path: ['servers', originalName] })
+          ops.push({ op: 'set', path: ['servers', name], value: { ...entry, enabled: false } })
+          if (!(await write(ops))) {
+            setEditor((current) => (current === null ? current : { ...current, verifying: false, verification: { status: 'failed', error: '写入被宿主拒绝' } }))
+            return
+          }
+          if (entry.enabled === false) {
+            setEditor(null)
+            return
+          }
+          const probed = await probeServer(ctx, name)
+          if (probed.ok === true) {
+            await write([{ op: 'set', path: ['servers', name, 'enabled'], value: true }])
+            setEditor(null)
+            return
+          }
           setEditor((current) =>
             current === null
               ? current
@@ -1977,79 +2187,65 @@ window.__ModuleLoader__.load({
                   verifying: false,
                   verification: {
                     status: 'failed',
-                    hostOutdated,
-                    error: hostOutdated
-                      ? '当前 dsh web 进程还是旧版本，没有「验证」接口：请在 Warp 里 Ctrl+C 后重新执行 dsh web --no-open，再刷新页面重试。'
-                      : message
+                    error: `${probed.error}（配置已保存为停用状态；修好后再次保存即可启用）`
                   }
                 }
+          )
+        } catch (cause) {
+          setEditor((current) =>
+            current === null ? current : { ...current, verifying: false, verification: { status: 'failed', error: String(cause?.message ?? cause) } }
           )
         }
       }
 
-      /**
-       * 点「保存」= 先自动验证、通过才写盘。
-       *
-       * 用户要求去掉单独的「验证」按钮（"过于繁琐"）：一次点击完成"验证 + 保存"。
-       * 验证失败时不写盘，弹窗留在原地把原因显示出来，改完再点保存即可
-       * —— 也就是行上永远不会出现"没验证过就存下来的配置"。
-       */
-      const saveDraft = async () => {
-        if (editor === null || editor.verifying === true) return
-        const entry = fromDraft(editor.draft)
-        const csrf = status?.csrf
-        setEditor((current) => (current === null ? current : { ...current, verifying: true }))
-        let verification = { status: 'idle' }
-        if (csrf === undefined) {
-          verification = { status: 'failed', error: '还没拿到宿主状态，请刷新页面后重试' }
-        } else {
-          try {
-            const response = await postAction(ctx, csrf, { action: 'verify', server: entry })
-            const value = response.value ?? {}
-            verification =
-              value.ok === true
-                ? { status: 'ok', tools: value.tools ?? [] }
-                : { status: 'failed', error: value.error ?? '验证失败' }
-          } catch (error) {
-            const message = String(error?.message ?? error)
-            const hostOutdated = /unknown action/u.test(message)
-            verification = {
-              status: 'failed',
-              hostOutdated,
-              error: hostOutdated
-                ? '当前 dsh web 进程还是旧版本，没有「验证」接口：请在 Warp 里 Ctrl+C 后重新执行 dsh web --no-open，再刷新页面重试。'
-                : `验证失败：${message}`
-            }
-          }
-        }
-        setEditor((current) => (current === null ? null : { ...current, verifying: false, verification }))
-        if (verification.status !== 'ok') return
-        const servers =
-          editor.mode === 'edit'
-            ? snapshot.servers.map((item) => (item.id === entry.id ? { ...item, ...entry } : item))
-            : [...snapshot.servers, entry]
-        setEditor(null)
-        await write({ ...snapshot, servers })
-        await refreshAfterWrite()
-      }
-
       const toggle = async (server) => {
-        const servers = snapshot.servers.map((item) => (item.id === server.id ? { ...item, enabled: !item.enabled } : item))
-        await write({ ...snapshot, servers })
-        await refreshAfterWrite()
+        await write([{ op: 'set', path: ['servers', server.serverName, 'enabled'], value: !server.enabled }])
       }
 
       const remove = async (server) => {
         setConfirming(null)
-        const servers = snapshot.servers.filter((item) => item.id !== server.id)
-        await write({ ...snapshot, servers })
-        await refreshAfterWrite()
+        await write([{ op: 'unset', path: ['servers', server.serverName] }])
+      }
+
+      /** 旧版本清单 → 官方条目；同名冲突跳过并报告。 */
+      const migrate = async () => {
+        if (!Array.isArray(legacyServers) || legacyServers.length === 0) return
+        setMigrating(true)
+        setMigrationNote('')
+        try {
+          const taken = new Set(servers.map((item) => item.serverName))
+          /** @type {any[]} */
+          const ops = []
+          const notes = []
+          let converted = 0
+          for (const legacy of legacyServers) {
+            const { entry } = legacyToManaged(legacy)
+            const name = entry.serverName
+            if (!/^[A-Za-z0-9_-]{1,32}$/u.test(name)) {
+              notes.push('一个没有合法服务器名的条目已跳过')
+              continue
+            }
+            if (taken.has(name)) {
+              notes.push(`${name}（官方清单已有同名）`)
+              continue
+            }
+            taken.add(name)
+            ops.push({ op: 'set', path: ['servers', name], value: toManagedRecord(entry) })
+            converted += 1
+          }
+          if (ops.length > 0 && !(await write(ops))) return
+          await writeConfig(ctx, legacyForm, [{ op: 'set', path: ['servers'], value: [] }], setError)
+          setMigrationNote(
+            `迁移完成：${converted} 条已写入官方清单${notes.length === 0 ? '' : `；跳过：${notes.join('；')}`}`
+          )
+        } finally {
+          setMigrating(false)
+        }
       }
 
       /**
-       * 导入：向宿主取这一条的**完整**配置（URL、命令、参数、普通环境变量/请求头全带上；
-       * 敏感字段在宿主侧被搬进凭据库，这里只拿到 `credential:键名` 与一句说明）。
-       * 仍然要先验证才能保存。
+       * 导入：向宿主取组合层某条 MCP 行的完整配置（敏感值已转成凭据模板并写入凭据库），
+       * 以「新增」弹窗预填，保存后进入官方清单。
        */
       const importRow = async (row) => {
         const csrf = status?.csrf
@@ -2064,24 +2260,20 @@ window.__ModuleLoader__.load({
             setError(String(value.error ?? '导入失败'))
             return
           }
-          // 宿主给的是**清单形状**（env/headers 是对象、args 是数组），编辑器用的是
-          // **文本形状**（envText/headersText/argsText）——必须过 toDraft 转换，
-          // 否则表现为"导进来是空的"（踩过）。
-          setEditor({ mode: 'create', draft: toDraft(value.draft), verification: { status: 'idle' }, verifying: false, notes: value.notes ?? [] })
-        } catch (error) {
-          const message = String(error?.message ?? error)
-          setError(/unknown action/u.test(message)
-            ? '当前 dsh web 进程还是旧版本，没有「导入」接口：请重启 dsh web 后再试。'
-            : `导入失败：${message}`)
+          const entry = normalizeServer(value.entry, value.entry?.serverName)
+          setEditor({ mode: 'create', draft: toDraft(entry), verification: { status: 'idle' }, verifying: false, notes: value.notes ?? [] })
+        } catch (cause) {
+          setError(`导入失败：${String(cause?.message ?? cause)}`)
         }
       }
 
-      const runtime = status?.runtime ?? 'starting'
-      const enabledCount = snapshot.servers.filter((item) => item.enabled).length
-      // 供弹窗里的键名下拉用：其它托管条目已经引用过的凭据键（避免用户记名字、也方便复用）。
-      const knownCredentialKeys = [
-        ...new Set(snapshot.servers.flatMap((item) => credentialRefsOf({ url: item.url, env: item.env, headers: item.headers })))
-      ]
+      const enabledCount = servers.filter((item) => item.enabled).length
+      const knownCredentialKeys = [...new Set(servers.flatMap((item) => credentialRefsOf(item)))]
+      const profileNames = new Map(
+        (status?.profileTargets ?? [])
+          .filter((row) => typeof row?.serverName === 'string' && row.serverName !== '')
+          .map((row) => [row.serverName, row.entryId])
+      )
 
       if (loading) {
         return React.createElement(
@@ -2103,79 +2295,88 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'dmw-heading' },
           React.createElement('h2', { className: 'dmw-title' }, SECTION_LABEL),
-          React.createElement('span', { className: 'dmw-count' }, `${enabledCount}/${snapshot.servers.length} 已启用`),
+          React.createElement('span', { className: 'dmw-count' }, `${enabledCount}/${servers.length} 已启用`),
           React.createElement('span', { className: 'dmw-heading-spacer' }),
           React.createElement(
             'button',
             {
               type: 'button',
               className: 'dmw-icon-button',
-              'aria-label': '重新对账',
-              disabled: refreshing || busy,
-              onClick: async () => {
-                try {
-                  if (status?.csrf !== undefined) await postAction(ctx, status.csrf, { action: 'reconcile' })
-                } catch (cause) {
-                  setError(String(cause?.message ?? cause))
-                }
-                await refreshAfterWrite()
-              }
+              'aria-label': '刷新状态',
+              disabled: busy,
+              onClick: () => void refreshStatus()
             },
             React.createElement(IconRefreshOutline16, { size: 16 })
           ),
           React.createElement(
             'button',
-            { type: 'button', className: 'dmw-icon-button', 'aria-label': '新增服务器', disabled: busy, onClick: () => openEditor('create', null) },
+            {
+              type: 'button',
+              className: 'dmw-icon-button',
+              'aria-label': '新增服务器',
+              disabled: busy || runtime !== 'ready',
+              onClick: () => openEditor('create', null)
+            },
             React.createElement(IconPlusOutline16, { size: 16 })
           )
         ),
         runtime === 'ready'
           ? null
-          : React.createElement(
+          : React.createElement('div', { className: 'dmw-error' }, runtimeText(runtime)),
+        status?.manager?.available !== true && runtime === 'ready'
+          ? React.createElement(
               'div',
               { className: 'dmw-error' },
-              `${runtimeText(runtime)}${status?.mcpModule?.errors?.length ? `\n${status.mcpModule.errors.join('\n')}` : ''}`
-            ),
-        status?.settingsAvailable === false
-          ? React.createElement('div', { className: 'dmw-error' }, '宿主这一条没有可写的设置 schema，改动无法持久化（请看宿主日志）。')
+              `没有找到可用的官方 MCP 管理器条目（reason: ${String(status?.manager?.reason ?? 'unknown')}）。请确认 dsh-mcp-manager 已启用，或升级到 0.2.2-rc.2 及以上。`
+            )
           : null,
+        Array.isArray(legacyServers) && legacyServers.length > 0
+          ? React.createElement(
+              'div',
+              { className: 'dmw-notice dmw-migrate' },
+              React.createElement(
+                'span',
+                null,
+                `检测到旧版本托管的 ${legacyServers.length} 个服务器。迁移到官方清单后由官方管理器统一连接（展示名与「首次连接失败即拒绝」选项不会迁移）。`
+              ),
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dmw-button',
+                  disabled: migrating || busy || runtime !== 'ready',
+                  onClick: () => void migrate()
+                },
+                migrating ? '迁移中…' : '迁移到官方清单'
+              )
+            )
+          : null,
+        migrationNote === '' ? null : React.createElement('div', { className: 'dmw-notice' }, migrationNote),
         error === '' ? null : React.createElement('div', { className: 'dmw-error' }, error),
-        React.createElement(
-          'label',
-          { className: 'dmw-radio' },
-          React.createElement('input', {
-            type: 'checkbox',
-            checked: snapshot.enabled,
-            disabled: busy,
-            onChange: async (event) => {
-              await write({ ...snapshot, enabled: event.target.checked })
-              await refreshAfterWrite()
-            }
-          }),
-          '启用托管的所有服务器（关闭后全部断开）'
-        ),
-        snapshot.servers.length === 0
-          ? React.createElement('div', { className: 'dmw-empty' }, '还没有托管任何 MCP 服务器；用右上角的 + 新增，或从下面「配置文件中的服务器」导入一条。')
+        servers.length === 0
+          ? React.createElement(
+              'div',
+              { className: 'dmw-empty' },
+              '还没有配置 MCP 服务器；用右上角的 + 新增，或在下方从启动配置导入一条。'
+            )
           : React.createElement(
               'div',
               { className: 'dmw-list' },
-              snapshot.servers.map((server) => {
-                const live = liveOf(server.id)?.live ?? null
-                const blockedReason = liveOf(server.id)?.blockedReason ?? ''
-                const conflictNote = liveOf(server.id)?.conflictNote ?? ''
-                return React.createElement(ServerRow, {
-                  key: server.id,
+              servers.map((server) =>
+                React.createElement(ServerRow, {
+                  key: server.serverName,
                   server,
-                  live,
-                  blockedReason,
-                  conflictNote,
+                  live: viewOf(server.serverName),
+                  conflictNote: profileNames.has(server.serverName)
+                    ? `启动配置里也声明了同名服务器「${server.serverName}」（${profileNames.get(server.serverName)}）；两边只能留一个，否则启动配置那一条会加载失败`
+                    : '',
                   runtime,
                   busy,
                   onToggle: toggle,
                   onEdit: (target) => openEditor('edit', target),
                   onDelete: (target) => setConfirming(target)
                 })
-              })
+              )
             ),
         React.createElement(ProfileTargets, { rows: status?.profileTargets ?? [], onImport: importRow, busy }),
         editor === null
@@ -2183,20 +2384,13 @@ window.__ModuleLoader__.load({
           : React.createElement(ServerDialog, {
               mode: editor.mode,
               draft: editor.draft,
-              live: liveOf(editor.draft.id)?.live ?? null,
-              blockedReason: liveOf(editor.draft.id)?.blockedReason ?? '',
-              conflictNote: liveOf(editor.draft.id)?.conflictNote ?? '',
-              runtime,
-              // 状态里没有 actions 就是"客户端比宿主新"（actions 与 verify 同时引入）：
-              // 直接当成不支持，让用户在弹窗里立刻看到"去重启"而不是点了才报错。
-              hostSupportsVerify: Array.isArray(status?.actions) ? status.actions.includes('verify') : false,
-              notes: editor.notes ?? [],
               verification: editor.verification,
               verifying: editor.verifying === true,
+              notes: editor.notes ?? [],
+              runtime,
               busy,
               setDraft: changeDraft,
-              onCancel: closeEditor,
-              onVerify: verifyDraft,
+              onCancel: () => setEditor(null),
               onSave: saveDraft,
               credentialKeys: knownCredentialKeys
             }),
@@ -2209,6 +2403,7 @@ window.__ModuleLoader__.load({
             })
       )
     }
+
 
     function ConfirmDelete({ server, onCancel, onConfirm }) {
       if (Modal === undefined) {
@@ -2379,6 +2574,20 @@ window.__ModuleLoader__.load({
 
       const mark = () => {
         for (const button of doc.querySelectorAll('nav button')) {
+          // 官方 `settings.section.icon` 槽接管这一行后撤销 DOM 补丁，避免两个图标。
+          // 每轮 mark 都检查，因此即使补丁先装、官方槽后渲染也会自动让位。
+          const official = typeof button.querySelector === 'function'
+            ? button.querySelector('[data-slot="settings.section.icon"]')
+            : null
+          if (official !== null) {
+            if (touched.has(button)) {
+              delete button.dataset[NAV_PATCH_FLAG]
+              delete button.dataset[NAV_PATCH_COUNT]
+              button.style.removeProperty(NAV_PATCH_MASK)
+              touched.delete(button)
+            }
+            continue
+          }
           // 只认文本恰好等于本插件菜单名的那一行。
           if (button.textContent.trim() !== label || touched.has(button)) continue
           button.dataset[NAV_PATCH_FLAG] = ''
@@ -2424,11 +2633,30 @@ window.__ModuleLoader__.load({
 
     /** 从挂载点里的模板元素取图标源码并装上补丁（抽出来便于单独验证）。 */
     function installNavIconPatch(template, doc) {
+      // 官方 `settings.section.icon` 槽已渲染时直接用它（见 `McpSectionIcon`），
+      // 再打 DOM 补丁会出现两个图标（自定义图标 + 官方槽图标）。
+      try {
+        if (doc !== null && doc !== undefined && typeof doc.querySelector === 'function' && doc.querySelector('[data-slot="settings.section.icon"]') !== null) {
+          return () => {}
+        }
+      } catch {
+        /* 查询失败按"槽不可用"处理，退回 DOM 补丁 */
+      }
       const svg = template !== null && template !== undefined && typeof template.querySelector === 'function' ? template.querySelector('svg') : null
       if (svg === null || svg === undefined) return () => {}
       const source = navIconSymbolSource(svg)
       if (source === '') return () => {}
       return patchSettingsNavIcon(doc, source, SECTION_LABEL)
+    }
+
+    /**
+     * 官方 `settings.section.icon` 槽（0.2.2-alpha.3 起）的注册项：
+     * 壳层按 section id 找图标时直接渲染它，不再回落到齿轮。
+     */
+    function McpSectionIcon(props) {
+      const Icon = typeof IconLinkOutline16 === 'function' ? IconLinkOutline16 : null
+      if (Icon === null) return null
+      return React.createElement(Icon, { size: typeof props?.size === 'number' ? props.size : 16 })
     }
 
     /**
@@ -2455,21 +2683,19 @@ window.__ModuleLoader__.load({
     /**
      * 依赖的客户端服务。
      *
-     * `remote.credentials` 必须**单独声明**：客户端的 Cordis 里带点号的命名空间本身就是服务名，
-     * 只写 `remote` 时读 `ctx.remote.credentials` 会抛
-     * `cannot get property "remote.credentials" without inject`——而它是同步抛的，
-     * 外面包 `ctx?.remote?.credentials` 也拦不住，表现就是"点保存完全没反应"（用户实测踩到）。
-     * 官方同一套数据面的写法见 `dsh-client-ui-settings-plugins/lib/client.js` 的 inject 数组。
+     * 带点号的命名空间必须**单独声明**：客户端的 Cordis 里 `remote.credentials` /
+     * `remote.mcpManager` 本身就是服务名，只写 `remote` 时读它们会同步抛
+     * `cannot get property "remote.mcpManager" without inject`——外面包 `ctx?.remote?.x`
+     * 也拦不住（属性访问本身就是抛点）。官方同一套数据面的写法见
+     * `dsh-client-ui-settings-plugins/lib/client.js` 的 inject 数组。
      */
-    const inject = ['slots', 'configForms', 'remote', 'remote.credentials']
+    const inject = ['slots', 'configForms', 'remote', 'remote.credentials', 'remote.mcpManager']
 
     function apply(ctx) {
-      // 本插件的设置就是 profile 里 `dsh-mcp-workbench` 条目的 config：官方客户端通道是
-      // `configForms.get(<条目 id>)`（自带 revision 栅栏与写入排队）。0.1.6 的
-      // `settingsScope.bind({ namespace, decode })` 已不存在，所以这里按能力探测。
-      const controller = typeof ctx.configForms?.get === 'function' ? ctx.configForms.get(SETTINGS_ENTRY) : null
+      // 官方条目 id 来自宿主状态路由（浏览器侧无法从包名反查 Loader 条目），
+      // 所以这里不预先取 configForm；分区组件在拿到 status 后再 `configForms.get(id)`。
       installStyles(ctx)
-      const contextValue = { ctx, scope: controller }
+      const contextValue = { ctx }
       const Section = () =>
         React.createElement(
           SectionErrorBoundary,
@@ -2486,6 +2712,14 @@ window.__ModuleLoader__.load({
         order: SECTION_ORDER,
         label: SECTION_LABEL
       }, Section))
+      // 官方 `settings.section.icon` 槽（0.2.2-alpha.3 起）：注册同 id 的图标即可替换，
+      // 不再需要 DOM 补丁。旧版本壳层没有这个槽（register 会抛），所以两层都保留：
+      // 槽可用时用它；不可用时退回 `settings.action` 里的 DOM 补丁。
+      ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
+        name: 'settings.section.icon',
+        id: SECTION_ID,
+        order: SECTION_ORDER
+      }, McpSectionIcon))
       ctx.slots.inject('settings.action', () => ctx.slots.register({
         name: 'settings.action',
         id: NAV_ICON_ID,
@@ -2498,6 +2732,7 @@ window.__ModuleLoader__.load({
     exports.__internals = Object.freeze({
       SectionErrorBoundary,
       McpManagerSection,
+      McpSectionIcon,
       ServerEditor,
       ServerDialog,
       LiveLogs,
@@ -2505,7 +2740,7 @@ window.__ModuleLoader__.load({
       fromDraft,
       CredentialBox,
       ProfileTargets,
-      decodeSettings,
+      decodeServers,
       normalizeServer,
       parsePairs,
       formatPairs,
@@ -2520,13 +2755,22 @@ window.__ModuleLoader__.load({
       runtimeText,
       endpointSummary,
       transportMeta,
+      validateDraft,
+      legacyToManaged,
+      toManagedRecord,
+      probeServer,
+      useConfigForm,
+      writeConfig,
       newId,
       patchSettingsNavIcon,
+      installNavIconPatch,
       STATUS_PATH,
       ACTION_PATH,
       CLIENT_HEADER,
       CSRF_HEADER,
       SETTINGS_ENTRY,
+      MANAGER_MODULE,
+      DEFAULT_MANAGER_ENTRY,
       SECTION_ID,
       SECTION_LABEL,
       styleText

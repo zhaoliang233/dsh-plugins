@@ -2,171 +2,167 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  DEFAULT_TOOL_CALL_TIMEOUT_MS,
+  DEFAULT_STARTUP_TIMEOUT_MS,
   credentialRefsIn,
-  describeServer,
-  mountConfigFor,
-  newServerId,
-  normalizeServer,
-  normalizeSettings,
-  sameMountConfig,
-  substituteCredentials,
+  describeEntry,
+  entryRecord,
+  legacyToManagedEntry,
+  normalizeEntry,
+  normalizeReconnect,
+  normalizeServers,
   toServerName,
-  validateServer
+  validateEntry
 } from '../lib/store.js'
 
-test('normalizeSettings 防住脏数据并补齐默认值', () => {
-  const settings = normalizeSettings({
-    enabled: 'yes',
-    servers: [
-      { id: 'a', serverName: 'alpha', transport: 'stdio', command: 'node', args: ['x', 42], env: { A: '1', B: 7 } },
-      { serverName: 'beta', transport: 'nope' },
-      'not-an-object'
-    ]
-  })
-  assert.equal(settings.enabled, true, '非 false 的总开关视为开启')
-  assert.equal(settings.servers.length, 3)
-  assert.deepEqual(settings.servers[0].args, ['x'], '参数里的非字符串被丢掉')
-  assert.deepEqual(settings.servers[0].env, { A: '1' }, 'env 只保留字符串值')
-  assert.equal(settings.servers[1].transport, 'stdio', '未知传输方式回落 stdio')
-  assert.equal(settings.servers[2].serverName, 'server-3', '非对象条目被归一成带序号的空条目')
-  assert.equal(settings.servers[0].toolCallTimeoutMs, DEFAULT_TOOL_CALL_TIMEOUT_MS)
+test('normalizeEntry：官方字段默认值与 reconnect 策略', () => {
+  const entry = normalizeEntry({}, 'demo')
+  assert.equal(entry.serverName, 'demo')
+  assert.equal(entry.transport, 'stdio')
+  assert.deepEqual(entry.args, [])
+  assert.deepEqual(entry.env, {})
+  assert.deepEqual(entry.headers, {})
+  assert.equal(entry.enabled, true)
+  assert.equal(entry.startupTimeoutMs, DEFAULT_STARTUP_TIMEOUT_MS)
+  assert.deepEqual(entry.reconnect, { enabled: true, initialDelayMs: 500, maxDelayMs: 30000, maxAttempts: 10 })
+  assert.equal(entry.toolCallTimeoutMs, undefined, '调用超时可省略（官方 schema 可选）')
+  assert.equal(entry.closeTimeoutMs, undefined)
 })
 
-test('normalizeSettings 关掉总开关时 enabled=false 被保留', () => {
-  assert.equal(normalizeSettings({ enabled: false }).enabled, false)
-})
-
-test('normalizeSettings 消除重复 id（否则对账会互相覆盖）', () => {
-  const settings = normalizeSettings({
-    servers: [
-      { id: 'same', serverName: 'a' },
-      { id: 'same', serverName: 'b' }
-    ]
-  })
-  assert.notEqual(settings.servers[0].id, settings.servers[1].id)
-})
-
-test('toServerName 收敛非法字符并截断到 32 位', () => {
-  assert.equal(toServerName('my server!'), 'my-server')
-  assert.equal(toServerName('--x--'), 'x')
-  assert.equal(toServerName('a'.repeat(40)).length, 32)
-  assert.equal(toServerName(undefined), '')
-})
-
-test('newServerId 避开已占用的 id', () => {
-  const first = newServerId()
-  assert.match(first, /^srv-[0-9a-f]{1,8}$/u)
-  assert.notEqual(newServerId([first, 'srv-0']), undefined)
-})
-
-test('validateServer：stdio/http 各自的必填项与 serverName 语法', () => {
-  assert.deepEqual(validateServer(normalizeServer({ serverName: 'ok', command: 'node' })), [])
-  assert.match(validateServer(normalizeServer({ serverName: 'bad name', command: 'node' })).join(), /服务器名/u)
-  assert.match(validateServer(normalizeServer({ serverName: 'ok' })).join(), /可执行命令/u)
-  const http = normalizeServer({ serverName: 'ok', transport: 'streamable-http' })
-  assert.match(validateServer(http).join(), /必须填写 URL/u)
-  assert.deepEqual(validateServer(normalizeServer({ serverName: 'ok', transport: 'streamable-http', url: 'http://127.0.0.1:1/mcp' })), [])
-  assert.match(
-    validateServer(normalizeServer({ serverName: 'ok', transport: 'streamable-http', url: 'ftp://x/y' })).join(),
-    /http\/https/u
-  )
-  assert.match(
-    validateServer(normalizeServer({ serverName: 'ok', transport: 'streamable-http', url: '不是URL' })).join(),
-    /无法解析/u
-  )
-})
-
-test('validateServer：同作用域内的 serverName 必须唯一，但不能把自己当冲突', () => {
-  const a = normalizeServer({ id: 'a', serverName: 'dup', command: 'node' })
-  const b = normalizeServer({ id: 'b', serverName: 'dup', command: 'node' })
-  const options = { takenNames: ['dup', 'dup'], idToName: new Map([['dup', 'a']]) }
-  assert.deepEqual(validateServer(a, options), [], '自己占用自己的名字不算冲突')
-  assert.match(validateServer(b, options).join(), /已被另一个条目占用/u)
-})
-
-test('credentialRefsIn 只认合法凭据键且去重', () => {
-  assert.deepEqual(credentialRefsIn('Bearer credential:TOKEN_A'), ['TOKEN_A'])
-  assert.deepEqual(credentialRefsIn('credential:A credential:A credential:B'), ['A', 'B'])
-  assert.deepEqual(credentialRefsIn('credential:1bad'), [], '数字开头的键不合法')
-  assert.deepEqual(credentialRefsIn(undefined), [])
-})
-
-test('substituteCredentials：未配置时保留占位符并报告缺失', () => {
-  const values = new Map([['TOKEN_A', 'secret-value']])
-  const withValue = substituteCredentials('Basic credential:TOKEN_A', (key) => values.get(key))
-  assert.equal(withValue.value, 'Basic secret-value')
-  assert.deepEqual(withValue.missing, [])
-
-  const missing = substituteCredentials('Basic credential:TOKEN_B', (key) => values.get(key))
-  assert.equal(missing.value, 'Basic credential:TOKEN_B')
-  assert.deepEqual(missing.missing, ['TOKEN_B'])
-})
-
-test('mountConfigFor：stdio 与 http 各自只带自己的字段，并报告缺失凭据', () => {
-  const stdio = normalizeServer({
-    serverName: 's',
-    command: 'node',
-    args: ['a'],
-    cwd: '/tmp',
-    env: { PLAIN: 'v', TOKEN: 'credential:MISSING' },
-    url: 'http://should-be-ignored'
-  })
-  const stdioResult = mountConfigFor(stdio, (value) => substituteCredentials(value, () => undefined))
-  assert.equal(stdioResult.config.transport, 'stdio')
-  assert.equal(stdioResult.config.command, 'node')
-  assert.deepEqual(stdioResult.config.args, ['a'])
-  assert.equal('url' in stdioResult.config, false, 'stdio 不应带 http 字段')
-  assert.deepEqual(stdioResult.missing, ['MISSING'])
-
-  const http = normalizeServer({
-    serverName: 'h',
-    transport: 'streamable-http',
-    url: 'http://127.0.0.1:1/mcp',
-    headers: { Authorization: 'Bearer credential:TOK' }
-  })
-  const httpResult = mountConfigFor(http, (value) => substituteCredentials(value, () => 'X'))
-  assert.equal(httpResult.config.transport, 'streamable-http')
-  assert.equal(httpResult.config.headers.Authorization, 'Bearer X')
-  assert.equal('command' in httpResult.config, false, 'http 不应带 stdio 字段')
-  assert.equal(httpResult.config.failOnStartupError, false)
-})
-
-test('sameMountConfig 与字段顺序无关，但能识别真实变化', () => {
-  assert.equal(sameMountConfig({ a: 1, b: { c: 2, d: 3 } }, { b: { d: 3, c: 2 }, a: 1 }), true)
-  assert.equal(sameMountConfig({ a: 1 }, { a: 2 }), false)
-  assert.equal(sameMountConfig({ args: ['x'] }, { args: ['y'] }), false)
-})
-
-test('describeServer 只回显键名，不回显 env/header 的值', () => {
-  const described = describeServer(
-    normalizeServer({
-      id: 'x',
-      label: '备注',
-      serverName: 's',
-      command: 'node',
-      env: { PLAIN: 'raw-secret-typed-by-user', TOKEN: 'credential:TOK' },
-      headers: { Authorization: 'Basic credential:TOK' }
-    })
-  )
-  const serialized = JSON.stringify(described)
-  assert.equal(serialized.includes('raw-secret-typed-by-user'), false, '状态接口不得回显 env 值')
-  assert.deepEqual(described.envKeys, ['PLAIN', 'TOKEN'])
-  assert.deepEqual(described.credentialRefs, ['TOK'])
-  assert.deepEqual(described.issues, [])
-})
-
-test('状态投影把 URL 里的凭据键也算进来（挂载时它同样被替换）', () => {
-  const described = describeServer(
-    normalizeServer({
+test('normalizeEntry：保留显式超时与 reconnect 覆盖', () => {
+  const entry = normalizeEntry(
+    {
       transport: 'streamable-http',
-      serverName: 's',
-      url: 'https://example.test/mcp?token=credential:URL_TOK',
-      headers: { Authorization: 'Bearer credential:HEADER_TOK' }
-    })
+      url: 'https://h/mcp',
+      toolCallTimeoutMs: 120000,
+      startupTimeoutMs: 15000,
+      closeTimeoutMs: 5000,
+      reconnect: { enabled: false, initialDelayMs: 1000, maxDelayMs: 60000, maxAttempts: 3 }
+    },
+    'remote'
   )
-  assert.deepEqual(described.credentialRefs, ['URL_TOK', 'HEADER_TOK'])
-  // 占位符本身要留在载荷里（设置页要能编辑），但明文永远不出现
-  assert.match(described.url, /credential:URL_TOK/u)
-  assert.equal(JSON.stringify(described).includes('secret-value'), false, '状态载荷不得回显明文')
+  assert.equal(entry.transport, 'streamable-http')
+  assert.equal(entry.toolCallTimeoutMs, 120000)
+  assert.equal(entry.startupTimeoutMs, 15000)
+  assert.equal(entry.closeTimeoutMs, 5000)
+  assert.deepEqual(entry.reconnect, { enabled: false, initialDelayMs: 1000, maxDelayMs: 60000, maxAttempts: 3 })
+})
+
+test('normalizeReconnect：非法值回落默认', () => {
+  assert.deepEqual(normalizeReconnect(undefined), { enabled: true, initialDelayMs: 500, maxDelayMs: 30000, maxAttempts: 10 })
+  assert.deepEqual(normalizeReconnect({ initialDelayMs: -1, maxAttempts: 0 }), {
+    enabled: true,
+    initialDelayMs: 500,
+    maxDelayMs: 30000,
+    maxAttempts: 10
+  })
+})
+
+test('normalizeServers：dict → 按名字排序的数组', () => {
+  const rows = normalizeServers({
+    zeta: { transport: 'stdio', command: 'node' },
+    alpha: { transport: 'streamable-http', url: 'https://a/mcp' }
+  })
+  assert.deepEqual(
+    rows.map((row) => row.serverName),
+    ['alpha', 'zeta']
+  )
+  assert.equal(rows[0].transport, 'streamable-http')
+})
+
+test('entryRecord：写回时去掉界面专用的 serverName', () => {
+  const record = entryRecord({ transport: 'stdio', command: 'node', serverName: 'demo' }, 'demo')
+  assert.equal('serverName' in record, false)
+  assert.equal(record.command, 'node')
+  assert.equal(record.startupTimeoutMs, DEFAULT_STARTUP_TIMEOUT_MS)
+})
+
+test('validateEntry：名字、传输必填项、URL 与重名', () => {
+  assert.deepEqual(validateEntry({ transport: 'stdio', command: 'node', startupTimeoutMs: 30000 }, { name: 'ok' }), [])
+  assert.match(validateEntry({ transport: 'stdio', command: '', startupTimeoutMs: 30000 }, { name: 'ok' }).join(' '), /必须填写可执行命令/u)
+  assert.match(validateEntry({ transport: 'stdio', command: 'node', startupTimeoutMs: 30000 }, { name: 'bad name' }).join(' '), /服务器名/u)
+  assert.match(validateEntry({ transport: 'streamable-http', url: '', startupTimeoutMs: 30000 }, { name: 'x' }).join(' '), /必须填写 URL/u)
+  assert.match(validateEntry({ transport: 'streamable-http', url: 'ftp://x', startupTimeoutMs: 30000 }, { name: 'x' }).join(' '), /http/u)
+  assert.match(validateEntry({ transport: 'stdio', command: 'node', startupTimeoutMs: 30000 }, { name: 'x', takenNames: ['x'] }).join(' '), /已被另一个条目占用/u)
+  // 自己那个名字不算冲突
+  assert.deepEqual(
+    validateEntry({ transport: 'stdio', command: 'node', startupTimeoutMs: 30000 }, { name: 'x', takenNames: ['x'], takenNameIsSelf: true }),
+    []
+  )
+})
+
+test('validateEntry：URL 里带凭据模板时不做 URL 解析', () => {
+  assert.deepEqual(
+    validateEntry(
+      { transport: 'streamable-http', url: 'https://h/mcp?token=${credential:TOKEN}', startupTimeoutMs: 30000 },
+      { name: 'remote' }
+    ),
+    []
+  )
+})
+
+test('credentialRefsIn：只认官方 ${credential:KEY} 模板', () => {
+  assert.deepEqual(credentialRefsIn('Bearer ${credential:A}'), ['A'])
+  assert.deepEqual(credentialRefsIn('${credential:A}${credential:B}${credential:A}'), ['A', 'B'])
+  assert.deepEqual(credentialRefsIn('credential:A'), [], '旧语法不算官方模板')
+  assert.deepEqual(credentialRefsIn(''), [])
+})
+
+test('describeEntry：投影含六处凭据引用、不含明文', () => {
+  const described = describeEntry('jira', {
+    transport: 'streamable-http',
+    url: 'https://h/mcp?token=${credential:URL_TOKEN}',
+    headers: { Authorization: 'Bearer ${credential:JIRA_TOKEN}' },
+    env: { SESSION: '${credential:SESSION_TOKEN}' },
+    command: '${credential:CMD}',
+    args: ['--key=${credential:ARG}'],
+    cwd: '/tmp/${credential:CWD}',
+    startupTimeoutMs: 30000
+  })
+  assert.deepEqual(
+    [...described.credentialRefs].sort(),
+    ['ARG', 'CMD', 'CWD', 'JIRA_TOKEN', 'SESSION_TOKEN', 'URL_TOKEN']
+  )
+  assert.equal(described.headerKeys.join(','), 'Authorization')
+  assert.equal(described.envKeys.join(','), 'SESSION')
+  assert.equal(JSON.stringify(described).includes('Bearer '), false, '只给键名，绝不回显值')
+})
+
+test('legacyToManagedEntry：旧语法转官方模板，丢弃 label 与 failOnStartupError', () => {
+  const { entry, notes } = legacyToManagedEntry(
+    {
+      id: 'srv-1',
+      label: 'GitHub',
+      serverName: 'github',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'server'],
+      env: { GITHUB_TOKEN: 'credential:GH_TOKEN' },
+      url: '',
+      headers: {},
+      cwd: '',
+      toolCallTimeoutMs: 30000,
+      failOnStartupError: true
+    },
+    'fallback'
+  )
+  assert.equal(entry.serverName, 'github')
+  assert.equal(entry.command, 'npx')
+  assert.deepEqual(entry.args, ['-y', 'server'])
+  assert.equal(entry.env.GITHUB_TOKEN, '${credential:GH_TOKEN}')
+  assert.equal(entry.toolCallTimeoutMs, 30000)
+  assert.equal('label' in entry, false)
+  assert.equal('failOnStartupError' in entry, false)
+  assert.match(notes.join('；'), /展示名/u)
+  assert.match(notes.join('；'), /首次连接失败即拒绝/u)
+})
+
+test('legacyToManagedEntry：名字缺失时用 label 或兜底名', () => {
+  assert.equal(legacyToManagedEntry({ label: 'My Server' }, 'x').entry.serverName, 'My-Server')
+  assert.equal(legacyToManagedEntry({}, 'fallback').entry.serverName, 'fallback')
+})
+
+test('toServerName：清洗为合法形式', () => {
+  assert.equal(toServerName('my server!'), 'my-server')
+  assert.equal(toServerName('---x---'), 'x')
+  assert.equal(toServerName('a'.repeat(40)).length, 32)
 })

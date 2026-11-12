@@ -1,5 +1,19 @@
 # 变更记录
 
+## 0.2.0（改造成官方 mcp-manager 的设置 UI）
+
+DSH `0.2.2-rc.2` 起官方自带 `@deepseek-ai/dsh-mcp-manager`（web profile 默认挂载，有 Remote 管理面、无浏览器 UI）。本包从「自建挂载与对账」改为「官方管理器的设置页 UI」：
+
+- **移除**自建 `mcp-client` 挂载/卸载、对账计划、组合层运行态聚合（`lib/mount-manager.js`、`lib/plan.js` 及对应测试删除）。
+- **服务器清单**改存官方 `mcp-manager` 条目的 `config.servers`；客户端经 `configForms` 读写，运行状态经 `ctx.remote.mcpManager.watch()` 展示，探测/重启走官方 `probe`/`restart`。
+- **保存流程**：先以停用态写入官方清单，`probe` 通过后启用；失败保留停用配置并显示原因。
+- **迁移**：旧版本存在本插件条目 `config.servers` 里的服务器，页面出现迁移横幅；显式迁移后写入官方清单并清空旧清单。展示名与「首次连接失败即拒绝」选项不迁移。
+- **导入**：启动配置（手写 `dsh-mcp-client` 行）仍可只读展示与导入；敏感值转官方 `${credential:KEY}` 模板并写入凭据库，导入条目默认停用。
+- **凭据语法**换成官方模板 `${credential:KEY}`（旧语法 `credential:KEY` 只在迁移时识别）。
+- **导航图标**优先使用官方 `settings.section.icon` 槽；槽不可用时保留 DOM 补丁兜底。补丁每轮 `mark()` 检测官方槽并撤销自身（即使补丁先安装、官方槽后渲染也不会出现两个图标）。
+- **版本门**：兼容线不变（`>=0.2.2-alpha.2 <0.2.3`），逐版本验证清单加入 `0.2.2-rc.2`；更早的同线版本因没有官方管理器而只显示说明。
+- 闸门：单测 47/47、`pack:check` 10 个文件；隔离宿主 `/status`、boot graph、bundle、页面加载（0 控制台错误）通过。
+
 ## 0.1.0（2026-11-09 首次发布）
 
 本包**首次发布**，此前从未上过 registry（`package.json#version` 一直是 `0.1.0`）。下面按主题记录首版包含的内容与关键修正。

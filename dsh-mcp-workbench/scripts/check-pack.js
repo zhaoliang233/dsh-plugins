@@ -34,8 +34,6 @@ const expectedFiles = [
   'cordis.patch.yml',
   'lib/dsh.js',
   'lib/index.js',
-  'lib/mount-manager.js',
-  'lib/plan.js',
   'lib/store.js',
   'lib/targets.js',
   'package.json'

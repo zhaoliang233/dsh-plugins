@@ -1,12 +1,15 @@
 /**
- * 纯逻辑：把 profile 组合里已声明的 MCP 条目整理成只读视图。
+ * 纯逻辑：把 profile 组合里已声明的 MCP 条目整理成只读视图，并支持导入成
+ * 官方 mcp-manager 条目。
  *
- * 背景：MCP 服务器目前只能在 profile 的 cordis.patch.yml / bundle 组合里手写。
- * 本插件不去改写用户那份文件（它含手写注释与 `!!js` 表达式），而是把这些行
- * 读出来展示成「配置文件声明（只读）」，让用户看得见全部在跑的服务器。
+ * 背景：官方 mcp-manager 只管它自己的 `config.servers` 与插件注册的服务器；
+ * 组合层（cordis.patch.yml / bundle）里手写的 `dsh-mcp-client` 行不在它的视野内。
+ * 本插件把这些行读出来展示成「启动配置声明（只读）」，并允许导入到官方清单
+ * ——不直接改写用户那份文件（它含手写注释与 `!!js` 表达式）。
  *
  * 安全约束：组合层的 config 已经过 `!!js` 求值，Authorization / env 里可能
- * 就是明文密钥。本模块因此只输出「键名 + 端点骨架」，绝不回显值。
+ * 就是明文密钥。本模块因此只输出「键名 + 端点骨架」，绝不回显值；导入时
+ * 敏感值换成 `${credential:键名}` 模板，明文由宿主写进凭据库。
  *
  * @module dsh-mcp-workbench/targets
  */
@@ -74,38 +77,27 @@ function commandSummary(config) {
   return args === 0 ? base : `${base}（${args} 个参数）`
 }
 
-/**
- * 判断一个组合条目是否由本插件托管（用于把自己那条排除掉）。
- * @param {{entryId: string, moduleName: string}} entry
- * @param {string} pluginName
- * @returns {boolean}
- */
-export function isSelfEntry(entry, pluginName) {
-  return entry.entryId === pluginName || entry.moduleName === pluginName
-}
-
 /** 值本身就长得像凭证（`Bearer xxx` / `Basic xxx`）。 */
 const CREDENTIAL_VALUE = /^\s*(Bearer|Basic)\s+\S+/iu
 /** URL 里带凭证的两种形态：查询串里的敏感参数名，或 userinfo。 */
 const CREDENTIAL_URL = /[?&](token|key|secret|password|sig|signature|api[-_]?key)=|\/\/[^/@\s]+:[^/@\s]+@/iu
 
 /**
- * 把 profile 里已经声明的一条 MCP 配置**完整**转成草稿。
+ * 把组合层里已经声明的一条 MCP 配置转成官方 mcp-manager 条目。
  *
  * 两条硬约束决定了这里的做法：
  * 1. loader 里的 config 已经过 `!!js` 求值——`Authorization` 之类的字段拿到的就是**明文**。
- *    所以草稿里绝不原样带上它：敏感字段一律换成 `credential:<键名>` 占位符，
+ *    所以导入结果里绝不原样带上它：敏感字段一律换成 `${credential:<键名>}` 模板，
  *    明文由调用方（宿主）写进凭据库，浏览器侧只看得到键名。
  * 2. 非敏感字段（URL、命令、参数、工作目录、超时、普通环境变量/请求头）照抄，
- *    否则"导入"等于让用户重填一遍（用户实测反馈：导进来只有名字和传输方式，配置全丢了）。
+ *    否则"导入"等于让用户重填一遍。
  *
  * @param {object} input
- * @param {string} input.id 新条目的 id
  * @param {any} input.config loader 条目里的 config（已求值）
- * @param {(field: 'env'|'headers', key: string) => string} input.credentialKeyFor 生成凭据键名
- * @returns {{draft: any, credentials: Array<{ref: string, value: string, field: string, key: string}>, notes: string[]}}
+ * @param {(field: 'env'|'headers'|'url', key: string) => string} input.credentialKeyFor 生成凭据键名
+ * @returns {{entry: any, credentials: Array<{ref: string, value: string, field: string, key: string}>, notes: string[]}}
  */
-export function importDraftFromConfig({ id, config, credentialKeyFor }) {
+export function importEntryFromConfig({ config, credentialKeyFor }) {
   const source = config !== null && typeof config === 'object' ? config : {}
   const serverName = typeof source.serverName === 'string' ? source.serverName : ''
   const transport = source.transport === 'streamable-http' ? 'streamable-http' : 'stdio'
@@ -122,7 +114,7 @@ export function importDraftFromConfig({ id, config, credentialKeyFor }) {
       if (SENSITIVE_KEY.test(key) || CREDENTIAL_VALUE.test(value)) {
         const ref = credentialKeyFor(field, key)
         credentials.push({ ref, value, field, key })
-        plain[key] = `credential:${ref}`
+        plain[key] = `\${credential:${ref}}`
       } else {
         plain[key] = value
       }
@@ -138,31 +130,27 @@ export function importDraftFromConfig({ id, config, credentialKeyFor }) {
   if (transport === 'streamable-http' && CREDENTIAL_URL.test(url)) {
     const ref = credentialKeyFor('url', 'URL')
     credentials.push({ ref, value: url, field: 'url', key: 'URL' })
-    url = `credential:${ref}`
+    url = `\${credential:${ref}}`
   }
 
-  // 说明文案放在最后生成：这样 URL 那条凭据也会被列进来
-  if (credentials.length > 0) {
-    // 刻意不在这里生成"敏感字段已转入凭据库…"这类提示：字段旁边的说明已经讲清值去哪，
-    // 而且用户把凭据键删掉之后那句话就成了假消息（用户实测反馈过）。
+  if (source.failOnStartupError === true) {
+    notes.push('「首次连接失败即拒绝」选项不会迁移（官方管理器改为重连并在状态里报告失败）')
   }
 
   const timeout = Number(source.toolCallTimeoutMs)
   return {
-    draft: {
-      id,
-      enabled: false,
-      label: `${serverName}（导入自配置文件）`,
-      transport,
+    entry: {
       serverName,
+      transport,
       command: typeof source.command === 'string' ? source.command : '',
       args: Array.isArray(source.args) ? source.args.filter((item) => typeof item === 'string') : [],
       cwd: typeof source.cwd === 'string' ? source.cwd : '',
       env,
       url,
       headers,
-      toolCallTimeoutMs: Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : 60_000,
-      failOnStartupError: source.failOnStartupError === true
+      // 导入后先停用：用户确认并保存时再走「探测通过才启用」，避免把一条坏配置直接挂上。
+      enabled: false,
+      ...(Number.isFinite(timeout) && timeout > 0 ? { toolCallTimeoutMs: Math.floor(timeout) } : {})
     },
     credentials,
     notes
@@ -182,7 +170,6 @@ export function credentialKeyFor(serverName, field, key) {
     .replace(/_+/gu, '_')
     .replace(/^_+|_+$/gu, '')
     .toUpperCase()
-  // 输入全空时只会剩下前缀，补一段后缀让它仍然可读且合法
   const padded = cleaned === '' ? 'MCP_VALUE' : cleaned === 'MCP' ? 'MCP_VALUE' : cleaned
   return padded.slice(0, 60)
 }

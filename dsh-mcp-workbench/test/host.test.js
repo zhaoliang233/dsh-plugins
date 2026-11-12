@@ -1,47 +1,35 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
-import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import {
+  ACTIONS,
+  ACTION_PATH,
   CLIENT_HEADER,
-  importFromProfileEntry,
-  statusPayload,
   CSRF_HEADER,
   MAX_BODY_BYTES,
   PLUGIN_NAME,
   SETTINGS_ENTRY,
-  clientRequestRejection,
+  STATUS_PATH,
   classifyDshVersion,
-  createConfigSchema,
+  clientRequestRejection,
+  createLegacyConfigSchema,
   readJsonBody,
-  sameOriginRequest
+  sameOriginRequest,
+  statusPayload
 } from '../lib/index.js'
-import { unwrapModule } from '../lib/dsh.js'
 
-test('版本门：线内通过、线外拒绝，且只把已核对过的 0.2.2-alpha.2 当逐版本验证版本', () => {
-  assert.deepEqual(classifyDshVersion('0.2.2-alpha.2'), {
-    supported: true,
-    verified: true,
-    normalized: '0.2.2-alpha.2'
-  })
-  assert.deepEqual(classifyDshVersion('0.2.2-alpha.3'), {
-    supported: true,
-    verified: false,
-    normalized: '0.2.2-alpha.3'
-  })
-  // alpha.3 落在兼容线内但没逐版本核对过 —— 只允许"带警告运行"，不能算已验证版本
-  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, '下界是 alpha.2，同线内更低的 alpha 在门外')
-  assert.equal(classifyDshVersion('0.2.2-alpha.0').supported, false, '同上，序列号低于下界')
-  assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta 的 channel 优先级高于 alpha 下界')
-  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true, 'rc 的 channel 优先级高于 alpha 下界')
+test('版本门：线内通过、线外拒绝，rc.2 起列入逐版本验证清单', () => {
+  assert.deepEqual(classifyDshVersion('0.2.2-alpha.2'), { supported: true, verified: true, normalized: '0.2.2-alpha.2' })
+  assert.deepEqual(classifyDshVersion('0.2.2-rc.2'), { supported: true, verified: true, normalized: '0.2.2-rc.2' })
+  assert.equal(classifyDshVersion('0.2.2-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false, '同线内未逐条核对的版本只带警告运行')
+  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, '下界是 alpha.2')
+  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
   assert.equal(classifyDshVersion('0.2.2').supported, true)
-  assert.equal(classifyDshVersion('0.2.2').verified, false, '正式版尚未逐版本核对，按带警告处理')
-  assert.equal(classifyDshVersion('0.2.1').supported, false, '上一发布线不再支持')
-  assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, '更早的发布线也不支持')
+  assert.equal(classifyDshVersion('0.2.1').supported, false)
   assert.equal(classifyDshVersion(undefined).supported, false)
-  assert.equal(classifyDshVersion('0.2.2+build9').supported, true, '构建元数据不影响判定')
 })
 
 test('设置条目 id 与包名同源（客户端 bundle 里的字面量必须一致）', () => {
@@ -49,15 +37,20 @@ test('设置条目 id 与包名同源（客户端 bundle 里的字面量必须�
   assert.equal(SETTINGS_ENTRY, PLUGIN_NAME)
 })
 
-test('manifest 守卫：Config 必须是模块导出，且设置字段都声明 volatile', async () => {
-  // 0.1.7 的 loader 在 `plugin()` 时从**插件对象**读 `runtime.Config`：只写内部函数
-  // 而不导出，条目就拿不到 schema（设置页读写被禁用、状态接口 writable:false）。
-  // 字段漏 `.volatile()` 则会走"重启插件"的更新路径：改一条设置就把所有实例重建。
-  const source = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
+test('Config 必须是模块导出，且旧 servers 字段保留（迁移源）', async () => {
+  const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../lib/index.js', import.meta.url), 'utf8'))
   assert.match(source, /^export const Config = /mu)
-  const schema = source.slice(source.indexOf('export function createConfigSchema'))
-  assert.match(schema, /enabled: z\.boolean\(\)\.default\(true\)\.volatile\(\)/u)
-  assert.match(schema, /servers: z\.array\(server\)\.default\(\[\]\)\.volatile\(\)/u)
+  const schema = source.slice(source.indexOf('export function createLegacyConfigSchema'))
+  assert.match(schema, /servers: z\.array\(server\)\.default\(\[\]\)/u)
+  assert.match(schema, /failOnStartupError: z\.boolean\(\)\.default\(false\)/u, '旧字段保留，旧数据才能被读到')
+})
+
+test('路由与动作常量保持稳定（客户端 bundle 依赖字面量）', () => {
+  assert.equal(STATUS_PATH, '/dsh-mcp-workbench/status')
+  assert.equal(ACTION_PATH, '/dsh-mcp-workbench/action')
+  assert.equal(CLIENT_HEADER, 'x-dsh-mcp-workbench-client')
+  assert.equal(CSRF_HEADER, 'x-dsh-mcp-workbench-csrf')
+  assert.deepEqual([...ACTIONS], ['import'])
 })
 
 test('同源判定：loopback + sec-fetch-site + origin/host 三者一致', () => {
@@ -67,9 +60,6 @@ test('同源判定：loopback + sec-fetch-site + origin/host 三者一致', () =
   assert.equal(sameOriginRequest(request({ host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' })), false)
   assert.equal(sameOriginRequest(request({ host: '127.0.0.1:3080', origin: 'http://evil.test' })), false)
   assert.equal(sameOriginRequest(request({ host: '127.0.0.1:3080', origin: 'not-a-url' })), false)
-  // 与 dsh-local-plugin-manager 同款姿态：没有 Origin 也没有 Sec-Fetch-Site 时**放行**
-  // （老浏览器与同源 GET 都可能不带），真正的门槛是 loopback + 固定客户端头，
-  // 而自定义头会逼出 CORS 预检，跨站表单伪造不了。
   assert.equal(sameOriginRequest(request({ host: '127.0.0.1:3080' })), true)
   assert.equal(sameOriginRequest(request({ host: 'h', origin: 'http://h' }, '10.0.0.5')), false, '非 loopback 一律拒绝')
 })
@@ -78,15 +68,10 @@ test('客户端请求必须同时满足 DSH 鉴权、同源与固定客户端头
   const request = (headers, address = '127.0.0.1') => ({ headers, socket: { remoteAddress: address } })
   const ok = request({ host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080', [CLIENT_HEADER]: '1' })
   assert.equal(clientRequestRejection(ok, undefined), 401, '连接层不可用时必须 fail closed')
-  // 连接层放行之后，同源与固定客户端头仍然是第二道门槛。
   const passing = { requestRejection: () => undefined }
   assert.equal(clientRequestRejection(request({ host: 'h', origin: 'http://h' }), passing), 403)
   assert.equal(clientRequestRejection({ ...ok, headers: { ...ok.headers, [CLIENT_HEADER]: '0' } }, passing), 403)
-  assert.equal(
-    clientRequestRejection(ok, { requestRejection: () => 401 }),
-    401,
-    'DSH 自身的鉴权结论优先返回'
-  )
+  assert.equal(clientRequestRejection(ok, { requestRejection: () => 401 }), 401)
   assert.equal(clientRequestRejection(ok, passing), undefined)
 })
 
@@ -102,22 +87,60 @@ function fakeRequest(body, headers = {}) {
 }
 
 test('readJsonBody：内容类型、大小与 JSON 形状都要过关', async () => {
-  assert.deepEqual(await readJsonBody(fakeRequest('{"action":"reconcile"}')), { action: 'reconcile' })
+  assert.deepEqual(await readJsonBody(fakeRequest('{"action":"import"}')), { action: 'import' })
   assert.deepEqual(await readJsonBody(fakeRequest(undefined)), {})
   await assert.rejects(() => readJsonBody(fakeRequest('{}', { 'content-type': 'text/plain' })), /application\/json/u)
   await assert.rejects(() => readJsonBody(fakeRequest('[1,2]')), /有效 JSON/u)
   await assert.rejects(() => readJsonBody(fakeRequest('x'.repeat(MAX_BODY_BYTES + 1))), /过大/u)
 })
 
-test('unwrapModule：ESM 命名空间直接用，CommonJS 取 default', () => {
-  const apply = () => {}
-  assert.equal(unwrapModule({ apply, Config: {} }).apply, apply)
-  assert.equal(unwrapModule({ default: { apply } }).apply, apply)
-  assert.equal(unwrapModule({}), undefined)
-  assert.equal(unwrapModule(undefined), undefined)
+function fakeState(overrides = {}) {
+  return {
+    csrfToken: 'tok',
+    version: '0.2.2-rc.2',
+    versionSupported: true,
+    versionVerified: true,
+    runtime: 'ready',
+    credentials: null,
+    lastError: '',
+    ...overrides
+  }
+}
+
+test('statusPayload：定位到官方管理器条目时给出真实 id 与可用性', () => {
+  const payload = statusPayload(fakeState(), {
+    managerEntry: () => ({ available: true, entryId: 'mcp-manager', moduleName: '@deepseek-ai/dsh-mcp-manager', phase: 'active', reason: 'found' }),
+    profileTargets: () => [{ entryId: 'mcp-static', serverName: 'jira', transport: 'streamable-http', enabled: true }]
+  })
+  assert.equal(payload.ok, true)
+  assert.equal(payload.runtime, 'ready')
+  assert.equal(payload.manager.available, true)
+  assert.equal(payload.manager.entryId, 'mcp-manager')
+  assert.equal(payload.profileTargets.length, 1)
+  assert.deepEqual([...payload.actions], ['import'])
+  assert.equal(payload.csrf, 'tok')
 })
 
-test('条目 config schema 与 store 的字段同构，并给出默认值', async (t) => {
+test('statusPayload：没有官方管理器时 available=false 且带原因', () => {
+  const missing = statusPayload(fakeState({ runtime: 'manager-missing' }), {
+    managerEntry: () => ({ available: false, entryId: 'mcp-manager', moduleName: '@deepseek-ai/dsh-mcp-manager', phase: null, reason: 'missing' }),
+    profileTargets: () => []
+  })
+  assert.equal(missing.manager.available, false)
+  assert.equal(missing.manager.reason, 'missing')
+  assert.equal(missing.runtime, 'manager-missing')
+})
+
+test('statusPayload：管理器被禁用时 unavailable 且原因是 disabled', () => {
+  const disabled = statusPayload(fakeState(), {
+    managerEntry: () => ({ available: false, entryId: 'mcp-manager', moduleName: '@deepseek-ai/dsh-mcp-manager', phase: 'active', reason: 'disabled' }),
+    profileTargets: () => []
+  })
+  assert.equal(disabled.manager.available, false)
+  assert.equal(disabled.manager.reason, 'disabled')
+})
+
+test('旧条目 schema 能解析旧数据并补默认值（迁移源可读）', async (t) => {
   const root = await findDshRoot()
   if (root === undefined) {
     t.skip('本机没有 DSH 安装，跳过需要 schemastery 的用例')
@@ -125,17 +148,12 @@ test('条目 config schema 与 store 的字段同构，并给出默认值', asyn
   }
   const require = createRequire(join(root, 'package.json'))
   const z = (await import(require.resolve('@deepseek-ai/schemastery'))).default
-  const schema = createConfigSchema(z)
-  const value = schema({ servers: [{ serverName: 'alpha', command: 'node' }] })
-  // `.volatile()` 的字段在解析结果里是 **cosmokit 引用对象**（loader 就地把新值写进这些
-  // 引用），宿主半体读实时值靠的正是它的 `.get()`——这条断言就是那个假设的守卫。
-  const read = (field) => (field !== null && typeof field === 'object' && typeof field.get === 'function' ? field.get() : field)
-  assert.equal(read(value.enabled), true)
-  const servers = read(value.servers)
-  assert.equal(servers[0].transport, 'stdio')
-  assert.equal(servers[0].toolCallTimeoutMs, 60_000)
-  assert.deepEqual(servers[0].args, [])
-  assert.deepEqual(servers[0].env, {})
+  const schema = createLegacyConfigSchema(z)
+  const value = schema({ servers: [{ serverName: 'alpha', command: 'node', label: 'Alpha' }] })
+  assert.equal(value.servers[0].transport, 'stdio')
+  assert.equal(value.servers[0].toolCallTimeoutMs, 60000)
+  assert.equal(value.servers[0].label, 'Alpha')
+  assert.deepEqual(value.servers[0].env, {})
 })
 
 /**
@@ -167,98 +185,3 @@ async function findDshRoot() {
   }
   return undefined
 }
-
-test('CSRF 头名与客户端头名保持稳定（客户端 bundle 依赖字面量）', () => {
-  assert.equal(CLIENT_HEADER, 'x-dsh-mcp-workbench-client')
-  assert.equal(CSRF_HEADER, 'x-dsh-mcp-workbench-csrf')
-})
-
-test('statusPayload：与配置文件同名的托管条目要给出即时提示，且不回显任何值', () => {
-  const state = {
-    csrfToken: 'tok',
-    runtime: 'ready',
-    version: '0.2.2-alpha.2',
-    versionSupported: true,
-    module: {},
-    moduleStrategy: 'loader-import',
-    loadErrors: [],
-    lastError: '',
-    lastReconcile: null,
-    settingsAvailable: true,
-    mountManager: { status: () => [] }
-  }
-  const payload = statusPayload(state, {
-    settingsView: () => ({
-      enabled: true,
-      servers: [
-        { id: 'a', serverName: 'figma', enabled: true, transport: 'streamable-http', url: 'https://x.test/mcp', env: { TOKEN: 'credential:T' }, headers: {}, args: [], command: '', cwd: '', label: '', toolCallTimeoutMs: 60000, failOnStartupError: false }
-      ]
-    }),
-    profileTargets: () => [{ entryId: 'include:mcp-figma', serverName: 'figma', transport: 'streamable-http', enabled: true, phase: 'active', endpoint: 'https://x.test/mcp', envKeys: [], headerKeys: [], hasSensitiveValues: false }],
-    reconcile: async () => {}
-  })
-  assert.equal(payload.ok, true)
-  assert.equal(payload.servers[0].conflictNote.includes('include:mcp-figma'), true)
-  assert.equal(payload.servers[0].blockedReason, '')
-  assert.deepEqual(payload.servers[0].credentialRefs, ['T'])
-  assert.equal(payload.servers[0].envKeys.length, 1)
-})
-
-test('statusPayload：没有同名时不产生提示', () => {
-  const state = {
-    csrfToken: 'tok',
-    runtime: 'ready',
-    versionSupported: true,
-    module: {},
-    loadErrors: [],
-    lastError: '',
-    lastReconcile: null,
-    settingsAvailable: true,
-    mountManager: { status: () => [] }
-  }
-  const payload = statusPayload(state, {
-    settingsView: () => ({ enabled: false, servers: [{ id: 'a', serverName: 'solo', enabled: true, transport: 'stdio', command: 'node', args: [], env: {}, headers: {}, cwd: '', url: '', label: '', toolCallTimeoutMs: 60000, failOnStartupError: false }] }),
-    profileTargets: () => [],
-    reconcile: async () => {}
-  })
-  assert.equal(payload.servers[0].conflictNote, '')
-  assert.equal(payload.totalEnabled, false)
-})
-
-test('导入钩子：完整带上非敏感配置，敏感值写进凭据库且不回传浏览器', async () => {
-  const written = []
-  const result = await importFromProfileEntry({
-    entryConfig: {
-      serverName: 'jira',
-      transport: 'streamable-http',
-      url: 'https://mcp.atlassian.com/v2/mcp',
-      toolCallTimeoutMs: 120000,
-      headers: { Authorization: 'Basic SECRET-VALUE' }
-    },
-    takenIds: ['srv-a'],
-    credentials: { set: async (ref, value) => written.push([ref, value]) }
-  })
-  assert.equal(result.ok, true)
-  assert.equal(result.draft.url, 'https://mcp.atlassian.com/v2/mcp')
-  assert.equal(result.draft.toolCallTimeoutMs, 120000)
-  assert.equal(result.draft.headers.Authorization, 'credential:MCP_JIRA_HEADERS_AUTHORIZATION')
-  assert.notEqual(result.draft.id, 'srv-a', '新 id 要避开现有条目')
-  assert.deepEqual(written, [['MCP_JIRA_HEADERS_AUTHORIZATION', 'Basic SECRET-VALUE']])
-  assert.equal(JSON.stringify(result).includes('SECRET-VALUE'), false, '返回值里不得有明文')
-})
-
-test('导入钩子：没有凭据服务时保留占位符并提示手动填写', async () => {
-  const result = await importFromProfileEntry({
-    entryConfig: { serverName: 'x', transport: 'streamable-http', url: 'https://h/mcp', headers: { 'X-Key': 'v' } },
-    takenIds: [],
-    credentials: null
-  })
-  assert.equal(result.draft.headers['X-Key'], 'credential:MCP_X_HEADERS_X_KEY')
-  assert.match(result.notes.join('|'), /手动填写/u)
-})
-
-test('导入钩子：没有可导入内容时明确失败', async () => {
-  const result = await importFromProfileEntry({ entryConfig: null, takenIds: [], credentials: null })
-  assert.equal(result.ok, false)
-  assert.match(result.error, /没有可导入/u)
-})
