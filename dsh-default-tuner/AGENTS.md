@@ -13,13 +13,13 @@
 | `client.js` | 设置分区 UI（单文件 bundle，无构建） |
 | `cordis.patch.yml` | bundle patch：把 `dsh-default-tuner` 条目插进组合 |
 
-## 兼容发布线与版本门（2026-10-01 补，2026-10-10 跨到 0.2.1，2026-10-29 跨到 0.2.2）
+## 兼容发布线与版本门（2026-10-01 补，2026-10-10 跨到 0.2.1，2026-10-29 跨到 0.2.2，2026-11-26 跨到 0.2.3）
 
-兼容线 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对清单 `0.2.2-alpha.2 0.2.2-rc.1`（跨线当轮的逐包证据见 [`docs/compat-log.md`](../docs/compat-log.md) 的 M1 轮次）。
+兼容线 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对清单 `0.2.3-alpha.2`（0.2.2 线的逐包证据见 [`docs/compat-log.md`](../docs/compat-log.md) 的 M1 轮次，本轮见 N2）。
 
 **声明必须四处同源**：`package.json#dshCompatibility.range`（+ `engines.dsh`）⟷ `lib/index.js` 的 `DSH_COMPATIBILITY_RANGE` / `VERIFIED_DSH_VERSIONS`（发布线与下界从 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 派生）⟷ `install.sh` 的五个常量 `DSH_COMPATIBILITY_RANGE` / `DSH_VERIFIED_VERSIONS` / `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR_CHANNEL` / `DSH_RELEASE_FLOOR_SEQUENCE`（**多版本用空格分隔**，脚本按词分割消费）+ 一份等价的 `prerelease_rank()` ⟷ 本文件与 `README.md` 的兼容段。`test/manifest.test.js` 的「四处同源」用例按行解析这些赋值逐字比对（并且把 range 反推回发布线与下界），加版本时必须四边一起改。
 
-**跨线只改常量，判定逻辑不动**：`classifyDshVersion()` 从发布线 + 下界派生，五个常量都是普通字面量（**不要 `Object.freeze`、不要 `Set`**，形状与 8 个已跨线插件一致）。同线内的 prerelease 必须靠 **channel 优先级比较**挡住——旧写法 `channel !== 'alpha' || seq >= N` 只能表达"下界是 alpha"，换成 rc 后会静默放行 `0.2.0-alpha.9`。2026-10-10 下界从 `rc.2` 换成 `alpha.2` 后这个比较方向反过来，**两条判据都要在矩阵里有档**：`0.2.2-beta.1`/`0.2.2-rc.1` 必须放行、`0.2.2-alpha.1` 必须挡住。
+**跨线只改常量，判定逻辑不动**：`classifyDshVersion()` 从发布线 + 下界派生，五个常量都是普通字面量（**不要 `Object.freeze`、不要 `Set`**，形状与 8 个已跨线插件一致）。同线内的 prerelease 必须靠 **channel 优先级比较**挡住——旧写法 `channel !== 'alpha' || seq >= N` 只能表达"下界是 alpha"，换成 rc 后会静默放行 `0.2.0-alpha.9`。2026-10-10 下界从 `rc.2` 换成 `alpha.2` 后这个比较方向反过来，**两条判据都要在矩阵里有档**：`0.2.3-beta.1`/`0.2.3-rc.1` 必须放行、`0.2.3-alpha.1` 必须挡住。
 
 **范围外必须 inert**：`applyForEntry()` 从 DSH CLI 入口 realpath 后向上 ≤4 层定位 `@deepseek-ai/dsh/package.json` 读真实版本，`applyForVersion()` 判定超出范围就只打一条 error 日志并返回——不注册路由、不读 profile、不写任何文件。线内未逐条核对的版本继续运行但打 warn（能力探测仍是权威判定）。
 
@@ -39,6 +39,8 @@
 逐版本逐包核对记录（`0.1.7-rc.2` 起 4 轮，含两次发布的完整流水账与注入缺陷验证）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
 **0.2.2 跨线的一条新事实（2026-10-29，M1）**：`dsh-session-title` 把 `titleInput` 投影改成 `Service.init` 里 await 注册并保留 handle，`sessionProjections.stateOf(session, key)` 被标 deprecated（legacy 路径仍保留、0.2.2 隔离宿主实测可用）。本插件 `readTitleInputState()` 仍走旧路径；若未来官方移除 legacy 路径，应改读 `ctx.sessionTitle` 的域服务或自己保存注册 handle。其余契约（`configEditor`、`refresh()`、目标条目字段与默认值）逐项复核后全部成立，业务代码一行未改。
+
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。契约复核：`dsh-config-editor` 的 `configuration()` / `edit()` 仍在（`lib/index.js:38/68`）；`dsh-session-title` 的 `get()` / `refresh()` 仍在；`dsh-session-title-first-prompt-llm` 与 `dsh-base` 的 8 个目标默认值未漂移（4096/4096/60000/5/10/5/40/80）；`dsh-settings.configure()` 未变。**路由适配**：0.2.3 删除 `connection.requestRejection()`，两个路由改为显式 `auth: 'required'` 且不再注入 `connection`，鉴权由壳层在 handler 前完成；插件保留同源 + 固定头 + CSRF。单测 54/54、打包 8 文件全过；隔离宿主的写入/恢复与分区渲染列入交接清单。
 
 **`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-config-editor`、`dsh-session-title`、`dsh-session-title-first-prompt-llm`、`dsh-experimental-session-titles-bundle` 逐字相同；`dsh-base` 只在 `tool-fs` 加 `applyPatch: false`、默认禁用 `fs-observation-policy`，`session-title-llm` 的 5 个默认值未漂移；`dsh-settings.configure()` 只把 owner 归一成 `owner.ctx.fiber`。隔离宿主实测 `/status` 200、`documentPath` 指向 profile 补丁、设置分区渲染、0 控制台报错。
 
@@ -103,7 +105,7 @@
 
 **同样的过滤在客户端再做一遍**（`client.js` 里按 `sourceKind === 'fallback'` 筛），统计字段缺失时用返回行数回退计算。这不是冗余：宿主代码改动要重启才生效，而客户端 bundle 刷新页面就更新，两者会出现版本不同步的窗口期——2026-09-28 就踩到了：用户刷新后拿到新页面、宿主还是旧进程，旧宿主返回全部活跃会话且没有统计字段，于是页面显示"0 个活跃会话"却列出一堆行、点完也不消失。客户端兜底过滤 + 统计回退把这种窗口期也兜住。
 
-守卫分两级：**status 只校验请求来源**（`clientRequestRejection`：连接层认证 + 同源 + `x-dsh-default-tuner-client: 1`），因为 CSRF 令牌正是它下发的；**action 追加令牌比对**（`x-dsh-default-tuner-csrf`，令牌取自 status 响应）。这个不对称是必需的——最初把两级写在一起，导致页面第一次请求就拿不到令牌（403），只能在浏览器里才暴露。
+守卫分两级：**status 只校验请求来源**（`clientRequestRejection`：同源 + `x-dsh-default-tuner-client: 1`；登录认证由 0.2.3 壳层在 handler 之前完成），因为 CSRF 令牌正是它下发的；**action 追加令牌比对**（`x-dsh-default-tuner-csrf`，令牌取自 status 响应）。这个不对称是必需的——最初把两级写在一起，导致页面第一次请求就拿不到令牌（403），只能在浏览器里才暴露。
 
 错误码：`invalid-value` / `entry-missing` / `entry-not-managed` / `higher-layer-override` / `entry-failed` / `entry-unavailable` / `session-not-live` / `retitle-unavailable` / `retitle-failed` / `title-input-over-limit` / `csrf-rejected` / `request-rejected` / `editor-missing`。
 

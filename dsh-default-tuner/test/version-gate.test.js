@@ -49,17 +49,17 @@ function createFakeCtx() {
  * 「更小的 alpha 序号必须挡住」是这一轮下界换 channel 后新增的两条判据。
  */
 const VERSION_MATRIX = [
-  { version: '0.2.2-alpha.2', supported: true, verified: true },
-  { version: '0.2.2-alpha.2+build.1', supported: true, verified: true, normalized: '0.2.2-alpha.2' },
-  { version: '0.2.2-alpha.3', supported: true, verified: false },
-  { version: '0.2.2-beta.1', supported: true, verified: false },
-  { version: '0.2.2-rc.1', supported: true, verified: true },
-  { version: '0.2.2', supported: true, verified: false },
-  { version: '0.2.2-alpha.1', supported: false, verified: false },
-  { version: '0.2.1', supported: false, verified: false },
-  { version: '0.2.1-rc.4', supported: false, verified: false },
-  { version: '0.2.3', supported: false, verified: false },
+  { version: '0.2.3-alpha.2', supported: true, verified: true },
+  { version: '0.2.3-alpha.2+build.1', supported: true, verified: true, normalized: '0.2.3-alpha.2' },
+  { version: '0.2.3-alpha.3', supported: true, verified: false },
+  { version: '0.2.3-beta.1', supported: true, verified: false },
+  { version: '0.2.3-rc.1', supported: true, verified: false },
+  { version: '0.2.3', supported: true, verified: false },
   { version: '0.2.3-alpha.1', supported: false, verified: false },
+  { version: '0.2.2-rc.5', supported: false, verified: false },
+  { version: '0.2.2', supported: false, verified: false },
+  { version: '0.2.4-alpha.1', supported: false, verified: false },
+  { version: '0.2.4', supported: false, verified: false },
   { version: undefined, supported: false, verified: false },
   { version: '', supported: false, verified: false }
 ]
@@ -131,21 +131,21 @@ test('范围内已核对版本：装配且不告警', async () => {
   for (const version of VERIFIED_DSH_VERSIONS) {
     const { ctx, state } = createFakeCtx()
     await applyForVersion(ctx, version)
-    assert.deepEqual(state.injected, [['configEditor', 'webServer', 'connection']], `${version}：必须按原样装配`)
+    assert.deepEqual(state.injected, [['configEditor', 'webServer']], `${version}：必须按原样装配`)
     assert.deepEqual(state.warnings, [], `${version}：已核对版本不得告警`)
   }
   // build 元数据不改变结论
   const { ctx, state } = createFakeCtx()
   await applyForVersion(ctx, `${VERIFIED_DSH_VERSIONS[0]}+build.1`)
-  assert.deepEqual(state.injected, [['configEditor', 'webServer', 'connection']], '带 build 元数据的同一版本必须装配')
+  assert.deepEqual(state.injected, [['configEditor', 'webServer']], '带 build 元数据的同一版本必须装配')
   assert.deepEqual(state.warnings, [], '带 build 元数据的同一版本不得告警')
 })
 
 test('范围内未核对版本：继续运行但必须告警（能力探测仍是权威判定）', async () => {
-  for (const version of ['0.2.2', '0.2.2-alpha.3']) {
+  for (const version of ['0.2.3', '0.2.3-alpha.3']) {
     const { ctx, state } = createFakeCtx()
     await applyForVersion(ctx, version)
-    assert.deepEqual(state.injected, [['configEditor', 'webServer', 'connection']], `${version}：同线未核对版本必须继续运行`)
+    assert.deepEqual(state.injected, [['configEditor', 'webServer']], `${version}：同线未核对版本必须继续运行`)
     assert.equal(
       state.warnings.some((message) => message.includes('not individually verified')),
       true,
@@ -186,8 +186,8 @@ test('readDshPackage：从 CLI 入口向上 4 层内命中包根，找不到就�
 })
 
 test('DSH_COMPATIBILITY_RANGE / 清单常量与声明的一致（四处同源的第一处）', () => {
-  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.2-alpha.2 <0.2.3')
-  assert.equal(DSH_RELEASE_LINE, '0.2.2')
+  assert.equal(DSH_COMPATIBILITY_RANGE, '>=0.2.3-alpha.2 <0.2.4')
+  assert.equal(DSH_RELEASE_LINE, '0.2.3')
   assert.deepEqual(DSH_RELEASE_FLOOR, { channel: 'alpha', sequence: 2 })
-  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.2-alpha.2', '0.2.2-rc.1'])
+  assert.deepEqual(VERIFIED_DSH_VERSIONS, ['0.2.3-alpha.2'])
 })

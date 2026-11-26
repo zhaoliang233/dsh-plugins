@@ -82,10 +82,8 @@ export function sameOriginRequest(req) {
   }
 }
 
-/** 浏览器来源校验：连接层拒绝 + 同源 + 客户端标记头。 */
-export function clientRequestRejection(req, connection) {
-  const rejection = connection?.requestRejection?.(req)
-  if (rejection !== undefined) return rejection
+/** 浏览器来源校验：同源 + 客户端标记头；认证由 0.2.3 的壳层在 handler 之前完成。 */
+export function clientRequestRejection(req) {
   return sameOriginRequest(req) && requestHeader(req, CLIENT_HEADER) === '1' ? undefined : 403
 }
 
@@ -377,7 +375,7 @@ async function resetEntry(ctx, entryId) {
 
 /**
  * 注册 HTTP 路由。
- * @param ctx - 宿主插件上下文（已注入 configEditor / webServer / connection）。
+ * @param ctx - 宿主插件上下文（已注入 configEditor / webServer）。
  */
 function registerRoutes(ctx) {
   const state = { csrfToken: randomUUID() }
@@ -385,7 +383,7 @@ function registerRoutes(ctx) {
   // status 只校验"请求来自本页面"：CSRF 令牌正是它下发的，第一次请求必然还没有令牌。
   // action 才追加令牌比对（令牌由 status 响应带给页面）。
   const guardOrigin = (req, res) => {
-    const rejection = clientRequestRejection(req, ctx.connection)
+    const rejection = clientRequestRejection(req)
     if (rejection === undefined) return true
     sendJson(res, rejection === 401 ? 401 : 403, {
       ok: false,
@@ -405,6 +403,7 @@ function registerRoutes(ctx) {
   const statusRoute = {
     kind: 'exact',
     path: STATUS_PATH,
+    auth: 'required',
     handler: async (req, res) => {
       if (!guardOrigin(req, res)) return
       if (req.method !== 'GET') {
@@ -456,6 +455,7 @@ function registerRoutes(ctx) {
   const actionRoute = {
     kind: 'exact',
     path: ACTION_PATH,
+    auth: 'required',
     handler: async (req, res) => {
       if (!guardAction(req, res)) return
       if (req.method !== 'POST') {
@@ -513,13 +513,13 @@ function registerRoutes(ctx) {
  * 与 `package.json#dshCompatibility.range` / `engines.dsh` / `install.sh` 的
  * `DSH_COMPATIBILITY_RANGE` **同源**，改一处必须四处一起改。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.3-alpha.2 <0.2.4'
 
 /** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
-export const DSH_RELEASE_LINE = '0.2.2'
+export const DSH_RELEASE_LINE = '0.2.3'
 
 /**
- * 兼容线下界（`0.2.2-alpha.2`）：同线内更低 channel 或更小序列号的 prerelease
+ * 兼容线下界（`0.2.3-alpha.2`）：同线内更低 channel 或更小序列号的 prerelease
  * 都低于下界，判为不支持。跨线时改这三个常量即可，判定逻辑不用动。
  */
 export const DSH_RELEASE_FLOOR = { channel: 'alpha', sequence: 2 }
@@ -531,7 +531,7 @@ const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
  * 逐版本核对清单，与 `package.json#dshCompatibility.verifiedVersions` 和
  * `install.sh` 的 `DSH_VERIFIED_VERSIONS` 同源。
  */
-export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2', '0.2.2-rc.1']
+export const VERIFIED_DSH_VERSIONS = ['0.2.3-alpha.2']
 
 /**
  * 判定 DSH 版本是否落在兼容线内。
@@ -616,7 +616,7 @@ function messageOf(error) {
  * 三者齐备才注册路由，其余组合下插件安静地不工作（其余功能仍是纯前端页面）。
  */
 function applyCompatibleRuntime(ctx) {
-  ctx.inject(['configEditor', 'webServer', 'connection'], registerRoutes)
+  ctx.inject(['configEditor', 'webServer'], registerRoutes)
 }
 
 /**

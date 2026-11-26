@@ -76,9 +76,9 @@ test('兼容发布线「四处同源」：package.json ⟷ lib ⟷ install.sh �
   // （曾经的缺陷正是声明齐全、四处同源，却完全没有实现）。本插件这一轮跨到 0.2.2 线，
   // 所以「上一线」与「下一条线」都必须在门外，旧线的 0.2.1 不再兼容。
   assert.equal(typeof host.classifyDshVersion, 'function', '宿主必须实现版本门')
-  assert.equal(host.classifyDshVersion('0.2.2-alpha.2').supported, true, '已核对的本线版本必须在门内')
-  assert.equal(host.classifyDshVersion('0.2.1').supported, false, '上一发布线必须被挡在门外')
-  assert.equal(host.classifyDshVersion('0.2.3').supported, false, '下一发布线必须被挡在门外')
+  assert.equal(host.classifyDshVersion('0.2.3-alpha.2').supported, true, '已核对的本线版本必须在门内')
+  assert.equal(host.classifyDshVersion('0.2.2-rc.5').supported, false, '上一发布线必须被挡在门外')
+  assert.equal(host.classifyDshVersion('0.2.4-alpha.1').supported, false, '下一发布线必须被挡在门外')
 })
 
 // 跨线时四处必须同时改：package.json 的 range 与 engines.dsh、install.sh 的五个版本门常量，
