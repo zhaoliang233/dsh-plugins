@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.2.0 - 2026-11-26
+
+- **跨到 `0.2.3` 发布线**：兼容线从 `>=0.2.2-alpha.3 <0.2.3` 整体换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`；`0.2.2` 及更早版本留在 `0.1.x`，范围外继续 inert。
+- **适配 0.2.3 的 `uiSession.sessionStatus` 独立服务**：动态注入改为 `['uiSession', 'uiSession.sessionStatus']`，避免未注入时读取抛错；缺服务时仍降级为 `sessions.list` 的 running。
+- 契约复核：工作区行结构、5 个 `sidebar.workspaces` 子 slot、`subagentCatalog` 投影均未变；新增 `completionFailed` 字段本插件按原规则忽略。
+
 ## 0.1.0
 
 首个版本。

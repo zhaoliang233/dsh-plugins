@@ -8,7 +8,7 @@
 
 ## 为什么只能做 DOM 补丁
 
-DSH `0.2.2-alpha.3` 的 `sidebar.workspaces` slot 只声明了 5 个子 slot，**全部作用于会话行**：
+DSH `0.2.3-alpha.2` 的 `sidebar.workspaces` slot 只声明了 5 个子 slot，**全部作用于会话行**：
 
 | 子 slot | 作用对象 |
 |---|---|
@@ -62,7 +62,9 @@ DSH `0.2.2-alpha.3` 的 `sidebar.workspaces` slot 只声明了 5 个子 slot，*
 | 归档集合 | `ctx.workspaces.list` 的 `archivedSessionIds` |
 | 未分组会话 | `sessions.list.ids` 中不属于任何 `sessionIds` 的那些 |
 
-**`uiSession` 不是公开 catalog 里的服务**，所以不写进 `inject`，用 `ctx.get('uiSession')` 探测：拿不到时降级为只用 `sessions.list.byId[id].running`（只显示「进行中」），其余状态静默缺席。
+**`uiSession.sessionStatus` 不是公开 catalog 里的服务**，所以不写进静态 `inject`，用动态 `ctx.inject(['uiSession', 'uiSession.sessionStatus'], …)` 等待就绪（0.2.3 起它是独立服务，必须与 `uiSession` 一起注入才可读）；拿不到时降级为只用 `sessions.list.byId[id].running`（只显示「进行中」），其余状态静默缺席。
+
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线换成 `>=0.2.3-alpha.2 <0.2.4`（下界 alpha.2），逐版本核对 `0.2.3-alpha.2`。契约复核：`sidebar.workspaces` 仍声明同样 5 个子 slot；`[role="treeitem"][data-row-key^="workspace:"]`、`aria-expanded`、`session:`/`empty`/`overflow:` 前缀与 `subagentCatalog` 投影仍在；**`uiSession.sessionStatus` 在 0.2.3 变为独立服务**，客户端动态注入已改为 `['uiSession', 'uiSession.sessionStatus']`，缺服务时仍降级为 `sessions.list` 的 running。`SessionStatus` 新增 `completionFailed` 字段，本插件按原规则忽略（失败回合仍按已完成待查看处理）。单测 26/26、打包全过；真实运行态的显示与 hover 让位列入交接清单。
 
 **`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-client-ui-workspace` 的改动集中在工作区菜单（`Menu` → `data-context-menu-trigger`）与新增对话框；行结构契约未变——`[role="treeitem"][data-row-key^="workspace:"]`、`aria-expanded`、`session:`/`empty`/`overflow:` 前缀、`sessionStatuses()` 的 pending→warning / running→ongoing / completionUnread→done 顺序、`subagentCatalog` 投影、`uiSession.sessionStatus` 服务全部仍在（符号计数与 alpha.3 相同）。隔离宿主实测启动图含本包、页面 0 控制台报错；没有运行中会话时指示器不出现属预期（idle 不显示）。未覆盖：真实运行态下的显示与让位。
 
@@ -101,7 +103,7 @@ completionUnread → done
 
 ## 版本门
 
-宿主实际版本用 `dsh --version` 取。本插件当前在 `0.2.2` 线、下界 `alpha.3`、verified `0.2.2-alpha.3`。跨线只改五个常量（`DSH_COMPATIBILITY_RANGE`、`DSH_RELEASE_LINE`、`DSH_RELEASE_FLOOR`、`PRERELEASE_CHANNELS`、`VERIFIED_DSH_VERSIONS`）与 `install.sh` 的五个同名常量，判定逻辑不动。
+宿主实际版本用 `dsh --version` 取。本插件当前在 `0.2.3` 线、下界 `alpha.2`、verified `0.2.3-alpha.2`。跨线只改五个常量（`DSH_COMPATIBILITY_RANGE`、`DSH_RELEASE_LINE`、`DSH_RELEASE_FLOOR`、`PRERELEASE_CHANNELS`、`VERIFIED_DSH_VERSIONS`）与 `install.sh` 的五个同名常量，判定逻辑不动。
 
 **纯客户端插件的版本门只关 Host 半体**：client bundle 由 `dsh-client-modules` 按 `package.json#dsh.client` 直接进启动图，范围外照样在浏览器里跑。所以真正兜底的是 `client.js` 里的能力检查，改版时别以为 Host 门会顺手关掉 UI。
 

@@ -4,28 +4,28 @@ import test from 'node:test'
 import plugin, { PLUGIN_NAME, applyForVersion, classifyDshVersion, inject } from '../lib/index.js'
 
 test('keeps the Host half inert outside the audited release line', () => {
-  assert.equal(classifyDshVersion('0.2.2-alpha.3+local').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.3+local').verified, true, 'build metadata is stripped before the check')
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, true, 'individually verified within the line')
-  assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta sits above the alpha floor')
-  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true, '0.2.2-rc.1 已在 2026-11-05 逐条核对')
-  assert.equal(classifyDshVersion('0.2.2').supported, true, 'the stable release of the line stays inside')
-  assert.equal(classifyDshVersion('0.2.2').verified, false, 'the stable release is still unlisted until audited')
-  assert.equal(classifyDshVersion('0.2.2-alpha.2').supported, false, 'a smaller alpha sequence sits below the floor')
-  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, 'previous verified line is now outside')
-  assert.equal(classifyDshVersion('0.2.3').supported, false, 'the next patch line belongs to another plugin version')
+  assert.equal(classifyDshVersion('0.2.3-alpha.2+local').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.2+local').verified, true, 'build metadata is stripped before the check')
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').verified, false, 'same line but not individually verified')
+  assert.equal(classifyDshVersion('0.2.3-beta.1').supported, true, 'beta sits above the alpha floor')
+  assert.equal(classifyDshVersion('0.2.3-rc.1').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-rc.1').verified, false, 'not individually audited on this line')
+  assert.equal(classifyDshVersion('0.2.3').supported, true, 'the stable release of the line stays inside')
+  assert.equal(classifyDshVersion('0.2.3').verified, false, 'the stable release is still unlisted until audited')
+  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false, 'a smaller alpha sequence sits below the floor')
+  assert.equal(classifyDshVersion('0.2.2-rc.5').supported, false, 'previous verified line is now outside')
+  assert.equal(classifyDshVersion('0.2.4-alpha.1').supported, false, 'the next patch line belongs to another plugin version')
   assert.equal(classifyDshVersion(undefined).supported, false)
 
   let warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.0-rc.2')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.2-rc.5')
   assert.equal(warnings, 1, 'a version below the line must warn and stay inert')
   warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.2')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.3')
   assert.equal(warnings, 1, 'an unlisted same-line version must warn but still run')
   warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.2-alpha.3')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.3-alpha.2')
   assert.equal(warnings, 0, 'the verified version must be silent')
 })
 

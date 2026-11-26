@@ -448,7 +448,9 @@ window.__ModuleLoader__.load({
       }, 'workspace state indicator')
 
       if (typeof ctx.inject === 'function') {
-        ctx.inject(['uiSession'], (inner) => {
+        // 0.2.3 起 `uiSession.sessionStatus` 是独立服务：必须同时注入它，
+        // 否则读取 `uiSession.sessionStatus` 会抛 cannot get property … without inject。
+        ctx.inject(['uiSession', 'uiSession.sessionStatus'], (inner) => {
           const source = inner === null || typeof inner !== 'object' ? undefined : inner.uiSession?.sessionStatus
           if (hasSnapshotSource(source) === false) return
           statuses = source.getSnapshot()
