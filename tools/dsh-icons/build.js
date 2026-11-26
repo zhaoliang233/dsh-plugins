@@ -215,9 +215,12 @@ function escapeRegExp(value) {
 
 /** 定位 `@deepseek-ai/dsh-client-ui-primitives` 在浏览器 seed 里指向的变量与其冻结导出对象。 */
 function primitivesModule(source) {
-  const seed = /"@deepseek-ai\/dsh-client-ui-primitives":\s*([A-Za-z0-9_$]+)/u.exec(source)
+  // 0.2.3 起 seed 值可能包一层调用：`"@deepseek-ai/dsh-client-ui-primitives":wrap("<包名>",$Z)`，
+  // 此时真正的导出对象是最后一个实参；旧结构直接是标识符。两种形态都接受。
+  const seed = /"@deepseek-ai\/dsh-client-ui-primitives":\s*([A-Za-z0-9_$]+(?:\([^()]*\))?)/u.exec(source)
   if (seed === null) throw new Error('seed 映射里没有 client-ui-primitives')
-  const variable = seed[1]
+  const wrapped = /^[A-Za-z0-9_$]+\([^()]*,\s*([A-Za-z0-9_$]+)\s*\)$/u.exec(seed[1])
+  const variable = wrapped === null ? seed[1] : wrapped[1]
   // 定义可能带 `const/let/var`，也可能只是逗号声明表里的尾项（`…,zj=Object.freeze(…)`，
   // 0.1.7 起就是这样），所以只要求左侧不是标识符字符，不再要求声明关键字。
   const definition = new RegExp(`(?<![A-Za-z0-9_$])${escapeRegExp(variable)}\\s*=\\s*Object\\.freeze\\(Object\\.defineProperty\\(`, 'u').exec(source)

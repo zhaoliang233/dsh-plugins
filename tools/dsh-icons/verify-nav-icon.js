@@ -192,15 +192,24 @@ function settingsNavCss(root) {
   const source = fs.readFileSync(clientPath, 'utf8')
   // 0.2.2 的壳层 CSS 里开始出现转义引号（grid-template 等），所以字符串字面量不能
   // 再用 `"([^"]+)"` 粗取——它会在第一个 `\"` 处截断、navCell 整段被漏掉。
+  const candidates = []
   for (const match of source.matchAll(/const (css\$\d+) = "((?:[^"\\]|\\.)*)"/gu)) {
-    const css = JSON.parse(`"${match[2]}"`)
+    candidates.push(JSON.parse(`"${match[2]}"`))
+  }
+  // 0.2.3 起官方 bundle 把 CSS 放进 `meta.stylesheets`，值是模板字符串
+  // （`text:context=>\`…\``），旧的 `const css$N = "…"` 形态不再存在。
+  for (const match of source.matchAll(/`((?:[^`\\]|\\.)*)`/gu)) {
+    candidates.push(match[1].replace(/\\([`\\])/gu, '$1'))
+  }
+  for (const css of candidates) {
     if (!css.includes('navCell')) continue
     // 混淆前缀（例如 `VOzbGW_`）由构建生成，不能写死：从 CSS 里第一个类名取出来，
     // 全串替换成 fixture 用的 `sn-`。取错了会静默丢样式——量出来就是"图标错位"（踩过）。
     const prefix = /\.[A-Za-z0-9]+_/u.exec(css)?.[0].slice(1)
-    if (prefix === undefined) throw new Error('设置页样式里取不到类名前缀（壳层结构可能变了）')
+    // 模板字符串扫描也会命中类名映射表（如 `VOzbGW_navCell`），那类候选没有前缀，跳过即可。
+    if (prefix === undefined) continue
     const stripped = css.split(prefix).join('sn-')
-    if (!stripped.includes('.sn-navCell{')) throw new Error('设置页样式里没有 .sn-navCell 规则（壳层结构可能变了）')
+    if (!stripped.includes('.sn-navCell{')) continue
     return stripped
   }
   throw new Error('在设置页产物里找不到含 navCell 的样式表（壳层结构可能变了，需人工核对）')
