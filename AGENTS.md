@@ -26,7 +26,7 @@
 | `dsh-default-workspace/` | 创建并保护受管的“通用会话”默认 Workspace，并提供独立的新建通用会话入口 |
 | `dsh-chat-archive-manager/` | 设置页的归档管理：分组浏览、批量归档、恢复与 fail-closed 永久删除，不创建额外 Workspace |
 | `dsh-local-plugin-manager/` | 面向插件开发者：设置页独立分区「插件开发」，管理当前 web profile 里以 `link:` 挂载的本地源码插件 |
-| `dsh-sticky-user-bubble/` | 阅读长对话时把已滚出顶部的用户气泡固定在阅读区顶部 |
+| `dsh-sticky-user-bubble/` | 阅读长对话时把已滚出顶部的用户气泡固定在阅读区顶部；与 DSH 会话面板重叠时让位（左移或暂时收起） |
 | `dsh-mobile-compat/` | 为精确声明的 DSH 版本提供移动抽屉、Settings、Composer、触控与安全区兼容层 |
 | `dsh-auto-load-history/` | 打开会话时自动补齐整段历史，顶部「加载更早」不再常驻（设置→通用末尾的总开关可关闭） |
 | `dsh-extra-context/` | 给全部会话/子代理的 system prompt 附加一段额外说明与上下文，设置页分段维护、热生效 |

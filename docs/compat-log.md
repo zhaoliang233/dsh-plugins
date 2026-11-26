@@ -10,6 +10,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| U2（2026-11-26，遮挡修复） | `0.2.3-alpha.2` | 用户报告会话面板被吸顶气泡遮挡。定位：面板是 0.2.3 新增的 `aside[data-session-panel]`（`docked`/`overlay`），`overlay` 形态在会话内容层，吸顶气泡在 `shell.overlay`（z-index 20）必然盖住它；1180×713 实测相交 2520px²。修复在 `dsh-sticky-user-bubble`：相交时左移到面板左侧（8px 间隙，不越正文列左边界），放不下则隐藏，面板关闭恢复；`docked` 不触发。隔离宿主实测 1512/1180/900 三档 + 四档滚动位置全过，单测 30/30。**未提交、未发版** |
 | U1（2026-11-26，跨线升级） | `0.2.2 → 0.2.3-alpha.2` | 9 个已装插件逐条换线到 `>=0.2.3-alpha.2 <0.2.4`：版本门/四处同源、`connection.requestRejection()`→路由 `auth:'required'`（6 个宿主插件）、`uiSession.sessionStatus` 独立服务（running-indicator）、`dsh-atomic-write` 依赖升线（local-plugin-manager）。逐个 `publish:check` 全绿（77/19/40/26/54/48/28/81/47）；隔离宿主启动图含全部 9 个插件，6 条 status 路由带 cookie 全 200、无 cookie 401。**未提交、未发版**；真机 GUI（sticky 几何 / archive 删除恢复 / mcp 交互）与发版 bump 待用户检查 |
 | N2（2026-11-26，跨线侦察） | `0.2.2-rc.2 → 0.2.3-alpha.2` | 运行版本越线：9 个插件自身门判 unsupported、host 半体 inert，但平台门按「预发布参与范围比较」判 compatible，9 个 client bundle 仍进启动图（**半装配**）。`0.2.2-rc.2→rc.5` 只 23 包变化、够不着契约；`rc.5→0.2.3-alpha.2` 329 包变化、新增 16、移除 5。0.2.3 删掉 `connection.requestRejection()`、样式认领改 `meta().stylesheets`、移除两个 settings-plugins 客户端包。**跨线需逐插件重做契约**；退回 npm `latest`（`0.2.2-rc.5`）仍是线内选择 |
 | R2（2026-11-09，首发） | `0.2.2` 线 | `dsh-mcp-workbench@0.1.0`（改名后首发）与 `dsh-workspace-running-indicator@0.1.0` 首发：占位 `0.0.1` → `npm trust` 配 trusted publisher → tag 触发 OIDC。三项判据逐包通过（registry / SLSA provenance / GitHub Release），tag 命名空间一致（71/71） |
@@ -63,6 +64,29 @@
 | `dsh-workspace-running-indicator` | `0.1.0` | `>=0.2.2-alpha.3 <0.2.3`（2026-11-09 首发） |
 
 发版前用 `npm view <包名> version maintainers` 复核；上表是历史快照，不是长期真相。
+
+## U2：会话面板被吸顶气泡遮挡（2026-11-26，`0.2.3-alpha.2`）
+
+**问题**：用户报告「会话页面右上角的会话状态图标，点击弹出/收起状态，但状态被气泡挡住」。气泡即 `dsh-sticky-user-bubble` 的吸顶用户气泡；「会话状态」是 0.2.3 的会话面板（标题栏 `conversation.session.header.utilities` 里的 flat-list 开关）。
+
+**定位**：
+- 面板结构 `aside[data-session-panel]`：`docked` 在正文右侧留白（`.EvIC1a_asideSlot`，`position:sticky; z-index:9`）；`overlay` 在宽度不足时浮在正文右上（`position:absolute`，宽 280–300px）。
+- 吸顶副本在 `shell.overlay`（frame 层，z-index 20），与内容层浮层相比始终在上层；1180×713 下副本（x1006–1066, y92–134）与面板（x885–1165, y88–162）相交 2520px²，`elementFromPoint` 命中气泡（`zZGsja_bubble`）。
+- 复现方式：隔离宿主（`dsh --profile web --port 0 --no-open`，共享当前 profile 的 `link:` 源码）+ 独立无头 Chrome（`--remote-debugging-port=63638`）+ CDP 脚本导航到带 token 的 URL，点开会话、滚到长用户消息、打开面板。
+
+**修复**（`dsh-sticky-user-bubble` 0.6.0，纯客户端）：
+- `applyPanelYield(host, clone, pin)`：用副本自然矩形（`hostRect.left + pin.left`、真实 top、当前宽高）与面板矩形判断相交；相交先算 `panelRect.left - cloneWidth - 8`，不小于 `[data-chat-flow].left` 就左移并记 `data-dsh-sticky-user-bubble-occlusion="shifted"`，否则 `visibility:hidden` + `occlusion="hidden"`；不相交恢复 `pin.left`/`visible` 并移除属性。
+- `trackPanelMotion()`：每次测量比较面板矩形；面板 `getAnimations()` 有 running 时持续 `schedule(false)`，避免让位停在 0.16s 入场动画的中途（首版实测停在动画中途，左移多算了 8px）。
+- `renderPinnedClone` 里把 `applyCloneOffset` 移到 `visibility:visible` 之后，让遮挡判定拥有最终决定权。
+
+**验证**（隔离宿主 + 无头 Chrome 158，真实长会话 469 行）：
+- 1512×726：面板 `docked`（x1197–1497），副本 x1097–1157 不重叠，`occlusion` 缺失、`ready`——dock 模式不误伤。
+- 1180×713：面板 `overlay`（x885–1165），副本左移到 x317（间隙 8），`shifted`。
+- 900×613：面板 `overlay`（x605–885），450px 宽副本无空间左移，`hidden`、`visibility:hidden`。
+- 面板打开后滚动 0.15/0.35/0.55/0.75：264/450/60/60px 宽副本分别 `shifted`/`hidden`/`shifted`/`shifted`，稳定无抖动；关闭面板恢复；点击副本跳回生效；控制台 0 报错。
+- 单测新增 2 条（左移/隐藏 + 恢复），`npm run publish:check` 30/30、打包 8 文件全过。
+
+**遗留**：未提交、未发版；客户端改动刷新页面即生效（`link:` 源码路线），registry 版本需按 minor 发 `0.6.0`。
 
 ## U1：把 9 个已装插件升到 `0.2.3` 线（2026-11-26）
 

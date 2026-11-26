@@ -264,7 +264,7 @@ function createObserverHarness() {
   return { Observer, instances }
 }
 
-function createBrowserDom({ withFonts = false, withHoverRoot = true } = {}) {
+function createBrowserDom({ withFonts = false, withHoverRoot = true, sessionPanel = null } = {}) {
   const overlay = element({ left: 0, top: 0, right: 1200, bottom: 900, width: 1200, height: 900 })
   const host = element({ left: 0, top: 0, right: 1200, bottom: 900, width: 1200, height: 900 })
   const scroll = element({ left: 0, top: 100, right: 1000, bottom: 800, width: 1000, height: 700 })
@@ -380,9 +380,16 @@ function createBrowserDom({ withFonts = false, withHoverRoot = true } = {}) {
       }
     },
     querySelectorAll(selector) {
-      return selector === '[data-conversation-scroll]' ? [scroll] : []
+      if (selector === '[data-conversation-scroll]') return [scroll]
+      if (selector === '[data-chat-flow]') return [flow]
+      if (selector === '[data-session-panel]') return panelState.value === null ? [] : [panelState.value]
+      return []
+    },
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] ?? null
     }
   }
+  const panelState = { value: sessionPanel }
   if (withFonts) document.fonts = fontEvents
   for (const value of [html, head, body, overlay, host, scroll, scrollInner, flow, row, hoverRoot, stack, bubble, link]) {
     value.ownerDocument = document
@@ -434,6 +441,7 @@ function createBrowserDom({ withFonts = false, withHoverRoot = true } = {}) {
     overlay,
     host,
     fontEvents,
+    panelState,
     mutationObservers: mutationHarness.instances,
     resizeObservers: resizeHarness.instances,
     MutationObserver: mutationHarness.Observer,
@@ -1522,6 +1530,73 @@ test('pins a message whose reference token renders as a chip instead of its raw 
     const clonedChip = dom.host.firstChild.querySelector('[data-ref-chip]')
     assert.ok(clonedChip)
     assert.equal(clonedChip.getAttribute('title'), REFERENCE_TOKEN)
+  } finally {
+    mounted?.cleanup()
+    restore()
+  }
+})
+
+test('slides the pinned copy left of an overlapping session panel', () => {
+  const panel = element({ left: 600, top: 0, right: 880, bottom: 150, width: 280, height: 150 }, {
+    'data-session-panel': 'overlay'
+  })
+  const dom = createBrowserDom({ sessionPanel: panel })
+  const restore = installBrowserGlobals(dom)
+  let mounted
+  try {
+    mounted = mountSticky(dom)
+    assert.equal(dom.host.firstChild, undefined)
+
+    dom.bubble.rect = { left: 600, top: 30, right: 900, bottom: 70, width: 300, height: 40 }
+    dom.scroll.dispatch('scroll')
+    dom.flushFrames()
+    const clone = dom.host.firstChild
+    assert.ok(clone)
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-state'), 'ready')
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-occlusion'), 'shifted')
+    assert.equal(clone.style.left, '292px')
+    assert.equal(clone.style.visibility, 'visible')
+
+    dom.panelState.value = null
+    dom.scroll.dispatch('scroll')
+    dom.flushFrames()
+    const restored = dom.host.firstChild
+    assert.equal(restored, clone)
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-occlusion'), null)
+    assert.equal(restored.style.left, '600px')
+    assert.equal(restored.style.visibility, 'visible')
+  } finally {
+    mounted?.cleanup()
+    restore()
+  }
+})
+
+test('hides the pinned copy when the panel leaves no room in the chat column', () => {
+  const panel = element({ left: 600, top: 0, right: 880, bottom: 150, width: 280, height: 150 }, {
+    'data-session-panel': 'overlay'
+  })
+  const dom = createBrowserDom({ sessionPanel: panel })
+  const restore = installBrowserGlobals(dom)
+  let mounted
+  try {
+    // The chat column now starts under the shifted position: no room left of the panel.
+    dom.flow.rect = { left: 500, top: 116, right: 1500, bottom: 700, width: 1000, height: 584 }
+    mounted = mountSticky(dom)
+
+    dom.bubble.rect = { left: 600, top: 30, right: 900, bottom: 70, width: 300, height: 40 }
+    dom.scroll.dispatch('scroll')
+    dom.flushFrames()
+    const clone = dom.host.firstChild
+    assert.ok(clone)
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-occlusion'), 'hidden')
+    assert.equal(clone.style.visibility, 'hidden')
+    assert.equal(clone.style.left, '600px')
+
+    dom.panelState.value = null
+    dom.scroll.dispatch('scroll')
+    dom.flushFrames()
+    assert.equal(dom.host.getAttribute('data-dsh-sticky-user-bubble-occlusion'), null)
+    assert.equal(dom.host.firstChild.style.visibility, 'visible')
   } finally {
     mounted?.cleanup()
     restore()

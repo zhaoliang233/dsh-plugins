@@ -35,6 +35,25 @@ DOM 行只接受核心显式标记：`[data-conversation-scroll]`（scrollport�
 
 这条匹配路径依赖两个核心 ABI：`data-ref-chip` 与 chip `title`。DSH 改名或不再写 `title` 时，含 `@`/`/` 的用户消息退回 `bubble-not-found`（fail closed），升级时必须重新核对；两者会被 clone 原样保留，固定副本的渲染与原文一致。
 
+## 会话面板让位（0.2.3-alpha.2）
+
+DSH 0.2.3-alpha.2 在会话标题栏的 `conversation.session.header.utilities` 里放了「会话面板」开关（`button[data-session-panel-toggle]`）。面板是 `aside[data-session-panel]`：
+
+- `data-session-panel="docked"`：停靠在正文右侧留白（`conversation.chat.aside` → `.EvIC1a_asideSlot`，`position:sticky; z-index:9`），与 scrollBody 内的副本不重叠。
+- `data-session-panel="overlay"`：窗口不够宽时浮在正文右上（`position:absolute`，宽 280–300px），仍属于会话内容层。
+
+副本位于 `shell.overlay`（frame 层，z-index 20），叠层上必然盖住面板；实测 1180×713 下副本（x1006–1066, y92–134）与面板（x885–1165, y88–162）相交 2520px²，`elementFromPoint` 命中气泡。
+
+让位规则（`applyPanelYield`）：
+
+- 用副本的**自然矩形**（`hostRect.left + pin.left`、真实 top、当前宽高）判断相交，不用左移后的矩形，避免每帧来回翻转。
+- 相交时先算 `shiftedLeft = panelRect.left - cloneWidth - PANEL_CLEARANCE(8)`；只要不小于 `[data-chat-flow]` 的左边界就写 `left` 左移，host 记 `data-dsh-sticky-user-bubble-occlusion="shifted"`。
+- 正文列放不下就写 `visibility:hidden`，记 `occlusion="hidden"`；面板关闭/移开后恢复 `pin.left` 与 `visible`，并移除该属性。
+- 面板进入/退场有 0.16s 动画，`trackPanelMotion()` 在每次测量里比较面板矩形，并在 `panel.getAnimations()` 有 running 时持续 `schedule(false)`，让位跟着最终位置。
+- `docked` 形态与正文不重叠，检测自然为否，副本不动。
+
+整套是 **fail open**：面板标记消失或结构变化时什么都不做，退回「副本盖住面板」的旧行为；出现阈值、让位清距、展开上限与跳回全部不变。
+
 ## 原生气泡克隆
 
 `0.1.6-alpha.1` 的 bubble 只有 CSS Module class、没有稳定 data marker，用户行也不再保证存在旧版 `data-time-hover-root`。`roundedBackgroundElement(row, expectedText)` 不依赖 hash class：
@@ -70,14 +89,15 @@ clone 的 hover/focus 意图存在 effect 级 `cloneStateRef.current`（`{ updat
 
 **`0.2.2-alpha.2`（2026-10-28，跨发布线，最小兼容修复）**：`dsh-client-ui-chat` 的 CSS 变量默认 flow gap 由 6px 降到 4px，但 `MIN_PUSH_GAP` 仍把让位清距稳定在 16px；`.EvIC1a_column` 新增 `position: relative`、`.EvIC1a_scroll` 的 `overflow-y` 由 `auto` 改为 `clip auto`（在 `[data-conversation-scroll]` 上下文仍是 `clip visible`），`data-chat-anchor-key`（5 处）、`data-chat-flow`、`data-composer-seat`、`data-ref-chip` 与「加载更早」按钮块全部保留。真实 GUI（隔离 0.2.2 宿主 + headless Chrome 156、1512×813、长会话 4356 行）实测：`data-dsh-sticky-user-bubble-state="ready"`、clone 宽 401.09 / 高 42 / top 92（阅读线），滚动到中段后状态稳定、0 控制台报错。**业务代码未改**，只换版本门与清单。
 
-**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。静态契约复核：`[data-conversation-scroll]`、`[data-chat-flow]`、`data-chat-anchor-key`、`data-chat-flow-key`/`-kind`、`[data-composer-seat]`、`shell.overlay`、`uiConversation`、`retainedBy` 仍在；`data-ref-chip` 仍由 `dsh-web-frontend` 产物提供。**未重跑六项几何量测**（需要长会话真机，按 rc.1 先例带此覆盖缺口声明）。单测 28/28、打包 8 文件全过。
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。静态契约复核：`[data-conversation-scroll]`、`[data-chat-flow]`、`data-chat-anchor-key`、`data-chat-flow-key`/`-kind`、`[data-composer-seat]`、`shell.overlay`、`uiConversation`、`retainedBy` 仍在；`data-ref-chip` 仍由 `dsh-web-frontend` 产物提供。**未重跑六项几何量测**（需要长会话真机，按 rc.1 先例带此覆盖缺口声明）。该版本新增的会话面板（`[data-session-panel]`）已按「会话面板让位」适配并在隔离宿主实测（1512/1180/900 三档视口）。单测 30/30、打包 8 文件全过。
 
 范围 DSH `>=0.2.3-alpha.2 <0.2.4`，其中 `0.2.3-alpha.2` 已做静态契约核对（几何量测未重跑）。它已在 `VERIFIED_DSH_VERSIONS` 清单里，运行时不再打「未逐条核对」的警告。**视觉观感仍需实机确认**。同线后续版本可带警告运行，但客户端必须继续通过 Session/Chat snapshot、Slot、核心 DOM 标记和几何自检；跨到 `0.2.3` 前必须重新读取源码和实时契约。Host 版本门、installer 与 manifest 必须同步该范围；`package.json#engines.dsh` 与同一 range 同源，`test/manifest.test.js` 有同源断言守卫（range 反推发布线与下界、`install.sh` 的五个常量、`install.sh` 验证清单逐字断言）。版本门从 `DSH_RELEASE_LINE` / `DSH_RELEASE_FLOOR` / `PRERELEASE_CHANNELS` 派生，`install.sh` 有一份含 `prerelease_rank()` 的等价 shell 版——下界是 prerelease 时，同线内更低 channel 或更小序列号必须靠 channel 优先级比较挡住，旧的 `channel !== 'alpha' || seq >= N` 写法只表达「下界是 alpha」，换界后会静默放行。
 
-**当前 DOM 的两条结构事实**（核对 flow 结构时要连这条一起看）：
+**当前 DOM 的三条结构事实**（核对 flow 结构时要连这条一起看）：
 
 1. **行容器多了一层**：`[data-slot="conversation.chat.flow"]`（类名为空、`display:contents` 语义、静态高度 0）现在是行的直接父元素，`.EvIC1a_column` 是它的父。插件取到的 flow 仍是 `.EvIC1a_column`（`[data-chat-flow]` 计数 492 不变），`readingInset` 取 `flow.parentElement`（`.EvIC1a_scroll`）仍 16px，`visibleFlow()` 与 `paintedTopBoundary` 的语义不变——chat CSS 里那些 `:is(.column,[data-slot="…flow"])>` 的放宽就是为它做的，以后核对 flow 结构要连这条一起看。
-2. **新增 `[data-chat-turn-spacer]`（`EvIC1a_turnSpacer`，静态 `height:0`）与 opt-in 折行动画**：`[data-chat-motion]` 只在「turn 运行中 / 刚结束的 motionTail / 有 pending 输入」时挂到 flow 上（静态会话实测计数 0），折叠中的行会被写 `height`/`margin-top`/`opacity` 过渡、被移除的高度记到 spacer 上、并按需把 `overflowAnchor` 置 `none`。插件只在滚动/RO/rAF 触发时重算 `incomingTop`，而折叠期间 flow 总高被 spacer 顶住（RO 可能不触发）→ 理论上存在 ≤240ms 的陈旧 `push`；**本轮脚本化量测是静态回放，覆盖不到这一瞬**，需在真机 GUI 上按「回答结束后收起工作步骤 / 下次有新消息时收起」两个设置各看一遍。
+2. **会话面板**：`aside[data-session-panel="docked"|"overlay"]`，开关是 `conversation.session.header.utilities` 里的 `button[data-session-panel-toggle]`（flat-list 图标，带 `conversation.session.panel.indicator` 内联槽）。`overlay` 形态与吸顶副本同区域，是本插件目前唯一会让位的官方浮层；详细规则见「会话面板让位」。
+3. **新增 `[data-chat-turn-spacer]`（`EvIC1a_turnSpacer`，静态 `height:0`）与 opt-in 折行动画**：`[data-chat-motion]` 只在「turn 运行中 / 刚结束的 motionTail / 有 pending 输入」时挂到 flow 上（静态会话实测计数 0），折叠中的行会被写 `height`/`margin-top`/`opacity` 过渡、被移除的高度记到 spacer 上、并按需把 `overflowAnchor` 置 `none`。插件只在滚动/RO/rAF 触发时重算 `incomingTop`，而折叠期间 flow 总高被 spacer 顶住（RO 可能不触发）→ 理论上存在 ≤240ms 的陈旧 `push`；**本轮脚本化量测是静态回放，覆盖不到这一瞬**，需在真机 GUI 上按「回答结束后收起工作步骤 / 下次有新消息时收起」两个设置各看一遍。
 
 核心默认 flow gap 已是 6px（`--dsh-chat-flow-gap` 只在特定上下文写成 12/16px），插件取到的让位清距仍恒 16px——来源是 `MIN_PUSH_GAP` 下限而不是行自己的 margin；`gap === readingInset === 16` 这个巧合仍成立。
 
@@ -98,6 +118,7 @@ clone 的 hover/focus 意图存在 effect 级 `cloneStateRef.current`（`{ updat
 - **折行动画期间的陈旧几何（`0.2.1` 新增的系统，本轮未改代码）**：`[data-chat-motion]` 挂在 flow 上时，被折叠的行会走 `height`/`margin-top` 过渡（≤240ms），插件只在滚动/RO/rAF 触发时重算 `incomingTop`，而折叠期间 flow 总高由 `[data-chat-turn-spacer]` 顶着（RO 可能不触发）——理论上存在「副本让位位置短暂停在旧值」的窗口。折叠的是助理/过程行、不涉及用户行本身，且宿主的滚动位置由 `overflowAnchor` 与 spacer 保住；要确认观感需在 3080 上按设置→通用的「工作步骤收起时机」（回答结束后 / 下次有新消息时）各看一遍。
 - 阅读区下界依赖 composer 位置，核对点：`ConversationRoot` 的 `composerSeat` 仍带 `data-composer-seat`、仍是 `scrollBody` 的直接子元素且 `position:sticky; bottom:0`；DSH 改名或移动 composer 后限高退回视口，展开的气泡会重新压住输入卡片与状态栏。
 - 让位距离与展开上限都按折叠高度和下一个 durable 行的位置推算：按「让位」的排除规则，pending submission echo 与 pending steering 不会成为「下一个卡片」，它们短暂经过顶部时仍可能被副本遮挡。展开窗口只剩 `gap` 级空间时 hover 不再展开（避免退化成极窄的内部滚动窗口）；要读全文时向上滚一点让卡片离开即可恢复。
+- 会话面板让位依赖 `[data-session-panel]` 与 `data-session-panel` 属性值：DSH 改名/改结构时退回旧行为（副本仍会盖住面板），升级核对时要重新确认。面板之外的内容层浮层不在让位范围内。
 - **当前会话的解析必须两条路都留着**：只有 `current` 时 alpha.2 会全盘失效（状态停在 `inactive-snapshot`），只有 `mainView` 时旧版失效。升级后先确认 `SessionListState` 的字段（`ids`/`byId`/`phase`/`subagentsByParent`）、`SessionSummary.retainedBy` 仍由 `retainInfo` 投影，以及 `mainView` 仍是主视图的 source 名。
 - DSH 升级后必须重新确认 `uiConversation` 的 Chat target、ChatSnapshot 节点结构、row marker、`data-time-hover-root`（如仍存在）、专用 bubble marker、`data-composer-seat`、root display/writing-mode、computed style、line rect 和 Slot contract，再声明兼容。
 
@@ -115,6 +136,16 @@ npm run publish:check
 安装后检查 `dsh web --dump-config` 的 bundle graph 是否包含 `dsh-sticky-user-bubble`。Host 入口或 profile/package 组成改变需要用户在 Warp 中重启 `dsh web`；客户端 bundle 改变后刷新页面，除非已确认 client-plugin watcher 正在运行。
 
 GUI 验证覆盖：顶部初始隐藏、下滚/上滚切换、点击/键盘跳回原消息、原气泡（含底部内边距与圆角）完全离开可视区后才出现副本、让位时保留消息间距且新卡片不被遮挡、长内容 hover/focus 展开的高度上限随下一个卡片收紧（超出部分内部滚动、空间过小时保持三行）、展开高度不越过 composer（输入卡片与底部状态栏保持可见）、流式回答/工具调用持续更新时展开状态不闪断、三行 ellipsis 与第四行完全隐藏、不同 font-size/line-height/padding/border、透明/渐变/小圆角、固定 height/min-height、主题与字体变化、窄屏、会话和 Chat/trajectory 切换、历史 prepend、含 `@` 引用 chip 的用户消息、unsupported layout fail closed，以及 clone 内部控件不可触发且不阻塞 composer。
+
+**会话面板让位实测（2026-11-26，`0.6.0`，隔离 DSH 0.2.3-alpha.2 宿主 + 无头 Chrome 158，真实长会话 469 行）**：
+
+| 视口 | 面板形态 | 结果 |
+|---|---|---|
+| 1512×726 | `docked`（x1197–1497） | 副本 x1097–1157 不重叠，`occlusion` 缺失，`state=ready` |
+| 1180×713 | `overlay`（x885–1165） | 副本左移到 x317（面板左 385，间隙 8），`occlusion=shifted` |
+| 900×613 | `overlay`（x605–885） | 450px 宽副本无空间左移，`occlusion=hidden`、`visibility:hidden` |
+
+面板打开后滚动到 0.15/0.35/0.55/0.75 四个位置：264/450/60/60px 宽的副本分别 `shifted`/`hidden`/`shifted`/`shifted`，位置稳定无抖动。关闭面板后恢复 `pin.left`、`visible`、无 `occlusion`；点击副本跳回原消息仍生效；控制台 0 报错；`npm test` 30/30。
 
 
 ## 验证判据（每轮必跑）

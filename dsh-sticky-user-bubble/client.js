@@ -17,6 +17,12 @@ window.__ModuleLoader__.load({
     // The composer is sticky at the bottom inside the conversation scrollport, so the
     // scrollport's own bottom edge is not the end of the reading area.
     const COMPOSER_SELECTOR = '[data-composer-seat]'
+    // DSH 0.2.3-alpha.2 adds the conversation session panel in the header's utilities
+    // seat. In its `overlay` form it floats above the chat column, inside the same
+    // stacking context as the conversation view, so the shell-overlay clone paints on
+    // top of it. The panel is an explicit, temporary surface: the clone yields.
+    const SESSION_PANEL_SELECTOR = '[data-session-panel]'
+    const PANEL_CLEARANCE = 8
     const USER_KINDS = new Set(['user', 'steering'])
     const BUBBLE_MARKERS = ['[data-user-bubble]', '[data-chat-user-bubble]']
     // DSH's user-text projector emits `data-ref-chip="<kind>"` plus `title="<raw token>"`
@@ -927,6 +933,77 @@ window.__ModuleLoader__.load({
       target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
     }
 
+    function sessionPanelOf() {
+      const ownerDocument = typeof document === 'undefined' ? undefined : document
+      if (ownerDocument === null || ownerDocument === undefined) return null
+      if (typeof ownerDocument.querySelector !== 'function') return null
+      const panel = ownerDocument.querySelector(SESSION_PANEL_SELECTOR)
+      if (panel === null || panel === undefined) return null
+      return typeof panel.getBoundingClientRect === 'function' ? panel : null
+    }
+
+    // Overlap uses the clone's natural box (`pin.left`, the real top after the yield
+    // push) instead of its current box: after the clone has been shifted aside, testing
+    // the shifted box would flip the decision back and forth on every frame.
+    function panelOverlap(left, top, width, height, panelRect) {
+      return left < panelRect.right - EPSILON
+        && left + width > panelRect.left + EPSILON
+        && top < panelRect.bottom - EPSILON
+        && top + height > panelRect.top + EPSILON
+    }
+
+    // Left edge of the chat column: a shifted clone may not drift over the rail or the
+    // conversation's side gutters. Falls back to the host box when the flow is absent.
+    function chatColumnLeft(fallbackLeft) {
+      const ownerDocument = typeof document === 'undefined' ? undefined : document
+      if (ownerDocument !== null && ownerDocument !== undefined && typeof ownerDocument.querySelector === 'function') {
+        const flow = ownerDocument.querySelector(FLOW_SELECTOR)
+        const flowRect = flow === null || flow === undefined ? null : rectOf(flow)
+        if (flowRect !== null) return flowRect.left
+      }
+      return fallbackLeft
+    }
+
+    // A session panel that overlaps the clone takes precedence: the clone slides to the
+    // panel's left while the chat column still has room, otherwise it steps out entirely.
+    // The original bubble is untouched; this only moves or hides the reading copy.
+    function applyPanelYield(host, clone, pin) {
+      const restore = () => {
+        setStyleValue(clone, 'left', `${pin.left}px`, true)
+        setStyleValue(clone, 'visibility', 'visible', true)
+        host?.removeAttribute?.('data-dsh-sticky-user-bubble-occlusion')
+      }
+      const panel = sessionPanelOf()
+      if (panel === null
+        || typeof host?.getBoundingClientRect !== 'function'
+        || typeof clone.getBoundingClientRect !== 'function') {
+        restore()
+        return
+      }
+      const hostRect = host.getBoundingClientRect()
+      const cloneRect = clone.getBoundingClientRect()
+      const panelRect = panel.getBoundingClientRect()
+      if (!finiteDimension(cloneRect.width) || !finiteDimension(cloneRect.height)) {
+        restore()
+        return
+      }
+      const naturalLeft = hostRect.left + pin.left
+      const naturalTop = cloneRect.top
+      if (!panelOverlap(naturalLeft, naturalTop, cloneRect.width, cloneRect.height, panelRect)) {
+        restore()
+        return
+      }
+      const shiftedLeft = panelRect.left - cloneRect.width - PANEL_CLEARANCE
+      if (shiftedLeft >= chatColumnLeft(hostRect.left) - EPSILON) {
+        setStyleValue(clone, 'left', `${shiftedLeft - hostRect.left}px`, true)
+        setStyleValue(clone, 'visibility', 'visible', true)
+        host?.setAttribute?.('data-dsh-sticky-user-bubble-occlusion', 'shifted')
+        return
+      }
+      setStyleValue(clone, 'visibility', 'hidden', true)
+      host?.setAttribute?.('data-dsh-sticky-user-bubble-occlusion', 'hidden')
+    }
+
     // The clone is only moved while it yields to the next user card, never rebuilt:
     // re-measuring the whole bubble on every scroll frame would jitter. Only the clone's
     // layout origin and the clip at the scrollport edge change, so both stay cheap
@@ -939,6 +1016,7 @@ window.__ModuleLoader__.load({
       const clipped = Math.max(0, push - inset)
       setStyleValue(clone, 'top', `${pin.top - push}px`, true)
       setStyleValue(clone, 'clipPath', clipped > EPSILON ? `inset(${clipped}px 0 0 0)` : 'none', true)
+      applyPanelYield(host, clone, pin)
     }
 
     function renderPinnedClone(host, pin, stateRef) {
@@ -1091,13 +1169,14 @@ window.__ModuleLoader__.load({
       }
       rememberIntent()
       updateExpanded()
-      applyCloneOffset(host, pin)
       setCriticalStyles(clone, {
         cursor: 'pointer',
         pointerEvents: 'auto',
         touchAction: 'manipulation',
         visibility: 'visible'
       })
+      // Last, so an overlapping session panel can override the visible state above.
+      applyCloneOffset(host, pin)
       // Keep an already expanded bubble inside the free room as the next card approaches:
       // the measurement loop hands each newer pin to the rendered clone instead of
       // rebuilding it, so hovering survives the yield and can never cover that card.
@@ -1166,8 +1245,39 @@ window.__ModuleLoader__.load({
           }
         }
 
+        // The session panel animates in, resizes when a section expands, and disappears
+        // without a scroll event. A changed panel box re-runs the yield decision on the
+        // next frame; unchanged boxes stop the loop.
+        let lastPanelRect = null
+        const trackPanelMotion = () => {
+          const panel = sessionPanelOf()
+          if (panel === null) {
+            lastPanelRect = null
+            return
+          }
+          const rect = panel.getBoundingClientRect()
+          if (rect === null || rect === undefined) return
+          const previous = lastPanelRect
+          lastPanelRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+          const running = typeof panel.getAnimations === 'function'
+            && panel.getAnimations().some((animation) => animation.playState === 'running')
+          if (running) {
+            // The enter/exit slide moves the box for a few frames; keep measuring so the
+            // yield follows the final position instead of stopping at an intermediate one.
+            schedule(false)
+            return
+          }
+          if (previous !== null
+            && Math.abs(rect.left - previous.left) <= 0.5
+            && Math.abs(rect.top - previous.top) <= 0.5
+            && Math.abs(rect.right - previous.right) <= 0.5
+            && Math.abs(rect.bottom - previous.bottom) <= 0.5) return
+          schedule(false)
+        }
+
         const measure = (forced) => {
           if (disposed) return
+          trackPanelMotion()
           const next = measurePinned(scroll, overlayRef.current, modelRef.current)
           observeSource(next?.source || null, next?.scroll || null)
           if (!forced && samePin(currentPin, next)) {
@@ -1292,6 +1402,7 @@ window.__ModuleLoader__.load({
           visualViewport?.removeEventListener?.('resize', onResize)
           clearHost(copyHostRef.current)
           setHostState(copyHostRef.current, null)
+          lastPanelRect = null
           currentPin = null
           observedSource = null
           observedSourceRoot = null
