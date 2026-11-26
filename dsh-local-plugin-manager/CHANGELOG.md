@@ -2,6 +2,15 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.7.0] - 2026-11-26
+
+### 变更
+
+- **跨到 `0.2.3` 发布线**：兼容线从 `>=0.2.2-alpha.2 <0.2.3` 整体换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`；`0.2.2` 及更早版本留在 `0.6.x`，范围外继续 inert。
+- **适配 0.2.3 的路由鉴权**：`connection.requestRejection()` 已删除；status / action 两个路由改为显式 `auth: 'required'`、不再注入 `connection`，鉴权由壳层在 handler 之前完成；插件保留 loopback、同源、固定客户端头与 CSRF 校验。
+- 运行时依赖 `@deepseek-ai/dsh-atomic-write` 的范围随发布线升到 `~0.2.3-alpha.2`，`npm install` 已同步 lockfile。
+- 契约复核：`writePluginEnabled` / `removeBundle` / `dependencySpec`、`dsh-hmr` 的 profile 重组与清单缓存、`settings.section` 与 `settings.section.icon` 槽均仍在。
+
 ## [0.6.0] - 2026-11-12
 
 ### 变更

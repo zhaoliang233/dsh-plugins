@@ -43,9 +43,7 @@ export function sameOriginRequest(req) {
   }
 }
 
-export function clientRequestRejection(req, connection) {
-  const rejection = connection.requestRejection(req)
-  if (rejection !== undefined) return rejection
+export function clientRequestRejection(req) {
   return sameOriginRequest(req) && requestHeader(req, CLIENT_HEADER) === '1' ? undefined : 403
 }
 
@@ -136,8 +134,9 @@ function registerRoutes(ctx, state) {
   const statusRoute = {
     kind: 'exact',
     path: STATUS_PATH,
+    auth: 'required',
     handler: async (req, res) => {
-      const rejection = clientRequestRejection(req, ctx.connection)
+      const rejection = clientRequestRejection(req)
       if (rejection !== undefined) {
         sendJson(res, rejection, { ok: false, error: rejection === 401 ? 'browser authentication required' : 'request origin rejected' })
         return
@@ -196,8 +195,9 @@ function registerRoutes(ctx, state) {
   const actionRoute = {
     kind: 'exact',
     path: ACTION_PATH,
+    auth: 'required',
     handler: async (req, res) => {
-      const rejection = clientRequestRejection(req, ctx.connection)
+      const rejection = clientRequestRejection(req)
       if (rejection !== undefined || requestHeader(req, CSRF_HEADER) !== state.csrfToken) {
         const status = rejection === 401 ? 401 : 403
         sendJson(res, status, {
@@ -237,7 +237,7 @@ function registerRoutes(ctx, state) {
   }, `${PLUGIN_NAME}: HTTP routes`)
 }
 
-export const inject = ['webServer', 'connection']
+export const inject = ['webServer']
 
 export async function apply(ctx, config = {}) {
   const profile = typeof config.profile === 'string' && config.profile !== '' ? config.profile : DEFAULT_PROFILE

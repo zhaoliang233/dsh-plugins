@@ -2,7 +2,7 @@
 
 ## 定位与边界
 
-面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.2-alpha.2 <0.2.3` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.2-alpha.2`、`0.2.2-rc.1` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
+面向**插件开发者**的本地开发插件管理：只管理 DSH `>=0.2.3-alpha.2 <0.2.4` 兼容发布线的 `web` profile 中已安装的 `link:` bundle（`0.2.3-alpha.2` 已逐版本验证）。不扫描未安装源码、不安装或更新插件、不管理 Agent preset、不删除源码或插件数据，也不修改 DSH 安装包。
 
 `0.2.2-rc.1`（2026-11-05，同线例行）已同样逐包核对：`dsh-atomic-write` 逐字相同；`dsh-plugin-manager` 只改了 `git ls-remote` 的 argv 记录与连接失败诊断经 install-log 回传，`writePluginEnabled`/`removeBundle`/`dependencySpec` 未动；`dsh-app-boot` 的 `evaluatePluginCompatibility` 逐字相同（服务实现改用 `impl.ctx.fiber`）；`dsh-hmr` 只把 `include.refresh()` 包进 `try/catch`，并把 `entry.fiber` 改存 `registry.plugin()` 返回的 wrapper（`Object.create(fiber)`，属性访问不变；官方自己的身份比较已改成 `entry.fiber.ctx.fiber`，本包不做身份比较）；`cordis` 4.1 把 `fiber.store` 换成 `committed`/`provisions`（本包不读）。
 
@@ -32,7 +32,7 @@
 | `settings.section` 是 list slot（需 `id`），注册选项没有 `icon`；壳层 `navIcon(id)` 只白名单 5 个官方 id，其余回落齿轮 | `dsh-client-ui-settings-general/lib/client.js:244`（该文件两版唯一差异是版本号字面量） |
 | 内置 `settings.section` 的 order 仍是 account −10 / general 0 / models 10 / plugins 15 / agent-presets 20（上限 20），本包 110 仍在其后 | 五个官方 client 包的注册行（`dsh-client-ui-settings-account`/`-general`/`-models`/`-settings-plugins`/`-agent-preset`） |
 | `webServer.register({kind, path, handler})`：重复 (kind, path) 抛错、返回 disposer | `dsh-host-webserver/lib/index.js:298`（**逐字相同**） |
-| `connection.requestRejection(req)`：trusted host/origin 栅栏 → 403，未认证 → 401，放行 → `undefined` | `dsh-client-connection/lib/index.js:639`（0.2.1 多传绑定地址/协议与 TLS 判定，三段判据不变） |
+| 路由鉴权：0.2.3 起 `webServer.register` 默认 `auth: 'required'`，由壳层（Token/Connection）在 handler 前完成 trusted-host 与签名 cookie 校验；`connection.requestRejection()` 已删除 | `dsh-host-webserver/lib/index.js:653-654`；`dsh-client-connection/lib/index.js:412`（`admit()`） |
 | 自带 `<style>` 必须打 `data-plugin`：0.2.1 起 client-modules 只认领**本 factory 新产生**的未打标签 style（此前会把别人留下的也认领走） | `dsh-client-modules/lib/client.js:495`（`claimStyles(id, before)`）、`:682`（materialize 前记 `before`） |
 
 ## Host
@@ -107,7 +107,7 @@ plugin --profile web remove <server-derived-name> --config.minimumReleaseAge=0
 
 ## 安全
 
-status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 trusted-host 与签名浏览器 cookie 边界，再要求 loopback、same-origin/Sec-Fetch-Site 和自定义 Client header；action 另要求当前进程随机 CSRF token、`application/json` 和 16 KiB 上限。固定 Client header 不是认证凭据，status 返回 CSRF token 前必须完成 DSH browser auth。新增 mutation 时继续采用服务端白名单参数，禁止开放任意路径、specifier、命令或 CLI 参数。
+status/action 都显式声明 `auth: 'required'`，由壳层复用 trusted-host 与签名浏览器 cookie 边界（0.2.3 起在 handler 前完成），插件再要求 loopback、same-origin/Sec-Fetch-Site 和自定义 Client header；action 另要求当前进程随机 CSRF token、`application/json` 和 16 KiB 上限。固定 Client header 不是认证凭据，status 返回 CSRF token 前必须完成 DSH browser auth。新增 mutation 时继续采用服务端白名单参数，禁止开放任意路径、specifier、命令或 CLI 参数。
 
 ## 版本规则
 
@@ -125,6 +125,8 @@ status/action 都必须先调用 DSH `connection.requestRejection(req)` 复用 t
 - **0.2.1 起移除 `link:` 插件可以真的进程内生效**：`ResolutionRouter.replace()` 放开了 profile 作用域那条「必须重启」的硬门，因此在 `link:` 插件停掉之后移除 profile 映射与 `localPackageNames` 不再要求重启进程。
 
 **`0.2.2-alpha.2`（2026-10-28，跨发布线，最小兼容修复）**：`dsh-plugin-manager` 的 `writePluginEnabled()` 主体与 `dependencySpec()` 仍与 0.2.1 同构（启用写显式 `false`、命中行就地改、`writeFileAtomic(..., { mode: 384 })` 都未变）；`dsh-atomic-write` 的 `lib/` 与 0.2.1-rc.4 **逐字相同**；`dsh-hmr` 的 profile 配置监听与 manifest 缓存失效仍在；`dsh-app-boot` 新增的 `dsh.bundle.platforms` 校验对本包无影响（无该字段 = 全平台放行）。隔离 `DSH_HOME` + 0.2.2-alpha.2 宿主实测：`/dsh-local-plugin-manager/status` 200、`dshVersion:"0.2.2-alpha.2"`、`verifiedVersion:true`，6 个 `link:` 插件全部 `manageable:true`；设置页「插件开发」分区真实渲染；三个导航图标补丁在真实 GUI 里均生效。`npm install` 已把 `@deepseek-ai/dsh-atomic-write` 与 lockfile 同步到 `~0.2.2-alpha.2`。**业务代码未改**，只换版本门、依赖范围与清单（单测 48 项，新增 sprite mask 回归）。**随后用户反馈设置菜单图标空白**（2026-10-29）：0.2.2 的图标是 sprite 壳，组件 `outerHTML` 只有 `<use href="#…">`；已改为优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG（`navIconSymbolSource()`），旧线无该导出时退回 `outerHTML`。
+
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。契约复核：`writePluginEnabled` / `removeBundle` / `dependencySpec`、`dsh-hmr` 的 `reconcileProfilePatches` 与 `PackageManifests`、`withFileLock` / `writeFileAtomic` 仍在；`settings.section` 与 `settings.section.icon` 槽仍在（官方插件页改由 `dsh-client-ui-plugin-manager` 承担，order 仍 15）。**路由适配**：0.2.3 删除 `connection.requestRejection()`，status/action 改为显式 `auth: 'required'` 且不再注入 `connection`，鉴权由壳层在 handler 前完成；插件保留 loopback/同源/固定头/CSRF。运行时依赖 `@deepseek-ai/dsh-atomic-write` 升到 `~0.2.3-alpha.2` 并同步 lockfile。单测 48/48、打包 10 文件全过；隔离宿主的开关/卸载链路列入交接清单。
 
 逐版本逐项核对记录（`0.1.7-alpha.2` 起 6 轮，含三处新结构逐行核对与 45/24/20/47 项验收数据）见 [`docs/compat-log.md`](../docs/compat-log.md)。
 
@@ -147,5 +149,5 @@ npm run publish:check
 ## 发布与安装路线
 
 - 用户路线是官方命令 `dsh plugin --profile web add dsh-local-plugin-manager`（卸载用 `remove`）；升级必须显式写版本号（profile 依赖是 caret 范围）；`./install.sh` 只保留为源码 `link:` 开发路线，它会先 `npm install` 再跑 `npm run publish:check`。
-- **本包有运行时依赖，且它们是对齐官方的关键**：`@deepseek-ai/dsh-atomic-write`（`~0.2.2-alpha.2`，profile 写锁 + 原子提交）与 `yaml`（`^2.9.0`，patch 编辑）。锁是**文件系统级**的（`<锚点>.lock` + `wx`），因此即使装的是另一个补丁版本也仍与宿主互斥；但锁路径约定若在发布线之间变化就会失配——跨 `0.2.1` 与 `0.2.2` 时都已重新核对（该包 lib 逐字相同，锁与 `mode` 都没动），跨 `0.2.3` 前要再核一次。release 工作流必须在 `npm publish` 之前显式安装依赖，否则 `prepublishOnly` 的测试会以 `ERR_MODULE_NOT_FOUND` 失败（0.1.4 就是这样没发出去的，根仓库 release 工作流已补上依赖安装步骤，改动它时不要删掉）。**改依赖范围必须跟着 `npm install` 并把 `package-lock.json` 一起提交**：CI 与 release 在有 lockfile 时跑 `npm ci`，范围与 lock 失配会以 `EUSAGE` 停在“安装依赖”这一步（2026-10-10 的 0.4.0 首次 tag 就是这样失败的，两个 workflow 都没产出任何发布物）；本机 `publish:check` 用已装好的 `node_modules`，察觉不到这种失配。
+- **本包有运行时依赖，且它们是对齐官方的关键**：`@deepseek-ai/dsh-atomic-write`（`~0.2.3-alpha.2`，profile 写锁 + 原子提交）与 `yaml`（`^2.9.0`，patch 编辑）。锁是**文件系统级**的（`<锚点>.lock` + `wx`），因此即使装的是另一个补丁版本也仍与宿主互斥；但锁路径约定若在发布线之间变化就会失配——跨 `0.2.1` 与 `0.2.2` 时都已重新核对（该包 lib 逐字相同，锁与 `mode` 都没动），跨 `0.2.3` 前要再核一次。release 工作流必须在 `npm publish` 之前显式安装依赖，否则 `prepublishOnly` 的测试会以 `ERR_MODULE_NOT_FOUND` 失败（0.1.4 就是这样没发出去的，根仓库 release 工作流已补上依赖安装步骤，改动它时不要删掉）。**改依赖范围必须跟着 `npm install` 并把 `package-lock.json` 一起提交**：CI 与 release 在有 lockfile 时跑 `npm ci`，范围与 lock 失配会以 `EUSAGE` 停在“安装依赖”这一步（2026-10-10 的 0.4.0 首次 tag 就是这样失败的，两个 workflow 都没产出任何发布物）；本机 `publish:check` 用已装好的 `node_modules`，察觉不到这种失配。
 - 发布：`npm run publish:check`（`verify` 的 `check` + `test`，再加 `pack:check` 的 tarball 白名单）是发布闸门，`prepublishOnly` 已绑定它；`scripts/` 不进发布物（`files` 白名单里没有它），`scripts/check-pack.js` 因此是纯开发期校验。`.github/workflows/ci.yml` 在 Node 20/22 上执行同一闸门，发布由根仓库 `.github/workflows/release.yml` 收到 `dsh-local-plugin-manager-v<版本>` tag 后经 npm trusted publishing（OIDC）完成（`private: true` 会被工作流拒绝，本包已改为可公开发布）。

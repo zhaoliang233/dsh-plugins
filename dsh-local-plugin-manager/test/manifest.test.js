@@ -28,7 +28,7 @@ test('declares one compatible-release-line dual Host and Settings-section bundle
   // 依赖范围随发布线一起走：插件跑在 0.2.2 线上，写锁就必须是同一线的实现
   // （锁路径 `<锚点>.lock` + `wx` + mode 0o600 在整条 0.2.x 线上逐字相同，见 AGENTS.md）。
   assert.deepEqual(manifest.dependencies, {
-    '@deepseek-ai/dsh-atomic-write': '~0.2.2-alpha.2',
+    '@deepseek-ai/dsh-atomic-write': '~0.2.3-alpha.2',
     yaml: '^2.9.0'
   })
   assert.equal(manifest.files.includes('CHANGELOG.md'), true)

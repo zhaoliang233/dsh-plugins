@@ -27,21 +27,16 @@ test('accepts only loopback same-origin browser requests', () => {
   }, '192.168.1.20')), false)
 })
 
-test('requires the DSH browser-auth boundary before custom request checks', () => {
+test('defers DSH auth to the shell and keeps same-origin + client-header checks', () => {
   const trustedHeaders = {
     host: '127.0.0.1:3080',
     origin: 'http://127.0.0.1:3080',
     'sec-fetch-site': 'same-origin',
     'x-dsh-local-plugin-manager-client': '1'
   }
-  const authenticated = { requestRejection: () => undefined }
-  const unauthenticated = { requestRejection: () => 401 }
-  const wrongAuthority = { requestRejection: () => 403 }
-
-  assert.equal(clientRequestRejection(request(trustedHeaders), authenticated), undefined)
-  assert.equal(clientRequestRejection(request(trustedHeaders), unauthenticated), 401)
-  assert.equal(clientRequestRejection(request(trustedHeaders), wrongAuthority), 403)
-  assert.equal(clientRequestRejection(request({ ...trustedHeaders, 'x-dsh-local-plugin-manager-client': undefined }), authenticated), 403)
+  assert.equal(clientRequestRejection(request(trustedHeaders)), undefined)
+  assert.equal(clientRequestRejection(request({ ...trustedHeaders, origin: 'http://evil.example' })), 403)
+  assert.equal(clientRequestRejection(request({ ...trustedHeaders, 'x-dsh-local-plugin-manager-client': undefined })), 403)
 })
 
 test('observes the Loader row without writing to it', async () => {
