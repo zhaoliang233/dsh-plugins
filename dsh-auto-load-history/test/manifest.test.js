@@ -42,12 +42,12 @@ test('declares a publishable Web client bundle', () => {
   assert.deepEqual(manifest.dshCompatibility, {
     policy: 'compatible-release-line',
     package: '@deepseek-ai/dsh',
-    range: '>=0.2.2-alpha.2 <0.2.3',
-    verifiedVersions: ['0.2.2-alpha.2', '0.2.2-rc.1', '0.2.2-rc.2'],
+    range: '>=0.2.3-alpha.2 <0.2.4',
+    verifiedVersions: ['0.2.3-alpha.2'],
     futureVersionsRequireCapabilityChecks: true
   })
-  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.2-alpha.2 <0.2.3"'), true)
-  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.2-alpha.2 0.2.2-rc.1 0.2.2-rc.2"'), true)
+  assert.equal(installScript.includes('DSH_COMPATIBILITY_RANGE=">=0.2.3-alpha.2 <0.2.4"'), true)
+  assert.equal(installScript.includes('DSH_VERIFIED_VERSIONS="0.2.3-alpha.2"'), true)
   assert.equal(manifest.engines.dsh, manifest.dshCompatibility.range, 'engines.dsh must stay in sync with the declared range')
   assert.equal(installScript.includes('(alpha|beta|rc)'), true)
   assert.equal(installScript.includes('--config.minimumReleaseAge=0'), true)

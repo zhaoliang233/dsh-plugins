@@ -2,6 +2,14 @@
 
 本文件记录本项目的所有重要变更。
 
+## [0.6.0] - 2026-11-26
+
+### 变更
+
+- **跨到 `0.2.3` 发布线**：兼容线从 `>=0.2.2-alpha.2 <0.2.3` 整体换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`；`0.2.2` 及更早版本留在 `0.5.x`，范围外继续 inert。
+- 契约复核：会话分页 API（`loadThrough`/`loadOlder`/`consumeOlder`/`historyLoadStatus` 等）、`conversation.session.header.actions` 槽、`settings.general.item` 与 `[data-conversation-scroll]` 均未变；业务代码未改。
+- 四处同源声明与测试断言同步到新发布线。
+
 ## [0.5.0] - 2026-11-12
 
 ### 变更

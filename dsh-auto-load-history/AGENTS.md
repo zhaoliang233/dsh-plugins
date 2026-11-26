@@ -28,7 +28,7 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 
 清 `hasMore` 的原生路径只有两条：顶部「加载更早」按钮（`loadOlder()`，`{ maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }`：**至少 50 条消息且至少 2 个 turn 起点，最多 500 条**，`dsh-api-session-controller/lib/types/client/sessions/session.js:19`/`:20`）和回合导航未加载圆点的 `loadThrough(seq)`（同选项上限 500、下限改为 200，循环到覆盖目标 seq，同文件 `:22`/`:25`/`:338`）。两者在 rc.2 前是**固定 50 / 200**，现在是 turn 对齐的区间——插件只依赖「一次调用推进多少 seq」，不依赖页大小本身。服务端 `paginate` 仍用 `cut > 0` 决定 `hasMore`（`lib/types/history.js:425`，0.1.7-rc.2 时是 `:445`），所以“点最早回合”只是大概率清掉 `hasMore`；插件的目标必须显式定为 `hasMore === false`。顶部按钮的渲染条件是 `hasMore && …`（`dsh-client-ui-chat/lib/client.js:5271`，0.1.7 时是 `:5179`），因此**按钮消失就是 `hasMore === false` 的可观测等价物**。
 
-## 依赖的契约（0.1.7-alpha.1 起各线已核对，0.2.2-alpha.2 于 2026-10-28、0.2.2-rc.1 于 2026-11-05、0.2.2-rc.2 于 2026-11-12 复核；下表行号取自 0.2.0-rc.2，rc.2 新增项按源码文件给）
+## 依赖的契约（0.1.7-alpha.1 起各线已核对，0.2.2-alpha.2 于 2026-10-28、0.2.2-rc.1 于 2026-11-05、0.2.2-rc.2 于 2026-11-12、0.2.3-alpha.2 于 2026-11-26 复核；下表行号取自 0.2.0-rc.2，rc.2 新增项按源码文件给）
 
 | 契约 | 位置 | 用途 |
 |---|---|---|
@@ -50,6 +50,8 @@ slot 是**契约内**的公开路径；读 `uiWorkspace.selection`（persistent 
 **`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-api-session-controller` 只有两处内部改动（`walkJsonValue` 重写、控制帧由单键改成 `frame.changes` 批量），`loadThrough`/`loadOlder`/`hasMore`/`loadingOlder`/`prependWindow` 符号计数与 alpha.2 完全相同；`dsh-client-ui-conversation` 的 `conversation.session.header.actions` 与 `[data-conversation-scroll]` 未变。隔离宿主实测启动图含本包、0 控制台报错。未覆盖：真机长会话补齐（需要真实模型会话）。
 
 **`0.2.2-rc.2`（2026-11-12）**：`dsh-api-session-controller` 新增 `loadOlder({ deferConsumption })` / `consumeOlder()` / `SessionSnapshot.historyLoadStatus`（以及 `historyWasPartial`）；`loadThrough`/`hasMore`/`prependWindow` 仍在。本插件改为「取页与提交分离」的 rc.2 路径，旧版本走原路径（能力探测，不看版本号）。单测 40/40（新增 2 条延迟分页用例 + 状态机判定）。**未覆盖**：真机长会话的帧间隔与锚点实测（需要真实长会话；rc.2 路径的首次实测数据留到日常使用或下一轮 GUI 验收补）。
+
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线整体换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。契约复核：`loadThrough` / `loadOlder` / `hasMore` / `loadingOlder` / `consumeOlder` / `deferConsumption` / `historyLoadStatus` / `historyWasPartial` 与 `SessionSnapshot` 仍在；会话作用域 list slot `conversation.session.header.actions`（list/session）仍由 `dsh-client-ui-conversation` 声明并渲染；`settings.general.item` 与 `[data-conversation-scroll]` 未变。Host 半体仍是纯版本门（无路由、无 `requestRejection` 依赖）。单测 40/40、打包 8 文件全过。**未覆盖**：真机长会话的帧间隔与锚点实测（需要真实长会话）。
 
 ## 运行模型
 
@@ -112,7 +114,7 @@ CSS 文本按核心 `TranscriptViewRow.module.css` / `PermissionRow.module.css` 
 
 ## 发布线
 
-`>=0.2.2-alpha.2 <0.2.3`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫。
+`>=0.2.3-alpha.2 <0.2.4`。同线后续版本带警告运行，客户端能力检查（`loadThrough`/`loadOlder` 是否存在）是最终依据。`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 版本门与本文必须同源，清单由 `test/manifest.test.js` 与 `test/host.test.js` 守卫。
 
 版本门从常量派生：`DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`；`install.sh` 有等价 shell 版（含 `prerelease_rank()`）。跨线只改常量与清单，判定逻辑不动；下界是 prerelease 时用 channel 优先级比较，别退回 `channel !== 'alpha' || seq >= N`。
 

@@ -9,27 +9,27 @@ import plugin, {
 } from '../lib/index.js'
 
 test('keeps the Host half inert outside the audited release line', () => {
-  assert.equal(classifyDshVersion('0.2.2-alpha.2+local').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.2+local').verified, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false, 'same line but not individually verified')
-  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true, 'rc.1 was audited on 2026-11-05')
+  assert.equal(classifyDshVersion('0.2.3-alpha.2+local').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.2+local').verified, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').verified, false, 'same line but not individually verified')
+  assert.equal(classifyDshVersion('0.2.3-rc.1').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-rc.1').verified, false, 'not individually audited on this line')
   // 下界是 alpha：同线内更小的 alpha 序列号一律在门外，beta/rc 在门内。
-  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, 'a smaller alpha sequence sits below the floor')
-  assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta sits above the alpha floor')
-  assert.equal(classifyDshVersion('0.2.2').supported, true, 'the GA release of the line is inside the door')
-  assert.equal(classifyDshVersion('0.2.2').verified, false, 'GA is inside but not individually listed')
-  assert.equal(classifyDshVersion('0.2.1-rc.4').supported, false, 'previous release line is now outside')
-  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false, 'the next patch line is outside')
+  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false, 'a smaller alpha sequence sits below the floor')
+  assert.equal(classifyDshVersion('0.2.3-beta.1').supported, true, 'beta sits above the alpha floor')
+  assert.equal(classifyDshVersion('0.2.3').supported, true, 'the GA release of the line is inside the door')
+  assert.equal(classifyDshVersion('0.2.3').verified, false, 'GA is inside but not individually listed')
+  assert.equal(classifyDshVersion('0.2.2-rc.5').supported, false, 'previous release line is now outside')
+  assert.equal(classifyDshVersion('0.2.4-alpha.1').supported, false, 'the next patch line is outside')
   assert.equal(classifyDshVersion(undefined).supported, false)
 
   let warnings = 0
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.1-rc.4')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.2-rc.5')
   assert.equal(warnings, 1, 'below the line: warn and stay inert')
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.2')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.3')
   assert.equal(warnings, 2, 'same line but unlisted: warn but still run')
-  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.2-alpha.2')
+  applyForVersion({ logger: { warn() { warnings += 1 } } }, '0.2.3-alpha.2')
   assert.equal(warnings, 2, 'the verified version is silent')
 })
 
