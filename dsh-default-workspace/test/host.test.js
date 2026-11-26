@@ -10,8 +10,7 @@ import {
   applyForVersion,
   classifyDshVersion,
   ensureManagedWorkspace,
-  protectManagedWorkspace,
-  statusRequestRejection
+  protectManagedWorkspace
 } from '../lib/index.js'
 
 test('status snapshot reports whether core owns a default-Workspace initializer', async () => {
@@ -27,17 +26,17 @@ test('status snapshot reports whether core owns a default-Workspace initializer'
       logger: { info() {}, warn() {}, error() {} },
       effect: (factory) => factory(),
       inject: (names, callback) => callback({
-        connection: { requestRejection: () => undefined },
         webServer: { register: (route) => { payload = route; return () => {} } },
         effect: (factory) => factory()
       })
     }
-    await applyForVersion(ctx, '0.2.2-alpha.2')
+    await applyForVersion(ctx, '0.2.3-alpha.2')
     return payload
   }
 
   const withoutCore = await statusOf(registry)
   assert.equal(withoutCore.handler instanceof Function, true)
+  assert.equal(withoutCore.auth, 'required', '0.2.3 起由壳层在 handler 前完成鉴权，路由必须显式声明')
   const emptyResponse = { writeHead() {}, end(body) { this.body = JSON.parse(body) } }
   withoutCore.handler({ method: 'GET' }, emptyResponse)
   assert.equal(emptyResponse.body.coreDefaultWorkspace, false)
@@ -101,22 +100,22 @@ class FakeRegistry {
 }
 
 test('runtime version gate stays inert outside the audited release line', async () => {
-  assert.deepEqual(classifyDshVersion('0.2.2-alpha.2+local'), {
-    supported: true, verified: true, normalized: '0.2.2-alpha.2'
+  assert.deepEqual(classifyDshVersion('0.2.3-alpha.2+local'), {
+    supported: true, verified: true, normalized: '0.2.3-alpha.2'
   })
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false, 'same line but not individually verified')
-  assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta 档位高于 alpha 下界')
-  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true, 'rc 档位高于 alpha 下界')
-  assert.equal(classifyDshVersion('0.2.2-rc.10').supported, true, '序列号按数值比较，不是字典序')
-  assert.equal(classifyDshVersion('0.2.2').supported, true, '正式版与 prerelease 同线')
-  assert.equal(classifyDshVersion('0.2.2').verified, false, '没核对过就不得自称已核对')
-  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, '兼容线下界之前必须挡住')
-  assert.equal(classifyDshVersion('0.2.2-alpha.0').supported, false)
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').verified, false, 'same line but not individually verified')
+  assert.equal(classifyDshVersion('0.2.3-beta.1').supported, true, 'beta 档位高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.3-rc.1').supported, true, 'rc 档位高于 alpha 下界')
+  assert.equal(classifyDshVersion('0.2.3-rc.10').supported, true, '序列号按数值比较，不是字典序')
+  assert.equal(classifyDshVersion('0.2.3').supported, true, '正式版与 prerelease 同线')
+  assert.equal(classifyDshVersion('0.2.3').verified, false, '没核对过就不得自称已核对')
+  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false, '兼容线下界之前必须挡住')
+  assert.equal(classifyDshVersion('0.2.3-alpha.0').supported, false)
   assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, '上一发布线必须挡住')
   assert.equal(classifyDshVersion('0.2.0').supported, false)
   assert.equal(classifyDshVersion('0.1.7-rc.2').supported, false, 'previous release line is now outside')
-  assert.equal(classifyDshVersion('0.2.3').supported, false, '下一发布线必须挡住')
+  assert.equal(classifyDshVersion('0.2.4-alpha.1').supported, false, '下一发布线必须挡住')
 
   let sideEffects = 0
   await applyForVersion({
@@ -131,11 +130,26 @@ test('runtime version gate stays inert outside the audited release line', async 
   assert.equal(sideEffects, 0)
 })
 
-test('protects the status snapshot with the DSH browser-auth boundary', () => {
-  const request = { headers: { host: '127.0.0.1:3080' } }
-  assert.equal(statusRequestRejection(request, { requestRejection: () => undefined }), undefined)
-  assert.equal(statusRequestRejection(request, { requestRejection: () => 401 }), 401)
-  assert.equal(statusRequestRejection(request, { requestRejection: () => 403 }), 403)
+test('status route leaves authentication to the shell and adds no connection dependency', async () => {
+  const managed = new FakeWorkspace('managed', '/managed', DEFAULT_WORKSPACE_TITLE)
+  const registry = new FakeRegistry([managed])
+  let payload
+  let injections = []
+  const ctx = {
+    workspaceRegistry: registry,
+    logger: { info() {}, warn() {}, error() {} },
+    effect: (factory) => factory(),
+    inject: (names, callback) => {
+      injections = names
+      callback({
+        webServer: { register: (route) => { payload = route; return () => {} } },
+        effect: (factory) => factory()
+      })
+    }
+  }
+  await applyForVersion(ctx, '0.2.3-alpha.2')
+  assert.deepEqual(injections, ['webServer'], '0.2.3 删除了 requestRejection，路由不再依赖 connection')
+  assert.equal(payload.auth, 'required')
 })
 
 test('adopts the legacy managed path, updates its title, and pins it first', async () => {
