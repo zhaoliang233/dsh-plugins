@@ -10,7 +10,7 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
-| U2（2026-11-26，遮挡修复） | `0.2.3-alpha.2` | 用户报告会话面板被吸顶气泡遮挡。定位：面板是 0.2.3 新增的 `aside[data-session-panel]`（`docked`/`overlay`），`overlay` 形态在会话内容层，吸顶气泡在 `shell.overlay`（z-index 20）必然盖住它；1180×713 实测相交 2520px²。修复在 `dsh-sticky-user-bubble`：相交时左移到面板左侧（8px 间隙，不越正文列左边界），放不下则隐藏，面板关闭恢复；`docked` 不触发。隔离宿主实测 1512/1180/900 三档 + 四档滚动位置全过，单测 30/30。**未提交、未发版** |
+| U2（2026-11-26，遮挡修复） | `0.2.3-alpha.2` | 用户报告会话面板被吸顶气泡遮挡。定位：面板是 0.2.3 新增的 `aside[data-session-panel]`（`docked`/`overlay`），`overlay` 形态在会话内容层，吸顶气泡在 `shell.overlay`（z-index 20）必然盖住它；1180×713 实测相交 2520px²。修复在 `dsh-sticky-user-bubble`：相交时左移到面板左侧（8px 间隙，不越正文列左边界），放不下则隐藏，面板关闭恢复；`docked` 不触发。隔离宿主实测 1512/1180/900 三档 + 四档滚动位置全过，单测 30/30。已提交 `cec51b4`、发布 `0.6.0`（三项核对通过） |
 | U1（2026-11-26，跨线升级） | `0.2.2 → 0.2.3-alpha.2` | 9 个已装插件逐条换线到 `>=0.2.3-alpha.2 <0.2.4`：版本门/四处同源、`connection.requestRejection()`→路由 `auth:'required'`（6 个宿主插件）、`uiSession.sessionStatus` 独立服务（running-indicator）、`dsh-atomic-write` 依赖升线（local-plugin-manager）。逐个 `publish:check` 全绿（77/19/40/26/54/48/28/81/47）；隔离宿主启动图含全部 9 个插件，6 条 status 路由带 cookie 全 200、无 cookie 401。**未提交、未发版**；真机 GUI（sticky 几何 / archive 删除恢复 / mcp 交互）与发版 bump 待用户检查 |
 | N2（2026-11-26，跨线侦察） | `0.2.2-rc.2 → 0.2.3-alpha.2` | 运行版本越线：9 个插件自身门判 unsupported、host 半体 inert，但平台门按「预发布参与范围比较」判 compatible，9 个 client bundle 仍进启动图（**半装配**）。`0.2.2-rc.2→rc.5` 只 23 包变化、够不着契约；`rc.5→0.2.3-alpha.2` 329 包变化、新增 16、移除 5。0.2.3 删掉 `connection.requestRejection()`、样式认领改 `meta().stylesheets`、移除两个 settings-plugins 客户端包。**跨线需逐插件重做契约**；退回 npm `latest`（`0.2.2-rc.5`）仍是线内选择 |
 | R2（2026-11-09，首发） | `0.2.2` 线 | `dsh-mcp-workbench@0.1.0`（改名后首发）与 `dsh-workspace-running-indicator@0.1.0` 首发：占位 `0.0.1` → `npm trust` 配 trusted publisher → tag 触发 OIDC。三项判据逐包通过（registry / SLSA provenance / GitHub Release），tag 命名空间一致（71/71） |
@@ -48,7 +48,7 @@
 
 ---
 
-## 当前发布记录（截至 2026-11-12）
+## 当前发布记录（截至 2026-11-27）
 
 | 包 | 版本 | 发布线 |
 |---|---|---|
@@ -58,7 +58,7 @@
 | `dsh-local-plugin-manager` | `0.6.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-auto-load-history` | `0.5.0` | `>=0.2.2-alpha.2 <0.2.3` |
 | `dsh-chat-archive-manager` | `0.5.0` | `>=0.2.2-alpha.2 <0.2.3` |
-| `dsh-sticky-user-bubble` | `0.4.0` | `>=0.2.2-alpha.2 <0.2.3` |
+| `dsh-sticky-user-bubble` | `0.6.0` | `>=0.2.3-alpha.2 <0.2.4`（2026-11-27 发布，会话面板让位） |
 | `dsh-mobile-compat` | `0.5.1` | `>=0.2.0-rc.2 <0.2.1` |
 | `dsh-mcp-workbench` | `0.2.0` | `>=0.2.2-alpha.2 <0.2.3`（2026-11-12 改造为官方 mcp-manager UI；2026-11-09 首发 `0.1.0`；原名 `dsh-mcp-console`） |
 | `dsh-workspace-running-indicator` | `0.1.0` | `>=0.2.2-alpha.3 <0.2.3`（2026-11-09 首发） |
@@ -86,7 +86,7 @@
 - 面板打开后滚动 0.15/0.35/0.55/0.75：264/450/60/60px 宽副本分别 `shifted`/`hidden`/`shifted`/`shifted`，稳定无抖动；关闭面板恢复；点击副本跳回生效；控制台 0 报错。
 - 单测新增 2 条（左移/隐藏 + 恢复），`npm run publish:check` 30/30、打包 8 文件全过。
 
-**遗留**：未提交、未发版；客户端改动刷新页面即生效（`link:` 源码路线），registry 版本需按 minor 发 `0.6.0`。
+**发布**：`0.6.0` 于 2026-11-27 由 tag `dsh-sticky-user-bubble-v0.6.0` 经 OIDC 发布；registry 版本、SLSA provenance、GitHub Release 三项核对通过，tag 命名空间一致。客户端改动刷新页面即生效（`link:` 源码路线）。
 
 ## U1：把 9 个已装插件升到 `0.2.3` 线（2026-11-26）
 
