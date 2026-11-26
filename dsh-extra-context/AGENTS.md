@@ -1,9 +1,11 @@
 # dsh-extra-context — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`，逐版本核对的是 `0.2.2-alpha.2` 与 `0.2.2-rc.1`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
+> 目标 DSH `0.2.3`，兼容线 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对的是 `0.2.3-alpha.2`（见 `lib/index.js` 的 `VERIFIED_DSH_VERSIONS`）。
 
 ## 逐版本核对记录
+
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线整体换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。契约复核：`dsh-system-prompt` 的 `section()`/`ScopedLayers`/`interpolate:false` 仍在（0.2.3 把后续 `system/message` 改为章节增量通知，注册与 `text` 实时求值语义不变）；`dsh-settings.configure({auto:false}, fiber)`、`describe()` 与 `configForms` 未变；`settings.section`/`settings.section.icon`/`settings.action` 槽仍在（导航图标六项几何在 0.2.3 壳层上全过）。**路由适配**：0.2.3 的 WebServer 路由默认 `auth: 'required'`，`connection.requestRejection()` 已删除；状态路由改为显式 `auth: 'required'`、不再注入 `connection`，鉴权由壳层在 handler 之前完成，插件保留同源 + 固定客户端头校验。离线闸门 77/77、图标网全绿；真机 GUI 复核列入交接清单。
 
 **`0.2.2-rc.1`（2026-11-05，同线例行）**：`dsh-system-prompt` 只在 `SECTION_ORDERS` 新增 `TOOL_APPLY_PATCH`/`TOOL_SCHEDULE` 两个常量，`section()`/`ScopedLayers`/`interpolate:false`/`renderPrompt` 未变；`dsh-settings.configure()` 把 owner 归一成 `owner.ctx.fiber`（`Fiber` 构造时即 `parent.extend({ fiber: this })`，`fiber.ctx.fiber === fiber`，本包传 `ctx.fiber` 结果不变）；`settings.section.icon` 槽与 `span.navIcon[aria-hidden=true]` 包装层仍在，DOM 补丁照旧生效。隔离宿主实测：`/status` 200 `writable:true`、真实 DOM 里 `data-dec-nav-icon` + `--dec-nav-icon-mask`（16×16）成立、原 svg `display:none`、0 控制台报错。业务代码未改。
 
@@ -125,7 +127,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 |---|---|
 | system prompt | `<name: deployment:extra-context, order: 204, interpolate: false, text: () => renderForPrompt()>`；用户文本里的 `{{…}}` 原样进入 prompt |
 | 设置条目 | `dsh-extra-context`（profile 里这一行的 `config` 段）。用户写入走客户端 `configForms.mutate` → `configEditor` 落进 profile patch；宿主读 `config.<字段>.get()`；旧 `settings.yaml.imported` 的 `extra-context:` 段只读兜底（见实现事实 2） |
-| 状态路由 | `GET /dsh-extra-context/status`，要求 `x-dsh-extra-context-client: 1` 且同源；`connection.requestRejection` 可用时先做鉴权判断 |
+| 状态路由 | `GET /dsh-extra-context/status`，显式 `auth: 'required'`（0.2.3 起由壳层 Token/Connection 在 handler 前鉴权），handler 仍要求 `x-dsh-extra-context-client: 1` 且同源 |
 | 设置页导航图标 | 由 `settings.action` 挂载点 + `patchSettingsNavIcon()` 在设置面板打开期间绘制 `IconContextInjectionOutline16`；面板关闭即回滚成壳层齿轮（见实现事实 4） |
 | 压缩摘要请求 | `purpose === 'compaction'` 的 `llm/stream` 请求末尾会多一条 `source.kind = 'plugin'`、`plugin = 'dsh-extra-context'` 的 user 消息（额外上下文原文 + 语言/装饰两条说明）。它只存在于这次模型请求里，**不进会话记录**（见实现事实 5） |
 
@@ -133,7 +135,7 @@ text: () => { try { return renderForPrompt() } catch (error) { log('error', …)
 
 ## 配置与安装
 
-- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.2.2-alpha.2 <0.2.3`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
+- `package.json`：`engines.dsh` 与 `dshCompatibility.range` 同源（`>=0.2.3-alpha.2 <0.2.4`），另有 `dsh.bundle.patch` + `dsh.client.platform: 'web'` + `dsh.client.inject: ['@deepseek-ai/dsh-client-ui-settings']`（浏览器侧需要 `configForms`）。
 - `cordis.patch.yml`：一行 `insert`。**新增插件首次安装必须重启 `dsh web`**——bundle 列表只在启动时读取（`patchReload: live` 只热重载 patch 文件，不重读 bundle 列表）。
 - `install.sh` / `uninstall.sh`：兼容性检查（范围外拒绝安装）+ `npm run publish:check` + 官方 `dsh plugin --profile` 管理；卸载保留 profile 配置里的用户数据。
 
@@ -185,7 +187,7 @@ npm test
 npm run pack:check
 ```
 
-- 当前测试 76 项，覆盖：版本门/定位/规范化/渲染/预算/装配、客户端组件与样式、写入时机与重试、预览口径、状态路由鉴权、图标对齐与字数口径、导航图标补丁、样式表注入与引用计数、Windows 装载路径、压缩摘要补充指令。
+- 当前测试 77 项，覆盖：版本门/定位/规范化/渲染/预算/装配、客户端组件与样式、写入时机与重试、预览口径、状态路由鉴权、图标对齐与字数口径、导航图标补丁、样式表注入与引用计数、Windows 装载路径、压缩摘要补充指令。
 - 关键守卫：`test/host.test.js` 的版本门/定位/合并优先级；`test/client.test.js` 的渲染/写入/预览/样式；`test/manifest.test.js` 的四处同源与 `Config` 导出。
 - 历史逐轮数据与注入缺陷验证见 `docs/compat-log.md` 的 F1 等轮次；真实部署已验证 `/status`、设置分区、写盘、新会话自动带入上下文。
 - 导航图标补丁的几何用 `node tools/dsh-icons/verify-nav-icon.js --plugin dsh-extra-context --measure` 离线量；裸 `/plugins/<id>/client.js` 取不到，客户端加载只能看页面现象。
