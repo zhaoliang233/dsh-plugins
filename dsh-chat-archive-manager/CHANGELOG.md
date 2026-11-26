@@ -1,5 +1,13 @@
 # 变更记录
 
+## [0.6.0] - 2026-11-26
+
+### 变更
+
+- **跨到 `0.2.3` 发布线**：兼容发布线从 `>=0.2.2-alpha.2 <0.2.3` 整体换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`；`0.2.2` 及更早版本留在 `0.5.x`，范围外继续 inert。
+- **适配 0.2.3 的路由鉴权**：`connection.requestRejection()` 已删除；status/delete/restore 三个路由改为显式 `auth: 'required'`、不再注入 `connection`，鉴权由壳层在 handler 之前完成；两个 mutation 保留同源、固定客户端头与 JSON 校验。启动时不再因缺少 `requestRejection` 抛错。
+- 契约复核：`workspace/session-unarchiving` 守卫、`workspaceRegistry`、JSONL 持久化、`session-query` reconcile 与 0.2.3 的 `session-query-sqlite` 组合兼容；`session-query` 的 `searchSessions` 仍在。
+
 ## [0.5.0] - 2026-11-12
 
 ### 新增

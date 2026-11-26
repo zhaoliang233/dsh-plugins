@@ -254,26 +254,26 @@ function invokeRoute(route, method, body, options = {}) {
 }
 
 test('runtime version gate stays inert outside the audited release line', async () => {
-  assert.deepEqual(classifyDshVersion('0.2.2-alpha.2+local'), {
-    supported: true, verified: true, normalized: '0.2.2-alpha.2'
+  assert.deepEqual(classifyDshVersion('0.2.3-alpha.2+local'), {
+    supported: true, verified: true, normalized: '0.2.3-alpha.2'
   })
   // 下界是 alpha.2：同线内更低的 alpha 序列号低于下界，更早/更晚的发布线都不在声明范围内。
-  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, 'a lower alpha sequence is below the floor')
-  assert.equal(classifyDshVersion('0.2.2-alpha.0').supported, false, 'a lower alpha sequence is below the floor')
+  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false, 'a lower alpha sequence is below the floor')
+  assert.equal(classifyDshVersion('0.2.3-alpha.0').supported, false, 'a lower alpha sequence is below the floor')
   // 线内更高的 prerelease 与正式版在门内，但未列入逐版本清单 → 只带警告运行。
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false)
-  assert.equal(classifyDshVersion('0.2.2-beta.1').supported, true, 'beta is above an alpha floor')
-  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true, 'rc is above an alpha floor')
-  assert.equal(classifyDshVersion('0.2.2-rc.1').verified, true, '0.2.2-rc.1 已在 2026-11-05 逐条核对')
-  assert.deepEqual(classifyDshVersion('0.2.2'), {
-    supported: true, verified: false, normalized: '0.2.2'
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').verified, false)
+  assert.equal(classifyDshVersion('0.2.3-beta.1').supported, true, 'beta is above an alpha floor')
+  assert.equal(classifyDshVersion('0.2.3-rc.1').supported, true, 'rc is above an alpha floor')
+  assert.equal(classifyDshVersion('0.2.3-rc.1').verified, false, 'not individually audited on this line')
+  assert.deepEqual(classifyDshVersion('0.2.3'), {
+    supported: true, verified: false, normalized: '0.2.3'
   })
-  assert.equal(classifyDshVersion('0.2.1').supported, false, 'previous release line is outside')
-  assert.equal(classifyDshVersion('0.2.1-rc.4').supported, false, 'previous release line is outside')
-  assert.equal(classifyDshVersion('0.2.0-rc.2').supported, false, 'previous release line is outside')
-  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false, 'the next line needs a re-verified release')
-  assert.equal(classifyDshVersion('0.2.2-preview.1').supported, false, 'unknown channel is outside')
+  assert.equal(classifyDshVersion('0.2.2-rc.5').supported, false, 'previous release line is outside')
+  assert.equal(classifyDshVersion('0.2.2').supported, false, 'previous release line is outside')
+  assert.equal(classifyDshVersion('0.2.1-rc.4').supported, false, 'older release line is outside')
+  assert.equal(classifyDshVersion('0.2.4-alpha.1').supported, false, 'the next line needs a re-verified release')
+  assert.equal(classifyDshVersion('0.2.3-preview.1').supported, false, 'unknown channel is outside')
 
   let sideEffects = 0
   const ctx = {
@@ -332,19 +332,10 @@ test('registers a restoration route even when permanent deletion is unsupported'
   assert.ok(deleteRoute)
   assert.ok(restoreRoute)
 
-  const unauthenticatedStatus = await invokeRoute(statusRoute, 'GET', undefined, {
-    authenticated: false,
-    headers: { host: '127.0.0.1:3080' }
-  })
-  assert.equal(unauthenticatedStatus.status, 401)
-  assert.equal(unauthenticatedStatus.body.code, 'unauthorized-client')
-  assert.equal(unauthenticatedStatus.body.deletionUnavailable, undefined)
-
-  const attackerStatus = await invokeRoute(statusRoute, 'GET', undefined, {
-    headers: { host: 'attacker.example' }
-  })
-  assert.equal(attackerStatus.status, 403)
-  assert.equal(attackerStatus.body.code, 'forbidden-client')
+  // 0.2.3 起登录与 trusted-host 由壳层在 handler 之前完成；路由必须显式声明 required。
+  assert.equal(statusRoute.auth, 'required')
+  assert.equal(deleteRoute.auth, 'required')
+  assert.equal(restoreRoute.auth, 'required')
 
   const status = await invokeRoute(statusRoute, 'GET', undefined, {
     headers: { host: '127.0.0.1:3080' }
@@ -379,30 +370,15 @@ test('registers a restoration route even when permanent deletion is unsupported'
     restoreRoute,
     'POST',
     { sessionId: 'archived' },
-    { authenticated: false }
+    { trusted: false, headers: {} }
   )
-  assert.equal(unauthenticated.status, 401)
-  assert.equal(unauthenticated.body.code, 'unauthorized-client')
+  assert.equal(unauthenticated.status, 403)
+  assert.equal(unauthenticated.body.code, 'forbidden-client')
   assert.deepEqual(registry.state.archivedSessionIds, ['archived'])
 
-  const attackerAuthority = await invokeRoute(
-    restoreRoute,
-    'POST',
-    { sessionId: 'archived' },
-    {
-      trusted: false,
-      headers: {
-        host: 'attacker.example',
-        origin: 'http://attacker.example',
-        'sec-fetch-site': 'same-origin',
-        'content-type': 'application/json',
-        [CLIENT_HEADER]: '1'
-      }
-    }
-  )
-  assert.equal(attackerAuthority.status, 403)
-  assert.equal(attackerAuthority.body.code, 'forbidden-client')
-  assert.deepEqual(registry.state.archivedSessionIds, ['archived'])
+  // 0.2.3 起 trusted-host 白名单由壳层 admission 在 handler 之前执行；
+  // 插件自己的校验只负责同源一致性与固定客户端头（见上面的 crossSite / missingClient）。
+  assert.equal(restoreRoute.auth, 'required')
 
   const missingClient = await invokeRoute(
     restoreRoute,

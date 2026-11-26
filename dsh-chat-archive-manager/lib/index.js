@@ -21,9 +21,9 @@ export const CLIENT_HEADER = 'x-dsh-chat-archive-manager-client'
  *
  * 能力探测仍然是权威判定：**线内**版本即使未逐条核对，也照常挂载并逐项 fail closed 降级。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.3-alpha.2 <0.2.4'
 /** 逐版本核对过的版本；四处同源由 `test/manifest.test.js` 守卫。 */
-export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2', '0.2.2-rc.1', '0.2.2-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.3-alpha.2']
 
 /**
  * 兼容发布线的**发布线本体**：只覆盖这一个 patch 系列（`0.2.1`、`0.2.1-<channel>.N`）。
@@ -31,7 +31,7 @@ export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2', '0.2.2-rc.1', '0.2.2-rc.2
  * `DSH_COMPATIBILITY_RANGE=">=0.2.2-alpha.2 <0.2.3"` 一致：**0.2.0 一线与 0.2.2 起都不算在内**
  * （上一线 0.2.0、下一线 0.2.2 都要重新核对契约后另发版本）。
  */
-export const DSH_RELEASE_LINE = '0.2.2'
+export const DSH_RELEASE_LINE = '0.2.3'
 
 /**
  * 兼容线的下界：同线内更低 channel（仅指下界之上的 channel 优先于它）或更小序列号
@@ -110,16 +110,7 @@ function requestHeader(req, name) {
   return typeof value === 'string' ? value : undefined
 }
 
-function assertTrustedMutationRequest(req, connection) {
-  const rejection = connection.requestRejection(req)
-  if (rejection !== undefined) {
-    throw new ArchiveDeleteError(
-      rejection === 401 ? 'unauthorized-client' : 'forbidden-client',
-      rejection === 401 ? '归档修改请求缺少有效的 DSH 浏览器认证' : '归档修改请求未通过 DSH Host 信任校验',
-      rejection
-    )
-  }
-
+function assertTrustedMutationRequest(req) {
   const fetchSite = requestHeader(req, 'sec-fetch-site')
   const origin = requestHeader(req, 'origin')
   const host = requestHeader(req, 'host')
@@ -203,7 +194,7 @@ export async function removeLegacyArchiveWorkspace(registry, options = {}) {
 }
 
 function registerRoutes(ctx, snapshot, services) {
-  const { connection, deletionService, deletionUnavailable, restorationService, restorationUnavailable } = services
+  const { deletionService, deletionUnavailable, restorationService, restorationUnavailable } = services
   const recoveryRestoreError = () => new ArchiveRestoreError(
     'deletion-recovery-required',
     '永久删除恢复日志需要人工检查，处理完成并重启 dsh web 后才能恢复聊天。',
@@ -227,16 +218,8 @@ function registerRoutes(ctx, snapshot, services) {
   const statusRoute = {
     kind: 'exact',
     path: STATUS_PATH,
+    auth: 'required',
     handler: (req, res) => {
-      const rejection = connection.requestRejection(req)
-      if (rejection !== undefined) {
-        sendJson(res, rejection, {
-          ok: false,
-          code: rejection === 401 ? 'unauthorized-client' : 'forbidden-client',
-          error: rejection === 401 ? '归档状态请求缺少有效的 DSH 浏览器认证' : '归档状态请求未通过 DSH Host 信任校验'
-        })
-        return
-      }
       if (req.method !== 'GET') {
         sendJson(res, 405, { ok: false, error: 'method not allowed' })
         return
@@ -247,9 +230,10 @@ function registerRoutes(ctx, snapshot, services) {
   const deleteRoute = {
     kind: 'exact',
     path: DELETE_PATH,
+    auth: 'required',
     handler: (req, res) => {
       void (async () => {
-        assertTrustedMutationRequest(req, connection)
+        assertTrustedMutationRequest(req)
         if (req.method !== 'POST') {
           sendJson(res, 405, { ok: false, code: 'method-not-allowed', error: 'method not allowed' })
           return
@@ -275,9 +259,10 @@ function registerRoutes(ctx, snapshot, services) {
   const restoreRoute = {
     kind: 'exact',
     path: RESTORE_PATH,
+    auth: 'required',
     handler: (req, res) => {
       void (async () => {
-        assertTrustedMutationRequest(req, connection)
+        assertTrustedMutationRequest(req)
         if (req.method !== 'POST') {
           sendJson(res, 405, { ok: false, code: 'method-not-allowed', error: 'method not allowed' })
           return
@@ -316,8 +301,7 @@ export const inject = [
   'sessionPersistence',
   'sessions',
   'agents',
-  'storageDomain',
-  'connection'
+  'storageDomain'
 ]
 
 /**
@@ -353,9 +337,6 @@ export function createArchiveMutationCoordinator() {
 }
 
 export async function applyCompatibleRuntime(ctx, compatibility = classifyDshVersion(undefined)) {
-  if (typeof ctx.connection?.requestRejection !== 'function') {
-    throw new Error('incompatible DSH connection service: missing requestRejection()')
-  }
   const dshHome = resolveDshHome()
   const legacyWorkspace = await removeLegacyArchiveWorkspace(ctx.workspaceRegistry, {
     path: legacyArchiveWorkspacePath(dshHome)
@@ -446,7 +427,6 @@ export async function applyCompatibleRuntime(ctx, compatibility = classifyDshVer
           restorationUnavailable: restorationUnavailable.message
         })
   }, {
-    connection: ctx.connection,
     deletionService,
     deletionUnavailable,
     restorationService,

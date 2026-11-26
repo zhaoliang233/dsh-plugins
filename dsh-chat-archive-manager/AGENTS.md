@@ -6,14 +6,16 @@
 
 ### 兼容发布线（工作区规则）
 
-兼容发布线 `>=0.2.2-alpha.2 <0.2.3`：**一个插件版本只服务它逐包核对过契约的那一条 DSH 发布线**，不为同一个版本维护跨线实现，也不把版本号当"能力开关"：
+兼容发布线 `>=0.2.3-alpha.2 <0.2.4`：**一个插件版本只服务它逐包核对过契约的那一条 DSH 发布线**，不为同一个版本维护跨线实现，也不把版本号当"能力开关"：
 
-- 范围外（`0.2.1` 一线与 `0.2.3` 起，含 `0.2.3` 的 prerelease）保持 **inert**：不注册路由、不碰 registry、不做 legacy 迁移；`install.sh` 同样拒绝安装。上一线用户应留在上一线的插件版本。
+- 范围外（`0.2.2` 一线与 `0.2.4` 起，含 `0.2.4` 的 prerelease）保持 **inert**：不注册路由、不碰 registry、不做 legacy 迁移；`install.sh` 同样拒绝安装。上一线用户应留在上一线的插件版本。
 - 线内后续 prerelease（`0.2.2-alpha.|beta.|rc.N` 里够到或高于 `alpha.2` 的那些，以及 `0.2.2` 正式版）带警告运行，能力探测仍是权威判定：探测不到的能力各自 fail closed（501/503）并在页面上写明原因，其余功能照常——**绝不因为版本号让整页 404**。
 - **`0.2.2-alpha.2`（2026-10-28，跨线，最小兼容修复）**：逐包规范化 diff 后，`dsh-workspace`、`dsh-api-workspace-controller`、`dsh-atomic-write` 与 0.2.1-rc.4 **逐字相同**；`dsh-session-persistence-jsonl` 只在 `list()` 结果里新增 `location` 字段；`dsh-agent-loop` 的 factory 卸载顺序与 0.2.1 同构（cancel 多一个 `keepInbox` 选项，插件调用只传 reason 仍合法）；`dsh-session` 新增的「announce 完成前只读」约束不在这条删除链路上。隔离 `DSH_HOME` + 0.2.2-alpha.2 宿主实测：`/dsh-chat-archive-manager/status` 返回 200，`deletionSupported:true`、`sessionQuiescenceSupported:true`、`restorationSupported:true`，说明 `SessionStore instanceof Map`、`detachEntered`、`inbox.hasPending`、`whenIdle`、`scope.dispose`、`handle.close` 这组私有探针全部在新版成立；设置页「归档管理」分区真实渲染、0 控制台报错。**业务代码未改**，本轮只换版本门与清单。**随后用户反馈设置菜单图标空白**（2026-10-29）：0.2.2 的图标是 sprite 壳，组件 `outerHTML` 只有 `<use href="#…">`，直接作 mask 会引用独立文档里不存在的符号；已改为优先从 `primitives.ICON_SYMBOLS` 还原自包含 SVG（`selfContainedNavIcon()`），旧线无该导出时退回 `outerHTML`。
 - 支持新版本 DSH 的正确做法：重新读源码核对契约差异 → 补适配与回归测试 → 同步四处同源声明（`package.json#dshCompatibility`、`engines.dsh`、`install.sh` 的 `DSH_COMPATIBILITY_RANGE`/`DSH_VERIFIED_VERSIONS`、本文档）→ 发新版本。`test/manifest.test.js`、`test/install.test.js`、`test/host.test.js` 有同源与范围断言守卫。
 - **`0.2.2-rc.1`（2026-11-05，同线例行）**：删除事务依赖的 `dsh-agent`（`store`/`detachEntered`/`inbox`/`whenIdle`/`phase` 符号计数逐字未变）、`dsh-workspace`、`dsh-api-workspace-controller`、`dsh-atomic-write`、`dsh-session-persistence` 全部逐字相同；`dsh-session-persistence-jsonl` 只重写内部 `walkJsonValue`（`lib/worker.cjs`），`locate`/`stat`/`list` 与 `JsonlBackendTracker` 未动；`dsh-session-format-v0-to-v1` 只放宽 v0 `subagent/descriptor` 接受的版本（1/2/3），删除路径不读 v0 迁移。隔离宿主实测 `/status` 200，`deletionSupported`/`sessionQuiescenceSupported`/`restorationSupported` 仍全为 `true`。未覆盖：真机删除/恢复事务（L3 路径需单独开一轮）。
 - **`0.2.2-rc.2`（2026-11-12，新增取消归档守卫）**：`dsh-workspace` 新增两个 parallel 事件——`workspace/session-unarchiving`（`unarchiveSession` 写 state **之前**分发，任一监听器抛错即保留归档）与 `workspace/session-archived`（归档持久化、stop 之后分发，失败只告警）；删除路径依赖的 `dsh-agent`/`dsh-workspace`/`dsh-api-workspace-controller`/`dsh-atomic-write`/`dsh-session-persistence` 与 rc.1 逐字相同（`dsh-session-persistence` 只增 `continuation` 相关投影，与本插件无关）。本插件用 `session-unarchiving` 覆盖 **DSH 原生恢复入口**：删除事务进行中（`status().pending`）或 quarantine 时在 registry 层面拒绝取消归档，避免原生入口绕过插件的串行队列与删除竞争同一批文件。客户端侧 `workspace/archive-notice` 等提示事件**未采用**（本插件不负责归档通知）。
+
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。契约复核：`workspace/session-unarchiving` / `workspaceRegistry` / `sessionPersistence` / JSONL backend 与删除事务私有 ABI 仍在；`session-query` 的 `searchSessions` 仍在（0.2.3 组合另挂 `session-query-sqlite`，删除后的 reconcile 仍走该公开方法）。**路由适配**：0.2.3 删除 `connection.requestRejection()`，三个路由改为显式 `auth: 'required'`、不再注入 `connection`，启动不再因缺该方法抛错；mutation 保留同源/固定头/JSON 校验。单测 81/81、打包 9 文件全过；隔离宿主的删除/恢复 E2E 列入交接清单。
 
 - 运行时的版本分类（`classifyDshVersion`）与 `install.sh` 的 `is_compatible_dsh_version()` 语义逐字对应，且都从**发布线 + 下界**派生：`lib/index.js` 是 `DSH_RELEASE_LINE` + `DSH_RELEASE_FLOOR` + `PRERELEASE_CHANNELS`，`install.sh` 是同样的常量加一份 `prerelease_rank()`。`0.2.2` 与 `0.2.2-{alpha,beta,rc}.N` 里够到或高于 `alpha.2` 的版本在范围内，其余不在。status 里回传 `dshVersion`/`dshVersionVerified` 供页面提示。
   **下界不是 alpha 时不能沿用旧的写法**：`channel !== 'alpha' || seq >= 1` 会把 `0.2.1-alpha.9`/`0.2.1-beta.9`/`0.2.1-rc.1` 全判成兼容，必须做 channel 优先级比较。反过来**下界是 alpha 时同样不能把下界写进正则**：`0.2.2-alpha.0`/`0.2.2-alpha.1` 低于 `alpha.2` 必须被挡住，而同线内的 `beta`/`rc`（如 `0.2.2-rc.1`）都高于 alpha 下界、必须在门内——只有"发布线 + `{channel, sequence}` 下界"这一组常量能同时表达这两边。
@@ -44,7 +46,7 @@
 - `lib/index.js` 入口；`lib/archive-deletion.js` 删除事务；`lib/archive-restoration.js` 恢复事务。
 - 旧版迁移路径：`$DSH_HOME/workspaces/archived`。
 - `GET /dsh-chat-archive-manager/status`；`POST /delete`、`POST /restore`，body 均为 `{ "sessionId": "..." }`。
-- 三个接口都先调 `connection.requestRejection(req)` 复用 trusted-host 与签名浏览器 cookie 边界；两个 mutation 再附加同源、`x-dsh-chat-archive-manager-client: 1` 与 `application/json` 校验。固定 header 不是认证凭据，status 也不得向未认证请求暴露 quarantine 路径或运行时诊断。
+- 三个接口都显式声明 `auth: 'required'`，由 0.2.3 壳层在 handler 前复用 trusted-host 与签名浏览器 cookie 边界；两个 mutation 再附加同源、`x-dsh-chat-archive-manager-client: 1` 与 `application/json` 校验。固定 header 不是认证凭据，status 也不得向未认证请求暴露 quarantine 路径或运行时诊断。
 - 恢复只调公开的 `registry.unarchiveSession()`。DSH `0.1.7` 起自带「已归档会话」设置页已被 DSH 删除（0.1.6 曾有），归档恢复改由侧栏视图筛选与搜索结果承担；两条入口操作同一份 registry 归档集合、语义一致，本插件分区 id 是 `archived-chats`，图标补丁不受影响。
 - `removeLegacyArchiveWorkspace()` 只注销路径、标题均匹配且 `sessionIds` 为空的旧版空壳 Workspace；同路径同标题但仍有会话的碰撞必须保留。DSH 的 `registry.delete()` 保留目录和所有会话日志，迁移不得改写 `archivedSessionIds`。
 
