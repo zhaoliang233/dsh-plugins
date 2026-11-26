@@ -258,7 +258,7 @@ const STATUS = {
   csrf: 'tok',
   actions: ['import'],
   runtime: 'ready',
-  dshVersion: '0.2.2-rc.2',
+  dshVersion: '0.2.3-alpha.2',
   versionSupported: true,
   versionVerified: true,
   manager: { available: true, entryId: 'mcp-manager', moduleName: '@deepseek-ai/dsh-mcp-manager', phase: 'active', reason: 'found' },

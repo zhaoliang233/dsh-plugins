@@ -287,8 +287,7 @@ export function apply(ctx, _config = {}) {
  * @param {{managerEntry: () => any, profileTargets: () => any[], importEntry: (entryId: string) => Promise<any>, log: (level: string, message: string) => void}} hooks
  */
 function registerRoutes(ctx, state, hooks) {
-  ctx.inject(['webServer', 'connection'], (webCtx) => {
-    const connection = webCtx.connection
+  ctx.inject(['webServer'], (webCtx) => {
     const webServer = webCtx.webServer
     if (typeof webServer?.register !== 'function') return
 
@@ -297,9 +296,8 @@ function registerRoutes(ctx, state, hooks) {
         webServer.register({
           kind: 'exact',
           path: STATUS_PATH,
+          auth: 'required',
           handler: async (req, res) => {
-            const rejection = clientRequestRejection(req, connection)
-            if (rejection !== undefined) return sendJson(res, rejection, { ok: false, error: 'forbidden' })
             if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' })
             return sendJson(res, 200, statusPayload(state, hooks))
           }
@@ -312,9 +310,8 @@ function registerRoutes(ctx, state, hooks) {
         webServer.register({
           kind: 'exact',
           path: ACTION_PATH,
+          auth: 'required',
           handler: async (req, res) => {
-            const rejection = clientRequestRejection(req, connection)
-            if (rejection !== undefined) return sendJson(res, rejection, { ok: false, error: 'forbidden' })
             if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' })
             if (requestHeader(req, CSRF_HEADER) !== state.csrfToken) return sendJson(res, 403, { ok: false, error: 'bad-csrf' })
             let body
@@ -432,11 +429,8 @@ export function sameOriginRequest(req) {
  * @param {any} connection
  * @returns {number | undefined} 非空即拒绝时的状态码
  */
-export function clientRequestRejection(req, connection) {
-  // 连接层是这类路由的鉴权来源：拿不到就 fail closed，不能退化成"只校验同源 + 固定头"。
-  if (typeof connection?.requestRejection !== 'function') return 401
-  const rejection = connection.requestRejection(req)
-  if (rejection !== undefined) return rejection
+export function clientRequestRejection(req) {
+  // 0.2.3 起登录/trusted-host 由壳层在 handler 之前完成；这里只管同源与固定客户端头。
   return sameOriginRequest(req) && requestHeader(req, CLIENT_HEADER) === '1' ? undefined : 403
 }
 

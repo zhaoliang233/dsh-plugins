@@ -15,11 +15,11 @@ import { dirname, join } from 'node:path'
  * 兼容发布线。与 `package.json#dshCompatibility.range` / `engines.dsh` /
  * `install.sh` 的 `DSH_COMPATIBILITY_RANGE` **同源**。
  */
-export const DSH_COMPATIBILITY_RANGE = '>=0.2.2-alpha.2 <0.2.3'
+export const DSH_COMPATIBILITY_RANGE = '>=0.2.3-alpha.2 <0.2.4'
 /** 发布线本体；兼容线只覆盖这一个 patch 系列。 */
-export const DSH_RELEASE_LINE = '0.2.2'
+export const DSH_RELEASE_LINE = '0.2.3'
 /**
- * 兼容线下界（`0.2.2-alpha.2`）：同线内更小序列号的 alpha，以及整条 0.2.2
+ * 兼容线下界（`0.2.3-alpha.2`）：同线内更小序列号的 alpha，以及整条 0.2.3
  * 的 beta/rc 之前的版本都低于下界，判为不支持。跨线时改这几个常量即可，
  * 判定逻辑不用动。
  */
@@ -32,7 +32,7 @@ const PRERELEASE_CHANNELS = ['alpha', 'beta', 'rc']
  * `0.2.2-rc.2` 起官方才有 `@deepseek-ai/dsh-mcp-manager`；更早的同线版本在
  * 门内运行但状态页会提示「官方管理器缺失」（能力探测兜底）。
  */
-export const VERIFIED_DSH_VERSIONS = ['0.2.2-alpha.2', '0.2.2-rc.1', '0.2.2-rc.2']
+export const VERIFIED_DSH_VERSIONS = ['0.2.3-alpha.2']
 
 /**
  * 判定 DSH 版本是否落在已核对契约的兼容线内。

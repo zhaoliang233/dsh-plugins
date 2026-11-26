@@ -1,7 +1,7 @@
 # dsh-mcp-workbench — 技术说明（AGENTS.md）
 
 > 面向在本工作区继续开发/排查的 agent；用户文档见 `README.md`。
-> 目标 DSH `0.2.2`，兼容线 `>=0.2.2-alpha.2 <0.2.3`；已逐版本核对 `0.2.2-alpha.2`、`0.2.2-rc.1`、`0.2.2-rc.2`。上一线 `0.2.1` 的用户留在上一线的插件版本。
+> 目标 DSH `0.2.3`，兼容线 `>=0.2.3-alpha.2 <0.2.4`；已逐版本核对 `0.2.3-alpha.2`。上一线 `0.2.2` 的用户留在上一线的插件版本。
 
 ## 一句话
 
@@ -23,7 +23,7 @@
 | 凭据模板语法是 `${credential:REF}`（六个位置：command/args/env/cwd/url/headers）；缺失值让实例进入 `waiting-credentials` | `dsh-mcp-client/lib/types/templates.d.ts`；`dsh-mcp-manager` README |
 | `settings.configure({auto:false}, fiber)` 用来声明「本实例自带设置页」，否则官方会为条目再自动生成一页 | `dsh-settings/lib/index.js` 的 `configure()` |
 | `settings.section.icon` 是 list/root/inline 槽（0.2.2-alpha.3 起），壳层 `renderSlot(..., {only: row.id, fallback: navIcon(id)})` | `dsh-client-ui-settings-general/lib/client.js` |
-| 状态路由鉴权：`connection` 必须作为**注入依赖**等待就绪；`clientRequestRejection` 在连接层缺失时 fail closed 401 | `dsh-client-connection/lib/index.js`；本轮沿用 |
+| 路由鉴权：0.2.3 起 `webServer.register` 默认 `auth: 'required'`，由壳层（Token/Connection）在 handler 前完成；`clientRequestRejection` 只做同源 + 固定客户端头 | `dsh-host-webserver/lib/index.js:653-654`；`dsh-client-connection/lib/index.js:412` |
 | 组合层只读/导入读 `entry.fiber.config`（已求值），不是 `entry.options.config`（未求值的 `!!js` 对象） | 旧版本实测踩坑；`lib/index.js` 的 `findMcpEntryConfig` |
 
 ## 结构
@@ -51,8 +51,12 @@
 10. **样式必须打 `data-plugin`**：`dsh-client-modules` 的 `claimStyles` 按标签认领，`data-plugin` 缺失会被别的 bundle 抢走、HMR 时误删。
 11. **客户端与宿主可能短暂新旧并存**：`lib/*.js` 改动要重启宿主，`client.js` 刷新页面即可。状态载荷带 `manager.entryId`；拿不到时客户端用兜底 `mcp-manager` 并显示「没有找到官方管理器」，不猜测。
 12. **动作路由整体兜底**：任何异常都返回可读 JSON，否则 node:http 会回空 body 400，页面无法排查。
-13. **状态路由鉴权**：`ctx.inject(['webServer','connection'])` 等两者就绪；`connection` 不可用时 401，不放行。固定头 `x-dsh-mcp-workbench-client: 1` + CSRF 用于写动作。
+13. **状态路由鉴权**：0.2.3 起路由显式 `auth: 'required'`，由壳层在 handler 前完成登录/trusted-host；`ctx.inject(['webServer'])` 不再依赖 `connection`。固定头 `x-dsh-mcp-workbench-client: 1` + CSRF 用于写动作。
 14. **旧实现已移除**：`lib/mount-manager.js`、`lib/plan.js` 与对应测试删除（备份在 `/tmp/dsh-mcp-workbench-legacy-20261112-145223/`）；`store.js` 不再导出挂载相关函数。不要再把「自己 `ctx.plugin(mcp-client)`」加回来——那会与官方管理器抢 `serverName`。
+
+## 逐版本核对记录
+
+**`0.2.3-alpha.2`（2026-11-26，跨发布线）**：兼容线换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`。契约复核：官方 `@deepseek-ai/dsh-mcp-manager` 条目与 `Config.servers`（volatile）、`remote.mcpManager` 的 `watch`/`probe`/`restart`、`configForms`、`settings.configure`、`settings.section`/`settings.section.icon` 槽均仍在；`entry.fiber.config` 读法未变。**路由适配**：0.2.3 删除 `connection.requestRejection()`，status/action 改为显式 `auth: 'required'`、不再注入 `connection`，鉴权由壳层在 handler 前完成；固定客户端头与 CSRF 保留。单测 47/47、打包 10 文件全过；隔离宿主的 GUI 交互列入交接清单。
 
 ## 验证现状
 

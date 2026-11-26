@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.3.0（跨到 0.2.3 发布线，2026-11-26）
+
+- 兼容线从 `>=0.2.2-alpha.2 <0.2.3` 整体换成 `>=0.2.3-alpha.2 <0.2.4`，逐版本核对 `0.2.3-alpha.2`；`0.2.2` 及更早版本留在 `0.2.x`。
+- 适配 0.2.3 路由鉴权：`connection.requestRejection()` 已删除；status/action 改为显式 `auth: 'required'`、不再注入 `connection`，登录/trusted-host 由壳层在 handler 前完成；固定客户端头与 CSRF 保留。
+- 契约复核：官方 `mcp-manager` 条目、`remote.mcpManager` watch/probe/restart、`configForms` 与 `settings.section(.icon)` 槽均仍在。
+
 ## 0.2.0（改造成官方 mcp-manager 的设置 UI）
 
 DSH `0.2.2-rc.2` 起官方自带 `@deepseek-ai/dsh-mcp-manager`（web profile 默认挂载，有 Remote 管理面、无浏览器 UI）。本包从「自建挂载与对账」改为「官方管理器的设置页 UI」：

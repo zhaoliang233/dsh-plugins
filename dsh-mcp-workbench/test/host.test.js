@@ -20,15 +20,14 @@ import {
   statusPayload
 } from '../lib/index.js'
 
-test('版本门：线内通过、线外拒绝，rc.2 起列入逐版本验证清单', () => {
-  assert.deepEqual(classifyDshVersion('0.2.2-alpha.2'), { supported: true, verified: true, normalized: '0.2.2-alpha.2' })
-  assert.deepEqual(classifyDshVersion('0.2.2-rc.2'), { supported: true, verified: true, normalized: '0.2.2-rc.2' })
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').supported, true)
-  assert.equal(classifyDshVersion('0.2.2-alpha.3').verified, false, '同线内未逐条核对的版本只带警告运行')
-  assert.equal(classifyDshVersion('0.2.2-alpha.1').supported, false, '下界是 alpha.2')
-  assert.equal(classifyDshVersion('0.2.2-rc.1').supported, true)
-  assert.equal(classifyDshVersion('0.2.2').supported, true)
-  assert.equal(classifyDshVersion('0.2.1').supported, false)
+test('版本门：线内通过、线外拒绝，0.2.3-alpha.2 列入逐版本验证清单', () => {
+  assert.deepEqual(classifyDshVersion('0.2.3-alpha.2'), { supported: true, verified: true, normalized: '0.2.3-alpha.2' })
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.3-alpha.3').verified, false, '同线内未逐条核对的版本只带警告运行')
+  assert.equal(classifyDshVersion('0.2.3-alpha.1').supported, false, '下界是 alpha.2')
+  assert.equal(classifyDshVersion('0.2.3-rc.1').supported, true)
+  assert.equal(classifyDshVersion('0.2.3').supported, true)
+  assert.equal(classifyDshVersion('0.2.2-rc.5').supported, false)
   assert.equal(classifyDshVersion(undefined).supported, false)
 })
 
@@ -64,15 +63,12 @@ test('同源判定：loopback + sec-fetch-site + origin/host 三者一致', () =
   assert.equal(sameOriginRequest(request({ host: 'h', origin: 'http://h' }, '10.0.0.5')), false, '非 loopback 一律拒绝')
 })
 
-test('客户端请求必须同时满足 DSH 鉴权、同源与固定客户端头', () => {
+test('客户端请求只做同源与固定客户端头校验，DSH 登录由壳层完成', () => {
   const request = (headers, address = '127.0.0.1') => ({ headers, socket: { remoteAddress: address } })
   const ok = request({ host: '127.0.0.1:3080', origin: 'http://127.0.0.1:3080', [CLIENT_HEADER]: '1' })
-  assert.equal(clientRequestRejection(ok, undefined), 401, '连接层不可用时必须 fail closed')
-  const passing = { requestRejection: () => undefined }
-  assert.equal(clientRequestRejection(request({ host: 'h', origin: 'http://h' }), passing), 403)
-  assert.equal(clientRequestRejection({ ...ok, headers: { ...ok.headers, [CLIENT_HEADER]: '0' } }, passing), 403)
-  assert.equal(clientRequestRejection(ok, { requestRejection: () => 401 }), 401)
-  assert.equal(clientRequestRejection(ok, passing), undefined)
+  assert.equal(clientRequestRejection(ok), undefined)
+  assert.equal(clientRequestRejection(request({ host: 'h', origin: 'http://h' })), 403)
+  assert.equal(clientRequestRejection({ ...ok, headers: { ...ok.headers, [CLIENT_HEADER]: '0' } }), 403)
 })
 
 /** 造一个够用的请求对象（可 async iterate + headers）。 */
@@ -97,7 +93,7 @@ test('readJsonBody：内容类型、大小与 JSON 形状都要过关', async ()
 function fakeState(overrides = {}) {
   return {
     csrfToken: 'tok',
-    version: '0.2.2-rc.2',
+    version: '0.2.3-alpha.2',
     versionSupported: true,
     versionVerified: true,
     runtime: 'ready',
