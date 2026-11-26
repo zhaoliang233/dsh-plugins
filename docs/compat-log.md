@@ -10,6 +10,8 @@
 
 | 轮次 | 版本 | 结论 |
 |---|---|---|
+| U1（2026-11-26，跨线升级） | `0.2.2 → 0.2.3-alpha.2` | 9 个已装插件逐条换线到 `>=0.2.3-alpha.2 <0.2.4`：版本门/四处同源、`connection.requestRejection()`→路由 `auth:'required'`（6 个宿主插件）、`uiSession.sessionStatus` 独立服务（running-indicator）、`dsh-atomic-write` 依赖升线（local-plugin-manager）。逐个 `publish:check` 全绿（77/19/40/26/54/48/28/81/47）；隔离宿主启动图含全部 9 个插件，6 条 status 路由带 cookie 全 200、无 cookie 401。**未提交、未发版**；真机 GUI（sticky 几何 / archive 删除恢复 / mcp 交互）与发版 bump 待用户检查 |
+| N2（2026-11-26，跨线侦察） | `0.2.2-rc.2 → 0.2.3-alpha.2` | 运行版本越线：9 个插件自身门判 unsupported、host 半体 inert，但平台门按「预发布参与范围比较」判 compatible，9 个 client bundle 仍进启动图（**半装配**）。`0.2.2-rc.2→rc.5` 只 23 包变化、够不着契约；`rc.5→0.2.3-alpha.2` 329 包变化、新增 16、移除 5。0.2.3 删掉 `connection.requestRejection()`、样式认领改 `meta().stylesheets`、移除两个 settings-plugins 客户端包。**跨线需逐插件重做契约**；退回 npm `latest`（`0.2.2-rc.5`）仍是线内选择 |
 | R2（2026-11-09，首发） | `0.2.2` 线 | `dsh-mcp-workbench@0.1.0`（改名后首发）与 `dsh-workspace-running-indicator@0.1.0` 首发：占位 `0.0.1` → `npm trust` 配 trusted publisher → tag 触发 OIDC。三项判据逐包通过（registry / SLSA provenance / GitHub Release），tag 命名空间一致（71/71） |
 | E3（2026-11-09，改名） | 不涉及版本 | `dsh-mcp-console` → `dsh-mcp-workbench`：旧名被第三方 `dakuo` 的 `0.1.11` 占用，发布前必须改名；新名 `npm view` 实测 `E404`。八处落点全改，内部短前缀 `dmc` → `dmw`（顺带修掉与 `dsh-mobile-compat` 的 `.dmc-*` 撞前缀），目录 `git mv`。闸门：`publish:check` 104/104 + 打包 12 文件、图标重建无漂移、导航图标六项全过 |
 | R1（2026-11-05，发布） | `0.2.2` 线首发 | 7 个已上架插件从 `0.2.1` 线跨到 `>=0.2.2-alpha.2 <0.2.3` 并发布（6 个 `0.4.0`、`local-plugin-manager` `0.5.0`）：registry、SLSA provenance、GitHub Release 三项逐包核对通过；`dsh-workspace-running-indicator` 闸门全绿但首发被 npm 登录/trusted publisher 阻塞，`dsh-mcp-console` 因撞名未包含 |
@@ -61,6 +63,90 @@
 | `dsh-workspace-running-indicator` | `0.1.0` | `>=0.2.2-alpha.3 <0.2.3`（2026-11-09 首发） |
 
 发版前用 `npm view <包名> version maintainers` 复核；上表是历史快照，不是长期真相。
+
+## U1：把 9 个已装插件升到 `0.2.3` 线（2026-11-26）
+
+用户要求「直接开始插件的跨线升级，按难易程度一个个来」。9 个已装插件（`dsh-mobile-compat` 未装、按既有决定不动）从 `>=0.2.2-alpha.2 <0.2.3` 整体换到 `>=0.2.3-alpha.2 <0.2.4`，每个包完成后再开始下一个。**只改工作区源码，未提交、未打 tag、未发版。**
+
+### 统一改动
+
+- 版本门五常量 / `package.json#dshCompatibility` + `engines.dsh` / `install.sh` 五常量 / 插件 AGENTS.md + README 兼容段，四处同源；各插件测试的矩阵与清单断言同步。
+- 宿主路由：0.2.3 删除 `connection.requestRejection()` 且默认 `auth: 'required'`。6 个有路由的插件（extra-context / default-workspace / default-tuner / local-plugin-manager / chat-archive-manager / mcp-workbench）改为显式 `auth: 'required'`、移除 `connection` 注入与自建 401 分支；保留同源/固定客户端头/CSRF 校验。`chat-archive-manager` 启动时缺 `requestRejection` 的 throw 一并移除。
+- 纯客户端插件（auto-load-history / sticky-user-bubble）只换门与声明；`workspace-running-indicator` 另把动态注入改成 `['uiSession', 'uiSession.sessionStatus']`（0.2.3 起是独立服务）。`local-plugin-manager` 的 `@deepseek-ai/dsh-atomic-write` 依赖升到 `~0.2.3-alpha.2` 并 `npm install` 同步 lockfile。
+- 版本号按跨线 minor 预置（extra-context 0.6.0 / default-workspace 0.5.0 / auto-load-history 0.6.0 / running-indicator 0.2.0 / default-tuner 0.5.0 / local-plugin-manager 0.7.0 / sticky 0.5.0 / chat-archive 0.6.0 / mcp-workbench 0.3.0），CHANGELOG 均写「未发布」段。
+
+### 逐包闸门（全部 exit 0）
+
+| 插件 | 单测 | 打包 |
+|---|---|---|
+| extra-context | 77/77 | 8 文件 |
+| default-workspace | 19/19 | 7 文件 |
+| auto-load-history | 40/40 | 8 文件 |
+| running-indicator | 26/26 | 9 文件 |
+| default-tuner | 54/54 | 8 文件 |
+| local-plugin-manager | 48/48 | 10 文件 |
+| sticky-user-bubble | 28/28 | 8 文件 |
+| chat-archive-manager | 81/81 | 9 文件 |
+| mcp-workbench | 47/47 | 10 文件 |
+
+### 运行时证据（隔离宿主，`DSH_HOME=/tmp/dsh-upg/home`，`--port 0`）
+
+- `dsh --profile web --dump-config` exit 0、无 skipped bundle、9 个条目齐全；每个插件的 `classifyDshVersion('0.2.3-alpha.2')` 均为 `supported:true, verified:true`。
+- 隔离宿主（0.2.3-alpha.2）：`GET /?token=…` 200 并拿到 cookie；页面启动图里 9 个插件各命中；带 cookie 的 6 条 status 路由全 200（extra-context `writable:true`、tuner `available:true`、lpm `available:true`、archive `ok:true`、mcp `ok:true`、default-workspace `ok:true`）；无 cookie 的 status 路由 401（壳层鉴权生效）。验证后已停止该隔离进程（非 3080）。
+
+### 交接（用户检查 / 下一步）
+
+- **重启 `dsh web` 才生效**（宿主半体是启动时加载的）；`client.js` 改动刷新页面即可。
+- 未覆盖的真机项：sticky 六项几何量测、archive 删除/恢复 E2E、mcp 设置面板交互、tuner/lpm 的真实写盘、图标补丁在真实设置页的目视；这些都需要用户重启后逐项确认。
+- 发版前仍需：`git diff` 审阅、按跨线 minor 确认版本号、写 CHANGELOG 日期、逐包 tag + `release.yml`（OIDC）。
+
+## N2：最新 alpha 越线侦察（2026-11-26，`0.2.2-rc.2 → 0.2.3-alpha.2`）
+
+用户问「检查一下最新版本 dsh 的兼容性问题」。运行版本 `dsh --version` = **`0.2.3-alpha.2`**；npm dist-tags 为 `latest`/`next` = `0.2.2-rc.5`、`alpha` = `0.2.3-alpha.2`。9 个已装插件最后逐条验证点是 `0.2.2-rc.2`，`dsh-mobile-compat` 停在 `0.2.0-rc.2`（本机 profile 未装）。本轮只读核查，**没有改任何插件源码或版本声明**。
+
+### 结论
+
+- **9 个已装插件处于「半装配」**：平台门 `evaluatePluginCompatibility()` 的 `satisfies()` 让预发布参与范围比较，`0.2.3-alpha.2` 满足 `<0.2.3` → 9 个 bundle 都没被 skip（`dsh-app-boot/lib/index.js:7988`、`:8020`）；插件自己的 `classifyDshVersion()` 只认 `0.2.2` 线 → 9/9 `{supported:false}`，host 半体不动。`dsh-client-modules` 仍按 `dsh.client` 把 9 个 client bundle 放进启动图。
+- **可见后果**：无 cookie 探针得到 5 个 host 路由 404（extra-context / chat-archive / default-tuner / default-workspace / mcp-workbench，路由未注册）；`/dsh-local-plugin-manager/status` 401（路由已注册），但它的 handler 未守卫 `connection.requestRejection()`，带 cookie 后会 TypeError（预计 500，未实测）。`auto-load-history` / `sticky-user-bubble` / `workspace-running-indicator` 的 host 半体本来就是 no-op，功能损失最小。
+- **`0.2.2-rc.5`（npm `latest`）仍在 9 个插件声明的线内**（未逐条核对 → 只告警）。`rc.2 → rc.5` 只有 23 个包变化（含 `dsh-client-ui-workspace`/`sidebar` 与 `dsh-web` 的 web-search 选择、`dsh-api-session-controller` 的 typert 注释），没有够得着插件契约的改动。
+- **0.2.3 是真正的跨线**：`rc.5 → alpha.2` 有 329 个包变化、新增 16、移除 5，`cordis` 4.1.0 → 4.2.0-alpha.1；不能靠放宽范围上界解决。
+
+### 运行态证据（用户机器，只读）
+
+- 9 个 client bundle 全部在启动图：按 `artifactRevision` 的 `sha1("plugin-artifact"\0 + frame(mtimeMs)+frame(ctimeMs)+frame(size))` 复算 12 位 rev，`GET /plugins/??<包名>/client.js&rev=<rev>` 全 200（错 rev 对照 404）。
+- `/` 与 `/api/status` → 401「Connect to this Host」：0.2.3 新增 `dsh-client-remote-connection` / `dsh-host-authentication-token` / `dsh-deepseek-auth` 等，`dsh-host-webserver` 的 `authPolicy()` 对未声明 `auth` 的路由默认 `"required"`（`dsh-host-webserver/lib/index.js:653-654`）。插件路由从此自动受 cookie 保护；脚本要先用 `POST /` 换 cookie（token 在 `dsh web` 启动输出的 `#token` 里）。
+- 设置页分区/通用行的内置 order 上限未变：分区 `remote-connection` 25 仍在插件 100+ 之前；通用行 `current-version` 100 仍是上限。
+
+### 契约面变化（逐包 diff + 全仓符号探针）
+
+- **删 `connection.requestRejection()`**（整树 0 命中）→ 新 `connection.admit(request) -> {peer}|{rejection}`（`dsh-client-connection/lib/index.js:412`）+ `webserver/authorize`、`webserver/request` waterfall。逐插件影响：`chat-archive-manager/lib/index.js:356` 启动即 throw；`local-plugin-manager/lib/index.js:46` 未守卫；`default-workspace/lib/index.js:317` 未守卫；`mcp-workbench/lib/index.js:437` fail-closed 401；`default-tuner/lib/index.js:87`、`extra-context/lib/index.js:523` 能力探测后 fail-open。
+- **客户端样式机制换实现**：`dsh-client-modules` 不再 `claimStyles` / 按 `data-plugin` 认领，HMR 也不再按它删；新机制是模块 `meta().stylesheets`，由 `dsh-client-ui-renderer` 的 `DocumentStyles` 安装，仍写 `data-plugin`。手写 `<style data-plugin>` 仍渲染，但不再被 HMR 清理。
+- 移除 `dsh-client-ui-settings-plugins`、`-settings-plugin-inventory`（官方插件页改由 `dsh-client-ui-plugin-manager` 承担）；新增 `client-ui-session-panel` / `-session-status` / `session-persistence-sqlite` / `timeline` 等。
+- 改名/内联：`TITLE_INPUT_PREFIX` 内联；`IconPanelLeftOutline16` → `…Regular/Medium`；`projectUserText` 删除但 `data-ref-chip`+`title` 仍在。`data-user-bubble`/`data-chat-user-bubble`/`data-time-hover-root` 在 rc.2、rc.5、alpha.2 三棵树里都已不存在（不是本线新回归；sticky 主路径是 `data-chat-flow-kind`/`data-chat-anchor-key`）。
+- 仍在：`loadThrough`/`loadOlder`/`hasMore`/`settings.section.icon`/`settings.general.item`/`data-row-key`/`sessionStatuses`/`conversation.user.text`/`entry.fiber`/`readProfileManifest`/`writePluginEnabled`/`dependencySpec`/`removeBundle`/`mcpManager`/`detachEntered`/`initializeDefault` 等约 130 个符号。
+
+### 离线网
+
+- 10 个插件 `npm test`：**446/446 全过**。
+- 图标工具两处适配（`build.js` 接受 `wrap("<包名>",$Z)` seed 形态；`verify-nav-icon.js` 从 `meta.stylesheets` 模板字符串取 CSS），`build.js` → 210 图标、0 unrenderable，`check.js` 无漂移；对 0.2.2-rc.1 旧快照的真实漂移：新增 16、消失 0、162 图形变化。
+- 4 个导航图标补丁 `--measure` 六项全过（extra-context / chat-archive-manager / local-plugin-manager / mcp-workbench）。
+
+### 交接（跨线；L3 一会话一个）
+
+| 插件 | 等级 | 结论 | 下一会话先读/先跑 |
+|---|---|---|---|
+| `dsh-chat-archive-manager` | L3 | host 启动即 throw（`requestRejection` 已删）；删除事务与 `session-query-sqlite` 索引的交互要重核 | 先读 `dsh-client-connection` 的 `admit`/Peer 与 `dsh-session-query-sqlite`；隔离宿主跑 38+20 项 |
+| `dsh-mcp-workbench` | L3 | host fail-closed 401；官方 `mcp-manager` 契约仍在，需重核 `remote.mcpManager` 与设置鉴权 | 先读 `dsh-mcp-manager` 的 typert + `dsh-client-remote-connection`；52 项 GUI |
+| `dsh-default-tuner` | L2 | 路由未注册；`connection` 检查 fail-open；profile 写入路径要重核（`entry.fiber.config` 变化） | 先读 `dsh-settings`/`dsh-config-editor`；隔离宿主 + 真实路由 |
+| `dsh-local-plugin-manager` | L2 | 路由已注册但 `requestRejection` 未守卫 → 500；官方 settings-plugins 客户端包已移除 | 先读 `dsh-plugin-manager`/`dsh-app-boot`/`dsh-client-ui-plugin-manager` |
+| `dsh-default-workspace` | L1 | `/status` 未守卫；`workspaceRegistry.initializeDefault` 等仍在 | 先读 `workspaceRegistry`；隔离宿主量 `/status` |
+| `dsh-extra-context` | L1 | host inert（无 prompt 注入）；`systemPrompt.section`/`settings.configure` 仍在 | 先读 `systemPrompt`/`settings`；隔离宿主看注入与 `/status` |
+| `dsh-auto-load-history` | L2 | host 本来是 no-op；`loadThrough`/`loadOlder` 都在，client 仍进图 | 先读会话 API；隔离宿主补齐到 `hasMore=false` |
+| `dsh-sticky-user-bubble` | L3 | host no-op；几何契约需真机重量（聊天 DOM 的 `data-message-bubble` 等） | 四档视口 × 两场景，量六个常量 |
+| `dsh-workspace-running-indicator` | L2（估） | host no-op；工作区行结构契约需重核（`data-row-key`/`sessionStatuses` 仍在） | 隔离宿主读启动图 + 行 DOM |
+| `dsh-mobile-compat` | L3 | 不在本机 profile；平台门会整包 skip（`engines.dsh` 仍 0.2.0 线） | 按 0.2.3 壳层重跑尺寸矩阵，旧结论一条不能继承 |
+
+**建议**：如果现在要用插件，把 DSH 退到 `0.2.2-rc.5`（`npm i -g @deepseek-ai/dsh@0.2.2-rc.5`，重启后 `node tools/dsh-icons/build.js` 重建图标快照）；如果留在 `0.2.3-alpha.2`，按上表逐插件开跨线会话。
 
 ## R3：P0–P3 改造发布（2026-11-12）
 
